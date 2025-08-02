@@ -1,0 +1,44 @@
+[project]
+name = 'hexora'
+version = '0.1.0'
+description = 'Static analysis of malicous Python scripts.'
+readme = 'README.md'
+requires-python = '>=3.9'
+license = 'MIT'
+authors = [
+    { name = 'Artem Golubin', email = 'me@rushter.com' }
+]
+
+[project.scripts]
+hexora = 'hexora._hexora:run_cli'
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=62.4", "wheel", "setuptools-rust>=1.5.2"]
+
+
+
+[tool.cibuildwheel]
+build-frontend = "build"
+build-verbosity = 1
+
+macos.before-all = "rustup target add aarch64-apple-darwin x86_64-apple-darwin"
+macos.environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
+
+skip = [
+    "*-manylinux_i686",
+    "*-musllinux_i686",
+    "*-win32",
+    "*-musllinux_aarch64",
+    "pp*"
+]
+macos.archs = ["x86_64", "arm64"]
+test-skip = "*-macosx_arm64"
+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y openssl openssl-devel pkgconfig libatomic && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+environment = { PATH = "$PATH:$HOME/.cargo/bin" }
+
+[[tool.cibuildwheel.overrides]]
+select = "*-musllinux*"
+before-all = "apk --update  add openssl openssl-dev pkgconfig libatomic && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
