@@ -6,7 +6,7 @@ It can be used to:
 
 * Audit of project dependencies to find possible supply chain attacks.
 * Detect malicious scripts found on various platforms (e.g. pastebin, GitHub, open directories).
-* Analysis of IoC files from past security incidents.
+* Analyze IoC files from past security incidents.
 * Audit new packages uploaded to PyPi.
 
 <img width="600" alt="Hexora example" src="docs/example.gif">
