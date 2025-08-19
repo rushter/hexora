@@ -1,6 +1,6 @@
 [package]
 name = "hexora"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Static analysis of malicous Python scripts."
 license = "MIT"
