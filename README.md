@@ -4,10 +4,11 @@ Hexora is a static analysis tool designed to detect malicious and harmful patter
 
 It can be used to:
 
-* Audit of project dependencies to find possible supply chain attacks.
-* Detect malicious scripts found on various platforms (e.g. pastebin, GitHub, open directories).
-* Analyze IoC files from past security incidents.
-* Audit new packages uploaded to PyPi.
+- Audit project dependencies to catch potential supply-chain attacks
+- Detect malicious scripts found on platforms like Pastebin, GitHub, or open directories
+- Analyze IoC files from past security incidents
+- Audit new packages uploaded to PyPi.
+
 
 <img width="600" alt="Hexora example" src="docs/example.gif">
 
@@ -76,9 +77,17 @@ hexora audit --output-format terminal resources/test/
 ```bash
 hexora audit --exclude HX5020,HX5030,HX5040,HX5050,HX5060 --min-confidence high .venv/lib/python3.11/site-packages/ 
 ```
+
 Where `python3.11` is the version of the Python in virtual environment.
 
+Tips:
 
+- Use `--exclude` to suppress certain rule codes (e.g., noisy imports) for a given run
+- Use `--min-confidence` to focus on high-confidence findings only.
+
+Confidence indicates how certain a piece of code is malicious.
+Some of the libraries are used for legit purposes, and it's hard to distinguish legit use-cases from malicious ones.
+That's why some of the matches have a low confidence level.
 
 ## Usage in Python
 
