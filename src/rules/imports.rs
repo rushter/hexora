@@ -9,8 +9,8 @@ use ruff_python_ast::{self as ast};
 
 #[derive(Debug, Serialize)]
 pub struct SuspiciousImport {
-    pub name: String,
-    pub description: Option<String>,
+    pub name: &'static str,
+    pub description: Option<&'static str>,
     pub rule: Option<Rule>,
 }
 
@@ -19,7 +19,7 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "struct",
         SuspiciousImport {
-            name: "struct".to_string(),
+            name: "struct",
             description: None,
             rule: Some(Rule::StructImport),
         },
@@ -27,7 +27,7 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "ctypes",
         SuspiciousImport {
-            name: "ctypes".to_string(),
+            name: "ctypes",
             description: None,
             rule: Some(Rule::CtypesImport),
         },
@@ -36,53 +36,49 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "scapy",
         SuspiciousImport {
-            name: "scapy".to_string(),
-            description: Some("scapy can be used to craft malicious packets.".to_string()),
+            name: "scapy",
+            description: Some("scapy can be used to craft malicious packets."),
             rule: None,
         },
     );
     m.insert(
         "impacket",
         SuspiciousImport {
-            name: "impacket".to_string(),
-            description: Some("impacket can be used to craft malicious payload".to_string()),
+            name: "impacket",
+            description: Some("impacket can be used to craft malicious payload"),
             rule: None,
         },
     );
     m.insert(
         "winappdbg",
         SuspiciousImport {
-            name: "winappdbg".to_string(),
-            description: Some("winappdbg can be used to access process memory.".to_string()),
+            name: "winappdbg",
+            description: Some("winappdbg can be used to access process memory."),
             rule: None,
         },
     );
     m.insert(
         "stegano",
         SuspiciousImport {
-            name: "stegano".to_string(),
-            description: Some(
-                "stegano is a library that can be used to hide data in images.".to_string(),
-            ),
+            name: "stegano",
+            description: Some("stegano is a library that can be used to hide data in images."),
             rule: None,
         },
     );
     m.insert(
         "judyb",
         SuspiciousImport {
-            name: "judyb".to_string(),
-            description: Some(
-                "judyb is a library that can be used to hide data in images.".to_string(),
-            ),
+            name: "judyb",
+            description: Some("judyb is a library that can be used to hide data in images."),
             rule: None,
         },
     );
     m.insert(
         "steganography",
         SuspiciousImport {
-            name: "steganography".to_string(),
+            name: "steganography",
             description: Some(
-                "steganography is a library that can be used to hide data in images.".to_string(),
+                "steganography is a library that can be used to hide data in images.",
             ),
             rule: None,
         },
@@ -90,9 +86,9 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "pynput",
         SuspiciousImport {
-            name: "pynput".to_string(),
+            name: "pynput",
             description: Some(
-                "pynput can be used to monitor input devices and implement keyloggers.".to_string(),
+                "pynput can be used to monitor input devices and implement keyloggers.",
             ),
             rule: None,
         },
@@ -100,28 +96,25 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "keyboard",
         SuspiciousImport {
-            name: "keyboard".to_string(),
-            description: Some(
-                "keyboard enables global key event hooks and keylogging.".to_string(),
-            ),
+            name: "keyboard",
+            description: Some("keyboard enables global key event hooks and keylogging."),
             rule: None,
         },
     );
     m.insert(
         "mss",
         SuspiciousImport {
-            name: "mss".to_string(),
-            description: Some("mss package allows taking screenshots of your system".to_string()),
+            name: "mss",
+            description: Some("mss package allows taking screenshots of your system"),
             rule: None,
         },
     );
     m.insert(
         "telnetlib",
         SuspiciousImport {
-            name: "telnetlib".to_string(),
+            name: "telnetlib",
             description: Some(
-                "telnetlib can be used to automate Telnet sessions for unauthorized access."
-                    .to_string(),
+                "telnetlib can be used to automate Telnet sessions for unauthorized access.",
             ),
             rule: None,
         },
@@ -129,15 +122,15 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "ftplib",
         SuspiciousImport {
-            name: "ftplib".to_string(),
-            description: Some("ftplib can be used to exfiltrate data".to_string()),
+            name: "ftplib",
+            description: Some("ftplib can be used to exfiltrate data"),
             rule: None,
         },
     );
     m.insert(
         "pickle",
         SuspiciousImport {
-            name: "pickle".to_string(),
+            name: "pickle",
             description: None,
             rule: Some(Rule::PickleImport),
         },
@@ -145,7 +138,7 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "marshal",
         SuspiciousImport {
-            name: "marshal".to_string(),
+            name: "marshal",
             description: None,
             rule: Some(Rule::MarshalImport),
         },
@@ -153,7 +146,7 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "socket",
         SuspiciousImport {
-            name: "socket".to_string(),
+            name: "socket",
             description: None,
             rule: Some(Rule::SocketImport),
         },
@@ -161,20 +154,17 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m.insert(
         "pyperclip",
         SuspiciousImport {
-            name: "pyperclip".to_string(),
-            description: Some(
-                "pyperclip can be used to copy and paste data from the clipboard.".to_string(),
-            ),
+            name: "pyperclip",
+            description: Some("pyperclip can be used to copy and paste data from the clipboard."),
             rule: None,
         },
     );
     m.insert(
         "paramiko",
         SuspiciousImport {
-            name: "paramiko".to_string(),
+            name: "paramiko",
             description: Some(
-                "paramiko can be used to automate SSH sessions for unauthorized access."
-                    .to_string(),
+                "paramiko can be used to automate SSH sessions for unauthorized access.",
             ),
             rule: None,
         },
@@ -191,12 +181,11 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
                 let is_suspicious = IMPORTS.get(import_name);
                 if let Some(suspicious_import) = is_suspicious {
                     let description = match &suspicious_import.description {
-                        Some(description) => description.clone(),
+                        Some(description) => description.to_string(),
                         None => suspicious_import
                             .rule
                             .as_ref()
-                            .unwrap()
-                            .clone()
+                            .expect("Rule should be set for suspicious imports")
                             .description()
                             .to_string(),
                     };
@@ -220,12 +209,12 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
             let is_suspicious = IMPORTS.get(import_name);
             if let Some(suspicious_import) = is_suspicious {
                 let description = match &suspicious_import.description {
-                    Some(description) => description.clone(),
+                    Some(description) => description.to_string(),
+
                     None => suspicious_import
                         .rule
                         .as_ref()
-                        .unwrap()
-                        .clone()
+                        .expect("Rule should be set for suspicious imports")
                         .description()
                         .to_string(),
                 };
