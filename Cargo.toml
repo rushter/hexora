@@ -2,7 +2,7 @@
 name = "hexora"
 version = "0.1.1"
 edition = "2024"
-description = "Static analysis of malicous Python scripts."
+description = "Static analysis of malicious Python scripts."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/rushter/hexora"

@@ -63,13 +63,13 @@ fn bind_pair<'a>(left: &'a ast::Expr, right: &'a ast::Expr, checker: &mut Checke
     }
 }
 
-pub fn bind_assignments<'a>(lhs: &'a [ast::Expr], rhs: &'a [ast::Expr], checker: &mut Checker<'a>) {
+fn bind_assignments<'a>(lhs: &'a [ast::Expr], rhs: &'a [ast::Expr], checker: &mut Checker<'a>) {
     for (left, right) in lhs.iter().zip(rhs.iter()) {
         bind_pair(left, right, checker);
     }
 }
 
-pub fn match_tuple_assignment<'a, T>(
+fn match_tuple_assignment<'a, T>(
     lhs: &'a T,
     value: &'a ruff_python_ast::Expr,
     checker: &mut Checker<'a>,

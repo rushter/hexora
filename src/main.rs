@@ -5,6 +5,8 @@ mod cli;
 mod io;
 mod rules;
 
+const CLI_START_ARG_STANDALONE: usize = 0;
+
 fn main() {
-    run_cli(0);
+    run_cli(CLI_START_ARG_STANDALONE);
 }

@@ -10,6 +10,8 @@ use pyo3::prelude::*;
 use pythonize::pythonize;
 use serde::Serialize;
 
+const CLI_START_ARG_PYTHON: usize = 1;
+
 #[derive(Debug, Serialize)]
 pub struct AuditResult {
     pub items: Vec<AuditItem>,
@@ -18,7 +20,7 @@ pub struct AuditResult {
 
 #[pyfunction]
 fn run_cli() -> PyResult<()> {
-    cli::run_cli(1);
+    cli::run_cli(CLI_START_ARG_PYTHON);
     Ok(())
 }
 
