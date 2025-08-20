@@ -1,4 +1,4 @@
-use crate::audit::resolver::resolve_assigment_to_imports;
+use crate::audit::resolver::resolve_assignment_to_imports;
 use crate::audit::result::{AuditItem, AuditResult};
 use crate::io::list_python_files;
 use crate::rules::{expression, statement};
@@ -158,7 +158,7 @@ impl<'a> Visitor<'a> for Checker<'a> {
         match stmt {
             Stmt::Assign(assign) => {
                 ast::visitor::walk_stmt(self, stmt);
-                resolve_assigment_to_imports(assign, self);
+                resolve_assignment_to_imports(assign, self);
             }
             Stmt::Import(ast::StmtImport {
                 names,

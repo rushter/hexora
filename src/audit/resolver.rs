@@ -24,14 +24,14 @@ fn bind_pair<'a>(left: &'a ast::Expr, right: &'a ast::Expr, checker: &mut Checke
         ast::Expr::Tuple(lhs_tuple) => match right {
             ast::Expr::Tuple(rhs_tuple) => {
                 if lhs_tuple.elts.len() != rhs_tuple.elts.len() {
-                    debug!("Mismatched tuple length for assigment");
+                    debug!("Mismatched tuple length for assignment");
                     return;
                 }
                 bind_assignments(&lhs_tuple.elts, &rhs_tuple.elts, checker);
             }
             ast::Expr::List(rhs_list) => {
                 if lhs_tuple.elts.len() != rhs_list.elts.len() {
-                    debug!("Mismatched list length for assigment");
+                    debug!("Mismatched list length for assignment");
                     return;
                 }
                 bind_assignments(&lhs_tuple.elts, &rhs_list.elts, checker);
@@ -43,14 +43,14 @@ fn bind_pair<'a>(left: &'a ast::Expr, right: &'a ast::Expr, checker: &mut Checke
         ast::Expr::List(lhs_list) => match right {
             ast::Expr::Tuple(rhs_tuple) => {
                 if lhs_list.elts.len() != rhs_tuple.elts.len() {
-                    debug!("Mismatched tuple length for assigment");
+                    debug!("Mismatched tuple length for assignment");
                     return;
                 }
                 bind_assignments(&lhs_list.elts, &rhs_tuple.elts, checker);
             }
             ast::Expr::List(rhs_list) => {
                 if lhs_list.elts.len() != rhs_list.elts.len() {
-                    debug!("Mismatched list length for assigment");
+                    debug!("Mismatched list length for assignment");
                     return;
                 }
                 bind_assignments(&lhs_list.elts, &rhs_list.elts, checker);
@@ -69,7 +69,7 @@ pub fn bind_assignments<'a>(lhs: &'a [ast::Expr], rhs: &'a [ast::Expr], checker:
     }
 }
 
-pub fn match_tuple_assigment<'a, T>(
+pub fn match_tuple_assignment<'a, T>(
     lhs: &'a T,
     value: &'a ruff_python_ast::Expr,
     checker: &mut Checker<'a>,
@@ -79,14 +79,14 @@ pub fn match_tuple_assigment<'a, T>(
     match value {
         ast::Expr::Tuple(rhs) => {
             if lhs.len() != rhs.len() {
-                debug!("Mismatched tuple length for assigment");
+                debug!("Mismatched tuple length for assignment");
                 return;
             }
             bind_assignments(lhs.elements(), &rhs.elts, checker);
         }
         ast::Expr::List(rhs) => {
             if lhs.len() != rhs.len() {
-                debug!("Mismatched list length for assigment");
+                debug!("Mismatched list length for assignment");
                 return;
             }
             bind_assignments(lhs.elements(), &rhs.elts, checker);
@@ -95,7 +95,10 @@ pub fn match_tuple_assigment<'a, T>(
     }
 }
 
-pub fn resolve_assigment_to_imports<'a>(statement: &'a ast::StmtAssign, checker: &mut Checker<'a>) {
+pub fn resolve_assignment_to_imports<'a>(
+    statement: &'a ast::StmtAssign,
+    checker: &mut Checker<'a>,
+) {
     let qualified_name = checker.semantic.resolve_qualified_name(&statement.value);
     for target in &statement.targets {
         match target {
@@ -114,10 +117,10 @@ pub fn resolve_assigment_to_imports<'a>(statement: &'a ast::StmtAssign, checker:
                 );
             }
             ast::Expr::Tuple(tuple_expr) => {
-                match_tuple_assigment(tuple_expr, &statement.value, checker);
+                match_tuple_assignment(tuple_expr, &statement.value, checker);
             }
             ast::Expr::List(list_expr) => {
-                match_tuple_assigment(list_expr, &statement.value, checker);
+                match_tuple_assignment(list_expr, &statement.value, checker);
             }
             _ => {}
         }
