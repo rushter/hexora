@@ -28,9 +28,9 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
         Expr::Tuple(tuple) => {
             check_int_literals(checker, tuple);
         }
-        Expr::StringLiteral(string_literal) => check_literal(checker, string_literal.into()),
-        Expr::BytesLiteral(bytes_literal) => check_literal(checker, bytes_literal.into()),
-        Expr::FString(f_string) => check_literal(checker, f_string.into()),
+        Expr::StringLiteral(_) | Expr::BytesLiteral(_) | Expr::FString(_) => {
+            check_literal(checker, expr)
+        }
         _ => {}
     }
 }

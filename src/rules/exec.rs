@@ -53,6 +53,7 @@ pub fn is_shell_command(segments: &[&str]) -> bool {
     }
 }
 
+#[inline]
 pub fn is_code_exec(segments: &[&str]) -> bool {
     match segments {
         &[module, submodule] => match module {

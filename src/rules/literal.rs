@@ -1,12 +1,11 @@
 use crate::audit::helpers::ListLike;
+use crate::audit::helpers::raw_string_from_expr;
 use crate::audit::parse::Checker;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
-use itertools::Itertools;
 use memchr::memmem;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use ruff_python_ast as ast;
-use ruff_python_ast::str::raw_contents;
 use ruff_text_size::Ranged;
 use serde::Serialize;
 
@@ -177,42 +176,6 @@ fn is_base64_string(literal: &str) -> bool {
     BASE64_REGEX.is_match(literal)
 }
 
-fn raw_string_literal(string_like: ast::StringLike, checker: &Checker) -> Option<String> {
-    match string_like {
-        ast::StringLike::String(ast::ExprStringLiteral { value, .. }) => {
-            if value.is_empty() {
-                return None;
-            }
-            Some(
-                value
-                    .iter()
-                    .map(|r| r.range)
-                    .filter_map(|range| raw_contents(checker.locator.slice(range)))
-                    .join(""),
-            )
-        }
-        ast::StringLike::Bytes(ast::ExprBytesLiteral { value, .. }) => {
-            if value.is_empty() {
-                return None;
-            }
-            Some(
-                value
-                    .iter()
-                    .map(|r| r.range)
-                    .filter_map(|range| raw_contents(checker.locator.slice(range)))
-                    .join(""),
-            )
-        }
-        ast::StringLike::FString(ast::ExprFString { value, .. }) => Some(
-            value
-                .iter()
-                .filter_map(|range| raw_contents(checker.locator.slice(range)))
-                .join(""),
-        ),
-        _ => None,
-    }
-}
-
 fn literal_preview(value: &str, max_length: usize) -> String {
     if value.len() > max_length {
         format!(
@@ -225,8 +188,8 @@ fn literal_preview(value: &str, max_length: usize) -> String {
     }
 }
 
-pub fn check_literal(checker: &mut Checker, string_like: ast::StringLike) {
-    if let Some(literal) = raw_string_literal(string_like, checker) {
+pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
+    if let Some(literal) = raw_string_from_expr(expr, checker) {
         if is_hexed_string(&literal) {
             checker.audit_results.push(AuditItem {
                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
@@ -234,7 +197,7 @@ pub fn check_literal(checker: &mut Checker, string_like: ast::StringLike) {
                 description: "Hexed string found, potentially dangerous payload/shellcode."
                     .to_string(),
                 confidence: AuditConfidence::Medium,
-                location: Some(string_like.range()),
+                location: Some(expr.range()),
             });
             return;
         }
@@ -245,11 +208,11 @@ pub fn check_literal(checker: &mut Checker, string_like: ast::StringLike) {
                 description: "Base64 encoded string found, potentially obfuscated code."
                     .to_string(),
                 confidence: AuditConfidence::Medium,
-                location: Some(string_like.range()),
+                location: Some(expr.range()),
             });
             return;
         }
-        check_suspicious_literal(checker, &literal, string_like);
+        check_suspicious_literal(checker, &literal, &expr);
     }
 }
 
@@ -316,11 +279,7 @@ fn normalize_literal(literal: &str) -> String {
     literal.replace("\\\\", "/").replace('\\', "/")
 }
 
-pub fn check_suspicious_literal(
-    checker: &mut Checker,
-    literal: &str,
-    string_like: ast::StringLike,
-) {
+pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast::Expr) {
     let normalized_literal = normalize_literal(literal);
     if normalized_literal.len() < MIN_LITERAL_LENGTH
         || normalized_literal.len() > MAX_LITERAL_LENGTH
@@ -335,7 +294,7 @@ pub fn check_suspicious_literal(
                 rule: suspicious_literal.rule.clone(),
                 description: suspicious_literal.description.clone(),
                 confidence: suspicious_literal.confidence,
-                location: Some(string_like.range()),
+                location: Some(expr.range()),
             });
             return;
         }

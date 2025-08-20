@@ -28,12 +28,13 @@ name = "hexora"
 path = "src/main.rs"
 
 [dependencies]
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", tag = "0.12.9",version = "0.0.0" }
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", tag = "0.12.9",version = "0.0.0" }
-ruff_python_semantic = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.9",version = "0.0.0" }
-ruff_linter = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.9",version = "0.12.9" }
-ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.9",version = "0.0.0" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.9",version = "0.0.0" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="2abd6833760beb11262d69c53ec0a73a80a044d3" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="2abd6833760beb11262d69c53ec0a73a80a044d3" }
+ruff_python_semantic = { git = "https://github.com/astral-sh/ruff/",rev="2abd6833760beb11262d69c53ec0a73a80a044d3" }
+ruff_linter = { git = "https://github.com/astral-sh/ruff/", rev="2abd6833760beb11262d69c53ec0a73a80a044d3"}
+ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="2abd6833760beb11262d69c53ec0a73a80a044d3" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="2abd6833760beb11262d69c53ec0a73a80a044d3" }
+
 pyo3 = { version = "0.25.1", features = ["extension-module"], optional = true }
 log = "0.4.27"
 env_logger = "0.11.8"
@@ -50,3 +51,11 @@ strum = "0.27.2"
 strum_macros = "0.27.2"
 serde_json = "1.0"
 pythonize = "0.25.0"
+
+[patch."https://github.com/astral-sh/ruff"]
+ruff_python_ast      = { path = "../ruff/crates/ruff_python_ast" }
+ruff_python_parser   = { path = "../ruff/crates/ruff_python_parser" }
+ruff_python_semantic = { path = "../ruff/crates/ruff_python_semantic" }
+ruff_linter          = { path = "../ruff/crates/ruff_linter" }
+ruff_python_stdlib   = { path = "../ruff/crates/ruff_python_stdlib" }
+ruff_text_size       = { path = "../ruff/crates/ruff_text_size" }

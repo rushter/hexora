@@ -4,7 +4,6 @@ mod download;
 mod dunder;
 mod env;
 mod exec;
-mod helpers;
 mod identifier;
 mod imports;
 mod literal;
