@@ -61,7 +61,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Output format: terminal | plain ",
+            help = "Output format: terminal | json ",
             default_value = "terminal"
         )]
         output_format: OutputFormat,
