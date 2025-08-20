@@ -114,7 +114,7 @@ fn write_annotations(
                 .unwrap_or_else(|e| error!("Failed to write annotation: {:?}", e));
         }
         Err(e) => {
-            error!("{:?}", e);
+            error!("Failed to annotate result: {}", e);
         }
     }
 }

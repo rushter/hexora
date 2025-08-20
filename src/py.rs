@@ -38,8 +38,12 @@ fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
                     items: r.items,
                     path: r.path,
                 };
-                let obj = pythonize(py, &res).unwrap();
-                items.push(obj.extract().unwrap());
+                let obj = pythonize(py, &res).map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to serialize result: {}", e))
+                })?;
+                items.push(obj.extract().map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to extract Python object: {}", e))
+                })?);
             }
             Ok(items)
         }),
@@ -59,8 +63,12 @@ fn audit_file(input_path: PathBuf) -> PyResult<Py<PyAny>> {
                 items: res.items,
                 path: res.path,
             };
-            let obj = pythonize(py, &res).unwrap();
-            Ok(obj.extract().unwrap())
+            let obj = pythonize(py, &res).map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to serialize result: {}", e))
+            })?;
+            obj.extract().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to extract Python object: {}", e))
+            })
         }),
         Err(e) => Err(PyRuntimeError::new_err(format!("Audit failed: {}", e))),
     }
