@@ -4,7 +4,7 @@ use std::fs::canonicalize;
 use std::path::Path;
 
 pub fn get_resources_path() -> std::path::PathBuf {
-    let current_path = canonicalize(Path::new(".")).unwrap();
+    let current_path = canonicalize(Path::new(".")).expect("Failed to get current path");
     current_path.join("resources/test/")
 }
 
