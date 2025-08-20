@@ -4,6 +4,7 @@ use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use itertools::Itertools;
 use memchr::memmem;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use ruff_python_ast as ast;
 use ruff_python_ast::str::raw_contents;
 use ruff_text_size::Ranged;
@@ -17,6 +18,14 @@ const MIN_HEXED_LITERALS: u16 = 10;
 const MIN_INT_LITERALS: u16 = 20;
 const MIN_LITERAL_LENGTH: usize = 8;
 const MAX_LITERAL_LENGTH: usize = 512;
+
+static HEXED_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(\\x[0-9a-fA-F]{2})+$").expect("Invalid hex regex"));
+
+static BASE64_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$")
+        .expect("Invalid base64 regex")
+});
 
 #[derive(Debug, Serialize)]
 pub struct SuspiciousLiteral {
@@ -158,17 +167,14 @@ fn is_hexed_string(literal: &str) -> bool {
     if literal.len() < MIN_HEXED_STRING_LENGTH {
         return false;
     };
-    let re = regex::Regex::new(r"^(\\x[0-9a-fA-F]{2})+$").unwrap();
-    re.is_match(literal)
+    HEXED_REGEX.is_match(literal)
 }
 
 fn is_base64_string(literal: &str) -> bool {
     if literal.len() < MIN_BASE64_STRING_LENGTH {
         return false;
     };
-    let re = regex::Regex::new(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$")
-        .unwrap();
-    re.is_match(literal)
+    BASE64_REGEX.is_match(literal)
 }
 
 fn raw_string_literal(string_like: ast::StringLike, checker: &Checker) -> Option<String> {
