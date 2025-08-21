@@ -154,6 +154,7 @@ Right now, the following rules are available:
 | HX7010 | SuspiciousParameterName | Suspicious parameter name. |
 | HX7020 | SuspiciousVariable | Suspicious variable name. |
 | HX8000 | BinaryDownload | Suspicious binary download. |
+| HX8010 | BuiltinsVariable | Suspicious builtin variable usage. |
 
 
 ## Credits

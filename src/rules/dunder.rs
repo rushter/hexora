@@ -82,7 +82,7 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
     if let Expr::Call(getattr_call) = &*call.func {
         let is_getattr = matches_builtin_functions(checker, &getattr_call.func, &["getattr"]);
 
-        if !is_getattr {
+        if is_getattr.is_none() {
             return;
         }
 

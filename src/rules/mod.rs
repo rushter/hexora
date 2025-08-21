@@ -8,6 +8,7 @@ mod identifier;
 mod imports;
 mod literal;
 
+mod builtins;
 pub mod expression;
 pub mod statement;
 #[cfg(test)]

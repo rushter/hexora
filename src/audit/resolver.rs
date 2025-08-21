@@ -127,19 +127,26 @@ pub fn resolve_assignment_to_imports<'a>(
     }
 }
 
-pub fn matches_builtin_functions(checker: &Checker, expr: &ast::Expr, names: &[&str]) -> bool {
+pub fn matches_builtin_functions<'a>(
+    checker: &'a Checker,
+    expr: &'a ast::Expr,
+    names: &'a [&str],
+) -> Option<&'a str> {
     checker
         .semantic()
         .resolve_qualified_name(expr)
         .map(|qn| {
             let segments = qn.segments();
             if segments.len() != 2 {
-                return false;
+                return None;
             }
             if !matches!(segments[0], "builtins" | "") {
-                return false;
+                return None;
             };
-            names.contains(&segments[1])
+            if names.contains(&segments[1]) {
+                return Some(segments[1]);
+            }
+            None
         })
-        .unwrap_or(false)
+        .unwrap_or(None)
 }

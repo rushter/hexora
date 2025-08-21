@@ -1,0 +1,1 @@
+globals()['__builtins__'].eval("print(123)")
