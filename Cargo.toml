@@ -51,11 +51,3 @@ strum = "0.27.2"
 strum_macros = "0.27.2"
 serde_json = "1.0"
 pythonize = "0.25.0"
-
-[patch."https://github.com/astral-sh/ruff"]
-ruff_python_ast      = { path = "../ruff/crates/ruff_python_ast" }
-ruff_python_parser   = { path = "../ruff/crates/ruff_python_parser" }
-ruff_python_semantic = { path = "../ruff/crates/ruff_python_semantic" }
-ruff_linter          = { path = "../ruff/crates/ruff_linter" }
-ruff_python_stdlib   = { path = "../ruff/crates/ruff_python_stdlib" }
-ruff_text_size       = { path = "../ruff/crates/ruff_text_size" }
