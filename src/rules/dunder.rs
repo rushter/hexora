@@ -162,7 +162,7 @@ mod tests {
     #[test_case("dunder_01.py", Rule::DunderImport, vec!["__import__(\"builtins\")", "__import__(\"builtins\")", "__import__(\"subprocess\")", "__import__(\"os\")"])]
     #[test_case("dunder_01.py", Rule::DunderCodeExec, vec!["builtins.exec", "builtins.eval"])]
     #[test_case("dunder_01.py", Rule::DunderShellExec, vec!["subprocess.call", "os.system"])]
-    #[test_case("dunder_02.py", Rule::DunderCodeExec, vec!["builtins.exec"])]
+    #[test_case("dunder_02.py", Rule::DunderCodeExec, vec!["builtins.exec", "builtins.eval", "builtins.eval", "builtins.eval", "builtins.eval"])]
     #[test_case("dunder_02.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderShellExec, vec!["os.system",])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]

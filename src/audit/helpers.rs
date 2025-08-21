@@ -110,6 +110,120 @@ pub(crate) fn raw_string_from_expr(expr: &ast::Expr, checker: &Checker) -> Optio
     }
 }
 
+fn is_reverse_subscript(slice: &ast::Expr) -> Option<()> {
+    let slice = slice.as_slice_expr()?;
+    if slice.lower.is_some() || slice.upper.is_some() {
+        return None;
+    }
+    let Some(ast::ExprUnaryOp {
+        operand,
+        op: ast::UnaryOp::USub,
+        ..
+    }) = slice.step.as_ref()?.as_unary_op_expr()
+    else {
+        return None;
+    };
+    let ast::Number::Int(int) = &operand.as_number_literal_expr()?.value else {
+        return None;
+    };
+    if *int == 1 {
+        return Some(());
+    }
+    None
+}
+
+fn reverse_str(s: &str) -> String {
+    s.chars().rev().collect()
+}
+
+fn concat_list_like<T: ListLike>(checker: &Checker, list: &T, reversed: bool) -> Option<String> {
+    let iter: Box<dyn Iterator<Item = &ast::Expr>> = if reversed {
+        Box::new(list.elements().iter().rev())
+    } else {
+        Box::new(list.elements().iter())
+    };
+
+    let mut out = String::new();
+    for elt in iter {
+        out.push_str(&eval_const_str(checker, elt)?);
+    }
+    Some(out)
+}
+
+fn is_empty_separator(checker: &Checker, expr: &ast::Expr) -> bool {
+    match expr {
+        ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) if value.is_empty() => true,
+        ast::Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. }) if value.is_empty() => true,
+        _ => raw_string_from_expr(expr, checker)
+            .map(|s| s.is_empty())
+            .unwrap_or(false),
+    }
+}
+
+fn eval_join_call(
+    checker: &Checker,
+    attr: &ast::ExprAttribute,
+    arguments: &ast::Arguments,
+) -> Option<String> {
+    if attr.attr.as_str() != "join" {
+        return None;
+    }
+
+    if !is_empty_separator(checker, &attr.value) {
+        return None;
+    }
+
+    if !arguments.keywords.is_empty() || arguments.args.len() != 1 {
+        return None;
+    }
+
+    let seq_expr = &arguments.args[0];
+
+    if let ast::Expr::List(list) = seq_expr {
+        return concat_list_like(checker, list, false);
+    }
+    if let ast::Expr::Tuple(tuple) = seq_expr {
+        return concat_list_like(checker, tuple, false);
+    }
+
+    // [ ... ][::-1]
+    if let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = seq_expr {
+        if is_reverse_subscript(slice).is_some() {
+            match value.as_ref() {
+                ast::Expr::List(list) => return concat_list_like(checker, list, true),
+                ast::Expr::Tuple(tuple) => return concat_list_like(checker, tuple, true),
+                _ => {
+                    if let Some(s) = eval_const_str(checker, value) {
+                        return Some(reverse_str(&s));
+                    }
+                }
+            }
+        }
+    }
+
+    // reversed("...")
+    if let ast::Expr::Call(inner_call) = seq_expr {
+        let is_reversed = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
+        if is_reversed
+            && inner_call.arguments.keywords.is_empty()
+            && inner_call.arguments.args.len() == 1
+        {
+            let target = &inner_call.arguments.args[0];
+            if let ast::Expr::List(list) = target {
+                return concat_list_like(checker, list, true);
+            }
+            if let ast::Expr::Tuple(tuple) = target {
+                return concat_list_like(checker, tuple, true);
+            }
+            if let Some(s) = eval_const_str(checker, target) {
+                return Some(reverse_str(&s));
+            }
+        }
+    }
+
+    None
+}
+
 /// Evaluate an expression to a constant string if it can be safely determined without executing code.
 /// Supported patterns:
 /// - String/bytes/f-string literals (raw source)
@@ -119,14 +233,6 @@ pub fn eval_const_str(checker: &Checker, expr: &ast::Expr) -> Option<String> {
     // Fast path: direct literal
     if let Some(s) = raw_string_from_expr(expr, checker) {
         return Some(s);
-    }
-
-    fn concat_list_like<T: ListLike>(checker: &Checker, list: &T) -> Option<String> {
-        let mut out = String::new();
-        for elt in list.elements() {
-            out.push_str(&eval_const_str(checker, elt)?);
-        }
-        Some(out)
     }
 
     match expr {
@@ -142,36 +248,21 @@ pub fn eval_const_str(checker: &Checker, expr: &ast::Expr) -> Option<String> {
             Some([ls, rs].concat())
         }
 
-        // "".join(["ex", "ec"]) -> "exec"
+        // "".join([...]) and "".join(reversed(...))
         ast::Expr::Call(ast::ExprCall {
             func, arguments, ..
         }) => {
             if let ast::Expr::Attribute(attr) = func.as_ref() {
-                if attr.attr.as_str() == "join" {
-                    let sep_is_empty = match attr.value.as_ref() {
-                        ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. })
-                            if value.is_empty() =>
-                        {
-                            true
-                        }
-                        ast::Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. })
-                            if value.is_empty() =>
-                        {
-                            true
-                        }
-                        _ => raw_string_from_expr(&attr.value, checker)
-                            .map(|s| s.is_empty())
-                            .unwrap_or(false),
-                    };
-                    if sep_is_empty && arguments.keywords.is_empty() && arguments.args.len() == 1 {
-                        let seq_expr = &arguments.args[0];
-                        return match seq_expr {
-                            ast::Expr::List(list) => concat_list_like(checker, list),
-                            ast::Expr::Tuple(tuple) => concat_list_like(checker, tuple),
-                            _ => None,
-                        };
-                    }
-                }
+                return eval_join_call(checker, attr, arguments);
+            }
+            None
+        }
+
+        // s[::-1] -> reverse string
+        ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+            if is_reverse_subscript(slice).is_some() {
+                let s = eval_const_str(checker, value)?;
+                return Some(reverse_str(&s));
             }
             None
         }
