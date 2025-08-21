@@ -132,8 +132,11 @@ pub fn eval_const_str(checker: &Checker, expr: &ast::Expr) -> Option<String> {
     match expr {
         // "ex" + "ec" -> "exec"
         ast::Expr::BinOp(ast::ExprBinOp {
-            left, op, right, ..
-        }) if matches!(op, ast::Operator::Add) => {
+            left,
+            op: ast::Operator::Add,
+            right,
+            ..
+        }) => {
             let ls = eval_const_str(checker, left)?;
             let rs = eval_const_str(checker, right)?;
             Some([ls, rs].concat())

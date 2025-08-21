@@ -130,7 +130,7 @@ pub fn resolve_assignment_to_imports<'a>(
 pub fn matches_builtin_functions(checker: &Checker, expr: &ast::Expr, names: &[&str]) -> bool {
     checker
         .semantic()
-        .resolve_qualified_name(&expr)
+        .resolve_qualified_name(expr)
         .map(|qn| {
             let segments = qn.segments();
             if segments.len() != 2 {

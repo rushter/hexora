@@ -212,7 +212,7 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
             });
             return;
         }
-        check_suspicious_literal(checker, &literal, &expr);
+        check_suspicious_literal(checker, &literal, expr);
     }
 }
 
