@@ -93,6 +93,8 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         "Application Support/Chromium/",
     ];
 
+    let suspicious_keywords = ["shellcode", "webshell"];
+
     let mut m = vec![
         SuspiciousLiteral {
             pattern: "POST / HTTP/1".to_string(),
@@ -153,6 +155,14 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             description: format!("Potential enumeration of {} on file system.", path),
             confidence: AuditConfidence::High,
             rule: Rule::PathEnumeration,
+        });
+    }
+    for keyword in suspicious_keywords.iter() {
+        m.push(SuspiciousLiteral {
+            pattern: keyword.to_string(),
+            description: format!("Suspicious keyword {} found.", keyword),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
         });
     }
     m

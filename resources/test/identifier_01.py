@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 
+__obfuscator__ = 'Hyperion'
 
 @contextmanager
 def PAYLOAD_generator(shellcode_data: bytes):

@@ -12,6 +12,7 @@ static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<&str>> = Lazy::new(|| {
         "reverse_shell",
         "exploit",
         "webshell",
+        "_obfuscator_",
     ]
 });
 
@@ -104,7 +105,8 @@ mod tests {
     use crate::rules::test::*;
     use test_case::test_case;
 
-    #[test_case("identifier_01.py", Rule::SuspiciousVariable, vec!["payload", "shellCODE_01", "shellcode_02", "shellcode_03", "shellcode_04"])]
+    #[test_case("identifier_01.py", Rule::SuspiciousVariable, vec!["__obfuscator__", "payload", "shellCODE_01",
+    "shellcode_02", "shellcode_03", "shellcode_04"])]
     #[test_case("identifier_01.py", Rule::SuspiciousFunctionName, vec!["PAYLOAD_generator"])]
     #[test_case("identifier_01.py", Rule::SuspiciousParameterName, vec!["shellcode_data"])]
     fn test_identifier(path: &str, rule: Rule, expected_names: Vec<&str>) {
