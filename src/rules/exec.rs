@@ -1,8 +1,13 @@
+use crate::audit::helpers::eval_const_str;
 use crate::audit::parse::Checker;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
+use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 use ruff_python_ast::name::QualifiedName;
+
+static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
+    Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
 
 pub fn is_shell_command(segments: &[&str]) -> bool {
     match segments {
@@ -121,6 +126,62 @@ pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> b
     false
 }
 
+fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
+    let is_obf = is_chained_with_base64_call(checker, call);
+    checker.audit_results.push(AuditItem {
+        label,
+        rule: if is_obf {
+            Rule::ObfuscateShellExec
+        } else {
+            Rule::ShellExec
+        },
+        description: if is_obf {
+            "Execution of unwanted obfuscated shell command".to_string()
+        } else {
+            "Possible execution of unwanted shell command".to_string()
+        },
+        confidence: if is_obf {
+            AuditConfidence::High
+        } else {
+            AuditConfidence::Low
+        },
+        location: Some(call.range),
+    });
+}
+
+fn sys_modules_contain_imports(
+    checker: &Checker,
+    expr: &ast::Expr,
+    imports: &[&str],
+) -> Option<String> {
+    // sys.modules["<module>"]
+    let Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
+        return None;
+    };
+    let qn = checker.semantic().resolve_qualified_name(value.as_ref())?;
+    let ["sys", "modules"] = qn.segments() else {
+        return None;
+    };
+    let key = eval_const_str(checker, slice)?;
+    imports.iter().any(|m| m == &key).then_some(key)
+}
+
+fn importlib_contains_imports(
+    checker: &Checker,
+    expr: &ast::Expr,
+    imports: &[&str],
+) -> Option<String> {
+    // importlib.import_module("<module>")
+    let Expr::Call(call) = expr else { return None };
+    let qn = checker.semantic().resolve_qualified_name(&call.func)?;
+    let ["importlib", "import_module"] = qn.segments() else {
+        return None;
+    };
+    let first_arg = call.arguments.args.first()?;
+    let key = eval_const_str(checker, first_arg)?;
+    imports.iter().any(|m| m == &key).then_some(key)
+}
+
 pub fn check_shell_exec(
     qualified_name: &QualifiedName,
     call: &ast::ExprCall,
@@ -151,6 +212,35 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
         && is_shell_command(qualified_name.segments())
     {
         check_shell_exec(&qualified_name, call, checker);
+        return;
+    }
+
+    // sys.modules["os"].<func>(...)
+    if let Expr::Attribute(attr) = &*call.func {
+        if let Some(module) = sys_modules_contain_imports(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+        {
+            let name = attr.attr.as_str();
+            if is_shell_command(&[module.as_str(), name]) {
+                push_shell_report(
+                    checker,
+                    call,
+                    format!("sys.modules[\"{}\"].{}", module, name),
+                );
+                return;
+            }
+        }
+        // importlib.import_module("os")...
+        if let Some(module) = importlib_contains_imports(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+        {
+            let name = attr.attr.as_str();
+            if is_shell_command(&[module.as_str(), name]) {
+                push_shell_report(
+                    checker,
+                    call,
+                    format!("importlib.import_module(\"{}\").{}", module, name),
+                );
+            }
+        }
     }
 }
 
@@ -197,6 +287,16 @@ mod tests {
     #[test_case("exec_02.py", Rule::CodeExec, vec!["eval", "builtins.exec", "exec", "eval", "exec", "eval", "exec"])]
     #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec"])]
     #[test_case("exec_03.py", Rule::ObfuscateShellExec, vec!["os.system", "subprocess.run"])]
+    #[test_case(
+        "exec_04.py",
+        Rule::ShellExec,
+        vec![
+            "sys.modules[\"os\"].system",
+            "sys.modules[\"subprocess\"].Popen",
+            "importlib.import_module(\"subprocess\").check_output",
+            "importlib.import_module(\"commands\").getstatusoutput",
+        ]
+    )]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
