@@ -31,7 +31,22 @@ warning[HX4020]: Execution of an obfuscated shell command via __import__.
     Help: Obfuscated shell command via `__import__`. Used to bypass detection.
 ```
 
+## Obfuscated eval
 
+
+```bash
+warning[HX3000]: Possible execution of unwanted code (eval)
+  ┌─ resources/test/test.py:3:1
+  │
+1 │ import sys
+2 │ 
+3 │ getattr(sys.modules["built"+"ins"], "".join(reversed(["al","ev"])))("1+1")
+  │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ HX3000
+  │
+  = Confidence: VeryHigh
+
+
+```
 ## DLL injection
 
 ```bash
