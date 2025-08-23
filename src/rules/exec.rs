@@ -3,7 +3,6 @@ use crate::audit::parse::Checker;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
-use ruff_python_ast::Expr;
 
 static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
@@ -70,9 +69,9 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
 }
 
 pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> bool {
-    fn contains_b64decode(checker: &Checker, expr: &Expr) -> bool {
+    fn contains_b64decode(checker: &Checker, expr: &ast::Expr) -> bool {
         match expr {
-            Expr::Call(inner_call) => {
+            ast::Expr::Call(inner_call) => {
                 if let Some(qn) = checker.semantic().resolve_qualified_name(&inner_call.func) {
                     let segments = qn.segments();
                     if segments.len() == 2 && segments[0] == "base64" && segments[1] == "b64decode"
@@ -92,10 +91,10 @@ pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> b
                 }
                 false
             }
-            Expr::List(ast::ExprList { elts, .. }) => {
+            ast::Expr::List(ast::ExprList { elts, .. }) => {
                 elts.iter().any(|elt| contains_b64decode(checker, elt))
             }
-            Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
                 elts.iter().any(|elt| contains_b64decode(checker, elt))
             }
             _ => false,
@@ -167,7 +166,7 @@ fn sys_modules_contain_imports(
     imports: &[&str],
 ) -> Option<String> {
     // sys.modules["<module>"]
-    let Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
+    let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
         return None;
     };
     let qn = checker.semantic().resolve_qualified_name(value.as_ref())?;
@@ -184,7 +183,9 @@ fn importlib_contains_imports(
     imports: &[&str],
 ) -> Option<String> {
     // importlib.import_module("<module>")
-    let Expr::Call(call) = expr else { return None };
+    let ast::Expr::Call(call) = expr else {
+        return None;
+    };
     let qn = checker.semantic().resolve_qualified_name(&call.func)?;
     let ["importlib", "import_module"] = qn.segments() else {
         return None;
@@ -224,7 +225,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     }
 
     // sys.modules["os"].<func>(...) or importlib.import_module("os").<func>(...)
-    if let Expr::Attribute(attr) = &*call.func {
+    if let ast::Expr::Attribute(attr) = &*call.func {
         if let Some((module, origin)) =
             resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
         {
@@ -243,7 +244,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     }
 
     // getattr(importlib.import_module("os"), "<func>")(…) or getattr(sys.modules["os"], "<func>")(…)
-    if let Expr::Call(inner_call) = &*call.func {
+    if let ast::Expr::Call(inner_call) = &*call.func {
         if let Some(qn) = checker.semantic().resolve_qualified_name(&inner_call.func) {
             let segments = qn.segments();
             let is_getattr = segments.last().map(|s| *s == "getattr").unwrap_or(false);
