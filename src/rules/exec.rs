@@ -4,7 +4,6 @@ use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
-use ruff_python_ast::name::QualifiedName;
 
 static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
@@ -94,20 +93,10 @@ pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> b
                 false
             }
             Expr::List(ast::ExprList { elts, .. }) => {
-                for elt in elts {
-                    if contains_b64decode(checker, elt) {
-                        return true;
-                    }
-                }
-                false
+                elts.iter().any(|elt| contains_b64decode(checker, elt))
             }
             Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                for elt in elts {
-                    if contains_b64decode(checker, elt) {
-                        return true;
-                    }
-                }
-                false
+                elts.iter().any(|elt| contains_b64decode(checker, elt))
             }
             _ => false,
         }
@@ -139,6 +128,29 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
             "Execution of unwanted obfuscated shell command".to_string()
         } else {
             "Possible execution of unwanted shell command".to_string()
+        },
+        confidence: if is_obf {
+            AuditConfidence::High
+        } else {
+            AuditConfidence::Low
+        },
+        location: Some(call.range),
+    });
+}
+
+fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
+    let is_obf = is_chained_with_base64_call(checker, call);
+    checker.audit_results.push(AuditItem {
+        label,
+        rule: if is_obf {
+            Rule::ObfuscatedCodeExec
+        } else {
+            Rule::CodeExec
+        },
+        description: if is_obf {
+            "Execution of obfuscated code".to_string()
+        } else {
+            "Possible execution of unwanted code".to_string()
         },
         confidence: if is_obf {
             AuditConfidence::High
@@ -182,28 +194,24 @@ fn importlib_contains_imports(
     imports.iter().any(|m| m == &key).then_some(key)
 }
 
-pub fn check_shell_exec(
-    qualified_name: &QualifiedName,
-    call: &ast::ExprCall,
-    checker: &mut Checker,
-) {
-    if is_chained_with_base64_call(checker, call) {
-        checker.audit_results.push(AuditItem {
-            label: qualified_name.to_string(),
-            rule: Rule::ObfuscateShellExec,
-            description: "Execution of unwanted obfuscated shell command".to_string(),
-            confidence: AuditConfidence::High,
-            location: Some(call.range),
-        });
-    } else {
-        checker.audit_results.push(AuditItem {
-            label: qualified_name.to_string(),
-            rule: Rule::ShellExec,
-            description: "Possible execution of unwanted shell command".to_string(),
-            confidence: AuditConfidence::Low,
-            location: Some(call.range),
-        });
+#[derive(Copy, Clone)]
+enum ImportOrigin {
+    SysModules,
+    Importlib,
+}
+
+fn resolve_import_origin(
+    checker: &Checker,
+    expr: &ast::Expr,
+    imports: &[&str],
+) -> Option<(String, ImportOrigin)> {
+    if let Some(module) = sys_modules_contain_imports(checker, expr, imports) {
+        return Some((module, ImportOrigin::SysModules));
     }
+    if let Some(module) = importlib_contains_imports(checker, expr, imports) {
+        return Some((module, ImportOrigin::Importlib));
+    }
+    None
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
@@ -211,60 +219,62 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qualified_name) = qualified_name
         && is_shell_command(qualified_name.segments())
     {
-        check_shell_exec(&qualified_name, call, checker);
+        push_shell_report(checker, call, qualified_name.to_string());
         return;
     }
 
-    // sys.modules["os"].<func>(...)
+    // sys.modules["os"].<func>(...) or importlib.import_module("os").<func>(...)
     if let Expr::Attribute(attr) = &*call.func {
-        if let Some(module) = sys_modules_contain_imports(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+        if let Some((module, origin)) =
+            resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
         {
             let name = attr.attr.as_str();
             if is_shell_command(&[module.as_str(), name]) {
-                push_shell_report(
-                    checker,
-                    call,
-                    format!("sys.modules[\"{}\"].{}", module, name),
-                );
+                let label = match origin {
+                    ImportOrigin::SysModules => format!("sys.modules[\"{}\"].{}", module, name),
+                    ImportOrigin::Importlib => {
+                        format!("importlib.import_module(\"{}\").{}", module, name)
+                    }
+                };
+                push_shell_report(checker, call, label);
                 return;
             }
         }
-        // importlib.import_module("os")...
-        if let Some(module) = importlib_contains_imports(checker, &attr.value, *SUSPICIOUS_IMPORTS)
-        {
-            let name = attr.attr.as_str();
-            if is_shell_command(&[module.as_str(), name]) {
-                push_shell_report(
-                    checker,
-                    call,
-                    format!("importlib.import_module(\"{}\").{}", module, name),
-                );
+    }
+
+    // getattr(importlib.import_module("os"), "<func>")(…) or getattr(sys.modules["os"], "<func>")(…)
+    if let Expr::Call(inner_call) = &*call.func {
+        if let Some(qn) = checker.semantic().resolve_qualified_name(&inner_call.func) {
+            let segments = qn.segments();
+            let is_getattr = segments.last().map(|s| *s == "getattr").unwrap_or(false);
+            if is_getattr {
+                let args = &inner_call.arguments.args;
+                if args.len() >= 2 {
+                    let target = &args[0];
+                    let attr_name = eval_const_str(checker, &args[1]);
+
+                    if let Some(name) = attr_name {
+                        if let Some((module, origin)) =
+                            resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
+                        {
+                            if is_shell_command(&[module.as_str(), name.as_str()]) {
+                                let label = match origin {
+                                    ImportOrigin::SysModules => format!(
+                                        "getattr(sys.modules[\"{}\"], \"{}\")",
+                                        module, name
+                                    ),
+                                    ImportOrigin::Importlib => format!(
+                                        "getattr(importlib.import_module(\"{}\"), \"{}\")",
+                                        module, name
+                                    ),
+                                };
+                                push_shell_report(checker, call, label);
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
-}
-
-pub fn check_code_exec(
-    qualified_name: &QualifiedName,
-    call: &ast::ExprCall,
-    checker: &mut Checker,
-) {
-    if is_chained_with_base64_call(checker, call) {
-        checker.audit_results.push(AuditItem {
-            label: qualified_name.to_string(),
-            rule: Rule::ObfuscatedCodeExec,
-            description: "Execution of obfuscated code".to_string(),
-            confidence: AuditConfidence::High,
-            location: Some(call.range),
-        });
-    } else {
-        checker.audit_results.push(AuditItem {
-            label: qualified_name.to_string(),
-            rule: Rule::CodeExec,
-            description: "Possible execution of unwanted code".to_string(),
-            confidence: AuditConfidence::Low,
-            location: Some(call.range),
-        })
     }
 }
 
@@ -273,7 +283,7 @@ pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qualified_name) = qualified_name
         && is_code_exec(qualified_name.segments())
     {
-        check_code_exec(&qualified_name, call, checker);
+        push_code_report(checker, call, qualified_name.to_string());
     }
 }
 
@@ -295,6 +305,14 @@ mod tests {
             "sys.modules[\"subprocess\"].Popen",
             "importlib.import_module(\"subprocess\").check_output",
             "importlib.import_module(\"commands\").getstatusoutput",
+        ]
+    )]
+    #[test_case(
+        "exec_05.py",
+        Rule::ShellExec,
+        vec![
+            "getattr(importlib.import_module(\"commands\"), \"getstatusoutput\")",
+            "getattr(sys.modules[\"commands\"], \"getstatusoutput\")"
         ]
     )]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
