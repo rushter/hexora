@@ -127,8 +127,15 @@ fn write_json(
     annotate: bool,
 ) {
     let item = AuditItemJSON::new(item, path, source_code, annotate);
-    let json = serde_json::to_string(&item).unwrap();
-    writeln!(file_out, "{}", json).unwrap();
+    match serde_json::to_string(&item) {
+        Ok(json) => {
+            writeln!(file_out, "{}", json)
+                .unwrap_or_else(|e| error!("Failed to write json: {:?}", e));
+        }
+        Err(e) => {
+            error!("Failed to serialize result to json: {:?}", e);
+        }
+    }
 }
 
 fn process_result<'a, I>(

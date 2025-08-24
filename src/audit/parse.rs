@@ -287,21 +287,13 @@ impl<'a> Visitor<'a> for Checker<'a> {
 
 /// Parse a Python file and perform audit.
 pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
-    let source_code = std::fs::read_to_string(file_path);
-    if let Ok(source_code) = source_code {
-        let audit_items = audit_source(file_path, source_code.clone());
-        if let Ok(audit_items) = audit_items {
-            Ok(AuditResult {
-                path: file_path.to_path_buf(),
-                items: audit_items,
-                source_code,
-            })
-        } else {
-            Err(audit_items.err().unwrap())
-        }
-    } else {
-        Err(format!("Unable to read file: {}", file_path.display()))
-    }
+    let source_code = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+    let audit_items = audit_source(file_path, source_code.clone())?;
+    Ok(AuditResult {
+        path: file_path.to_path_buf(),
+        items: audit_items,
+        source_code,
+    })
 }
 
 /// Audit multiple files lazily and return an iterator of results.
