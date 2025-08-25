@@ -36,64 +36,67 @@ pub struct SuspiciousLiteral {
 
 static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
     let apps = [
-        "1Password",
-        "Armory",
-        "binance",
-        "Bitcoin",
-        "Bitwarden",
-        "Coinbase",
-        "Discord",
-        "Electrum",
-        "exodus.wallet",
-        "Guarda",
-        "Jaxx",
-        "KeePass",
-        "LastPass",
-        "Ledger",
-        "Metamask",
-        "Telegram",
-        "TREZOR",
+        ("1Password", AuditConfidence::Medium),
+        ("Armory", AuditConfidence::Low),
+        ("binance", AuditConfidence::Low),
+        ("Bitcoin", AuditConfidence::Low),
+        ("Bitwarden", AuditConfidence::Low),
+        ("Coinbase", AuditConfidence::Low),
+        ("Discord", AuditConfidence::Low),
+        ("Electrum", AuditConfidence::Low),
+        ("exodus.wallet", AuditConfidence::Medium),
+        ("Guarda", AuditConfidence::Low),
+        ("Jaxx", AuditConfidence::Low),
+        ("KeePass", AuditConfidence::Low),
+        ("LastPass", AuditConfidence::Low),
+        ("Ledger", AuditConfidence::Low),
+        ("Metamask", AuditConfidence::Low),
+        ("Telegram", AuditConfidence::Low),
+        ("TREZOR", AuditConfidence::Low),
     ];
     let paths = [
-        "/etc/passwd",
-        "/etc/shadow",
-        "/etc/group",
-        "/.ssh/id_rsa",
-        "/.ssh/authorized_keys",
-        ".bitcoin/",
-        ".ethereum",
-        "/proc/",
-        "/.aws/",
-        ".netrc",
+        ("/etc/passwd", AuditConfidence::Low),
+        ("/etc/shadow", AuditConfidence::Low),
+        ("/etc/group", AuditConfidence::Low),
+        ("/.ssh/id_rsa", AuditConfidence::Low),
+        ("/.ssh/authorized_keys", AuditConfidence::Low),
+        (".bitcoin/", AuditConfidence::Low),
+        (".ethereum", AuditConfidence::Low),
+        ("/proc/", AuditConfidence::Low),
+        ("/.aws/", AuditConfidence::Low),
+        (".netrc", AuditConfidence::Low),
     ];
     let browser_path = [
-        "Opera Software",
-        "Google/Chrome",
-        "Chromium/User Data/",
-        "BraveSoftware/Brave-Browser",
-        "Yandex/YandexBrowser",
-        "Vivaldi/User Data",
-        "Application Support/Vivaldi/",
-        "Microsoft/Edge",
-        "Mozilla/Firefox",
-        "Cookies/Cookies",
-        "Default/Extensions",
-        "Default/Network/Cookies",
-        "Default/Cookies",
-        "Default/History",
-        "Login Data/",
-        "Web Data/",
-        "Local State/",
-        "Bookmarks/",
-        "cookies.sqlite",
-        "Local Storage/leveldb",
-        "Discord/Local Storage/leveldb",
-        "Safari/LocalStorage/",
-        "Library/Safari",
-        "Application Support/Chromium/",
+        ("Opera Software", AuditConfidence::High),
+        ("Google/Chrome", AuditConfidence::High),
+        ("Chromium/User Data/", AuditConfidence::High),
+        ("BraveSoftware/Brave-Browser", AuditConfidence::High),
+        ("Yandex/YandexBrowser", AuditConfidence::High),
+        ("Vivaldi/User Data", AuditConfidence::High),
+        ("Application Support/Vivaldi/", AuditConfidence::High),
+        ("Microsoft/Edge", AuditConfidence::High),
+        ("Mozilla/Firefox", AuditConfidence::High),
+        ("Cookies/Cookies", AuditConfidence::High),
+        ("Default/Extensions", AuditConfidence::High),
+        ("Default/Network/Cookies", AuditConfidence::High),
+        ("Default/Cookies", AuditConfidence::High),
+        ("Default/History", AuditConfidence::High),
+        ("Login Data/", AuditConfidence::High),
+        ("Web Data/", AuditConfidence::High),
+        ("Local State/", AuditConfidence::High),
+        ("Bookmarks/", AuditConfidence::High),
+        ("cookies.sqlite", AuditConfidence::High),
+        ("Local Storage/leveldb", AuditConfidence::High),
+        ("Discord/Local Storage/leveldb", AuditConfidence::High),
+        ("Safari/LocalStorage/", AuditConfidence::High),
+        ("Library/Safari", AuditConfidence::High),
+        ("Application Support/Chromium/", AuditConfidence::High),
     ];
 
-    let suspicious_keywords = ["shellcode", "webshell"];
+    let suspicious_keywords = [
+        ("shellcode", AuditConfidence::Medium),
+        ("webshell", AuditConfidence::Medium),
+    ];
 
     let mut m = vec![
         SuspiciousLiteral {
@@ -133,35 +136,35 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             rule: Rule::PathTraversal,
         },
     ];
-    for path in browser_path.iter() {
+    for (path, confidence) in browser_path {
         m.push(SuspiciousLiteral {
             pattern: path.to_string(),
             description: format!("Potential enumeration of {} browser path.", path),
-            confidence: AuditConfidence::High,
+            confidence,
             rule: Rule::BrowserEnumeration,
         });
     }
-    for app in apps {
+    for (app, confidence) in apps {
         m.push(SuspiciousLiteral {
             pattern: app.to_string(),
             description: format!("Potential enumeration of {} app", app),
-            confidence: AuditConfidence::Low,
+            confidence,
             rule: Rule::AppEnumeration,
         });
     }
-    for path in paths {
+    for (path, confidence) in paths {
         m.push(SuspiciousLiteral {
             pattern: path.to_string(),
             description: format!("Potential enumeration of {} on file system.", path),
-            confidence: AuditConfidence::High,
+            confidence,
             rule: Rule::PathEnumeration,
         });
     }
-    for keyword in suspicious_keywords.iter() {
+    for (keyword, confidence) in suspicious_keywords {
         m.push(SuspiciousLiteral {
             pattern: keyword.to_string(),
             description: format!("Suspicious keyword {} found.", keyword),
-            confidence: AuditConfidence::Medium,
+            confidence,
             rule: Rule::SuspiciousLiteral,
         });
     }
