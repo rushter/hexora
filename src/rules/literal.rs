@@ -145,7 +145,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         m.push(SuspiciousLiteral {
             pattern: app.to_string(),
             description: format!("Potential enumeration of {} app", app),
-            confidence: AuditConfidence::High,
+            confidence: AuditConfidence::Low,
             rule: Rule::AppEnumeration,
         });
     }
