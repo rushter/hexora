@@ -128,8 +128,8 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         },
         SuspiciousLiteral {
             pattern: "../../..".to_string(),
-            description: "Path travelsal".to_string(),
-            confidence: AuditConfidence::High,
+            description: "Path traversal".to_string(),
+            confidence: AuditConfidence::Low,
             rule: Rule::PathTraversal,
         },
     ];
