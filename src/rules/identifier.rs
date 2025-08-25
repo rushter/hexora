@@ -20,7 +20,7 @@ fn is_suspicious_variable(variable: &str) -> Option<AuditConfidence> {
     SUSPICIOUS_SUBSTRINGS
         .iter()
         .find_map(|(substr, confidence)| {
-            if (variable.to_lowercase().contains(substr)) {
+            if variable.to_lowercase().contains(substr) {
                 Some(*confidence)
             } else {
                 None
