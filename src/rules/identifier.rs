@@ -5,21 +5,27 @@ use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Identifier;
 
-static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<&str>> = Lazy::new(|| {
+static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<(&str, AuditConfidence)>> = Lazy::new(|| {
     vec![
-        "shellcode",
-        "payload",
-        "reverse_shell",
-        "exploit",
-        "webshell",
-        "_obfuscator_",
+        ("shellcode", AuditConfidence::Medium),
+        ("payload", AuditConfidence::Low),
+        ("reverse_shell", AuditConfidence::Medium),
+        ("exploit", AuditConfidence::Medium),
+        ("webshell", AuditConfidence::Medium),
+        ("_obfuscator_", AuditConfidence::Medium),
     ]
 });
 
-fn is_suspicious_variable(variable: &str) -> bool {
+fn is_suspicious_variable(variable: &str) -> Option<AuditConfidence> {
     SUSPICIOUS_SUBSTRINGS
         .iter()
-        .any(|&substr| variable.to_lowercase().contains(substr))
+        .find_map(|(substr, confidence)| {
+            if (variable.to_lowercase().contains(substr)) {
+                Some(*confidence)
+            } else {
+                None
+            }
+        })
 }
 
 #[inline]
@@ -55,48 +61,45 @@ pub fn suspicious_variable(checker: &mut Checker, targets: &[ast::Expr]) {
         let target_name = get_target_names(target);
         if let Some(names) = target_name {
             for name in names {
-                if !is_suspicious_variable(&name) {
-                    continue;
+                if let Some(confidence) = is_suspicious_variable(&name) {
+                    let description = format!("Suspicious variable name: {}", name);
+                    checker.audit_results.push(AuditItem {
+                        label: name,
+                        rule: Rule::SuspiciousVariable,
+                        description,
+                        confidence,
+                        location: Some(get_expression_range(target)),
+                    })
                 }
-                let description = format!("Suspicious variable name: {}", name);
-                checker.audit_results.push(AuditItem {
-                    label: name,
-                    rule: Rule::SuspiciousVariable,
-                    description,
-                    confidence: AuditConfidence::Medium,
-                    location: Some(get_expression_range(target)),
-                })
             }
         }
     }
 }
 
 pub fn suspicious_function_name(checker: &mut Checker, name: &Identifier) {
-    if !is_suspicious_variable(name) {
-        return;
+    if let Some(confidence) = is_suspicious_variable(&name.id) {
+        let description = format!("Suspicious function name: {}", name);
+        checker.audit_results.push(AuditItem {
+            label: name.id.to_string(),
+            rule: Rule::SuspiciousFunctionName,
+            description,
+            confidence,
+            location: Some(name.range),
+        });
     }
-    let description = format!("Suspicious function name: {}", name);
-    checker.audit_results.push(AuditItem {
-        label: name.id.to_string(),
-        rule: Rule::SuspiciousFunctionName,
-        description,
-        confidence: AuditConfidence::Medium,
-        location: Some(name.range),
-    });
 }
 
 pub fn suspicious_function_parameter(checker: &mut Checker, name: &Identifier) {
-    if !is_suspicious_variable(name) {
-        return;
+    if let Some(confidence) = is_suspicious_variable(&name.id) {
+        let description = format!("Suspicious function parameter: {}", name);
+        checker.audit_results.push(AuditItem {
+            label: name.id.to_string(),
+            rule: Rule::SuspiciousParameterName,
+            description,
+            confidence,
+            location: Some(name.range),
+        });
     }
-    let description = format!("Suspicious function parameter: {}", name);
-    checker.audit_results.push(AuditItem {
-        label: name.id.to_string(),
-        rule: Rule::SuspiciousParameterName,
-        description,
-        confidence: AuditConfidence::Medium,
-        location: Some(name.range),
-    });
 }
 
 #[cfg(test)]
