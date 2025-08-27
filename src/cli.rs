@@ -78,6 +78,13 @@ enum Commands {
 
         #[arg(
             long,
+            value_delimiter = ',',
+            help = "Include only specific detection codes. Comma separated list. If provided, only these codes will be included."
+        )]
+        include: Vec<String>,
+
+        #[arg(
+            long,
             default_value = "low",
             help = "Minimum confidence level for detections to be included in the results. Supported values: low, \
             medium, high, very_high, very_low"
@@ -176,6 +183,7 @@ fn audit_python_files(
     output_path: Option<PathBuf>,
     output_format: OutputFormat,
     output_annotations: bool,
+    include: &[String],
     exclude: &[String],
     min_confidence: &AuditConfidence,
 ) {
@@ -183,7 +191,7 @@ fn audit_python_files(
     match audit_path(&input_path) {
         Ok(results) => {
             for result in results {
-                let filtered = result.filter_items(exclude, min_confidence);
+                let filtered = result.filter_items(include, exclude, min_confidence);
                 if let Err(e) = process_result(
                     filtered,
                     &result.path,
@@ -217,6 +225,7 @@ pub fn run_cli(start_arg: usize) {
             output_format,
             annotate,
             exclude,
+            include,
             min_confidence,
         } => {
             audit_python_files(
@@ -224,6 +233,7 @@ pub fn run_cli(start_arg: usize) {
                 output_path,
                 output_format,
                 annotate,
+                &include,
                 &exclude,
                 &min_confidence,
             );

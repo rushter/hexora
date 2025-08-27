@@ -309,6 +309,7 @@ pub struct AuditResult {
 impl AuditResult {
     pub fn filter_items<'a>(
         &'a self,
+        include_codes: &[String],
         exclude_codes: &[String],
         min_confidence: &AuditConfidence,
     ) -> impl Iterator<Item = &'a AuditItem> {
@@ -317,9 +318,17 @@ impl AuditResult {
             if &item.confidence < min_confidence {
                 return false;
             }
-            if exclude_codes.contains(&item.rule.code().to_string()) {
+
+            let code = item.rule.code();
+
+            if !include_codes.is_empty() && !include_codes.contains(&code.to_string()) {
                 return false;
             }
+
+            if exclude_codes.contains(&code.to_string()) {
+                return false;
+            }
+
             true
         })
     }
