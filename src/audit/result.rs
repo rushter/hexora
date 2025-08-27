@@ -77,6 +77,7 @@ pub enum Rule {
     CVEInLiteral,
     SuspiciousLiteral,
     PathTraversal,
+    BrowserExtension,
 
     // Variables and Parameters
     SuspiciousFunctionName,
@@ -143,6 +144,7 @@ impl Rule {
             Rule::CVEInLiteral => "HX6040",
             Rule::SuspiciousLiteral => "HX6050",
             Rule::PathTraversal => "HX6060",
+            Rule::BrowserExtension => "HX6070",
 
             // Variables and Parameters: HX7000
             Rule::SuspiciousFunctionName => "HX7000",
@@ -202,6 +204,7 @@ impl Rule {
             Rule::CVEInLiteral => "Literal contains a CVE identifier.",
             Rule::SuspiciousLiteral => "Suspicious literal detected; possible data enumeration.",
             Rule::PathTraversal => "Suspicious path traversal.",
+            Rule::BrowserExtension => "Enumeration of sensitive browser extensions.",
 
             // Variables and Parameters
             Rule::SuspiciousFunctionName => "Suspicious function name.",
@@ -273,7 +276,9 @@ impl Rule {
             Rule::CVEInLiteral => {
                 Some("CVE mentioned. This code may implement an exploit for this particular CVE.")
             }
-
+            Rule::BrowserExtension => Some(
+                "Enumeration of sensitive browser extensions. Usually used to steal credentials.",
+            ),
             _ => None,
         }
     }

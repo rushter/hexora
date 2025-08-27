@@ -150,6 +150,7 @@ Right now, the following rules are available:
 | HX6040 | CVEInLiteral | Literal contains a CVE identifier. |
 | HX6050 | SuspiciousLiteral | Suspicious literal detected; possible data enumeration. |
 | HX6060 | PathTraversal | Suspicious path traversal. |
+| HX6070 | BrowserExtension | Enumeration of sensitive browser extensions. |
 | HX7000 | SuspiciousFunctionName | Suspicious function name. |
 | HX7010 | SuspiciousParameterName | Suspicious parameter name. |
 | HX7020 | SuspiciousVariable | Suspicious variable name. |

@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod cli;
 pub mod io;
+pub mod macros;
 pub mod rules;
 
 #[cfg(feature = "python")]
