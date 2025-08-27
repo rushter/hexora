@@ -79,7 +79,8 @@ enum Commands {
         #[arg(
             long,
             default_value = "low",
-            help = "Minimum confidence level for detections to be included in the results."
+            help = "Minimum confidence level for detections to be included in the results. Supported values: low, \
+            medium, high, very_high, very_low"
         )]
         min_confidence: AuditConfidence,
     },
