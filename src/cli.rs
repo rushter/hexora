@@ -158,7 +158,7 @@ fn write_json(
     }
 }
 
-fn process_result<'a>(
+fn process_result(
     result: &[AuditItem],
     path: &Path,
     source_code: &str,
@@ -196,7 +196,7 @@ fn audit_python_files(opts: &AuditOptions) {
             error!("Dump path {:?} exists but it is not a directory", dir);
             return;
         }
-        if let Err(e) = fs::create_dir_all(&dir) {
+        if let Err(e) = fs::create_dir_all(dir) {
             error!("Failed to create dump directory {:?}: {:?}", dir, e);
         }
         Some(dir.clone())
