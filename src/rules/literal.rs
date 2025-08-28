@@ -88,7 +88,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         ("Web Data/", AuditConfidence::High),
         ("Local State/", AuditConfidence::High),
         ("Bookmarks/", AuditConfidence::High),
-        ("cookies.sqlite", AuditConfidence::High),
+        ("cookies.sqlite", AuditConfidence::Low),
         ("Local Storage/leveldb", AuditConfidence::High),
         ("Discord/Local Storage/leveldb", AuditConfidence::High),
         ("Safari/LocalStorage/", AuditConfidence::High),
