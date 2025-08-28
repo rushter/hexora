@@ -158,8 +158,8 @@ fn write_json(
     }
 }
 
-fn process_result<'a, I>(
-    result: I,
+fn process_result<'a>(
+    result: &[AuditItem],
     path: &Path,
     source_code: &str,
     colored: bool,
@@ -168,7 +168,6 @@ fn process_result<'a, I>(
     output_annotations: bool,
 ) -> Result<(), std::io::Error>
 where
-    I: Iterator<Item = &'a AuditItem>,
 {
     let mut file_out: Box<dyn Write> = if let Some(output_path) = output_path {
         let file_out = std::fs::File::create(output_path)?;
@@ -208,10 +207,11 @@ fn audit_python_files(opts: &AuditOptions) {
     match audit_path(&opts.input_path) {
         Ok(results) => {
             for result in results {
-                let filtered =
-                    result.filter_items(&opts.include, &opts.exclude, &opts.min_confidence);
+                let filtered: Vec<AuditItem> = result
+                    .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
+                    .collect();
                 if let Err(e) = process_result(
-                    filtered,
+                    &filtered,
                     &result.path,
                     &result.source_code,
                     colored,
@@ -222,7 +222,7 @@ fn audit_python_files(opts: &AuditOptions) {
                     error!("{:?}", e);
                 }
                 if let Some(ref dest) = dump_dir {
-                    result.annotate_to_file(dest);
+                    result.annotate_to_file(&filtered, dest);
                 }
             }
         }

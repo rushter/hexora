@@ -291,7 +291,7 @@ impl Rule {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AuditItem {
     pub label: String,
     pub rule: Rule,
@@ -320,33 +320,39 @@ fn sha256_path(path: &Path) -> String {
 impl AuditResult {
     pub fn filter_items<'a>(
         &'a self,
-        include_codes: &[String],
-        exclude_codes: &[String],
-        min_confidence: &AuditConfidence,
-    ) -> impl Iterator<Item = &'a AuditItem> {
+        include_codes: &'a [String],
+        exclude_codes: &'a [String],
+        min_confidence: &'a AuditConfidence,
+    ) -> impl Iterator<Item = AuditItem> + 'a {
         // TODO: this is very inefficient, ignored codes should not be checked in the first place.
-        self.items.iter().filter(move |item| {
-            if &item.confidence < min_confidence {
-                return false;
-            }
+        self.items
+            .iter()
+            .filter(move |item| {
+                if &item.confidence < min_confidence {
+                    return false;
+                }
 
-            let code = item.rule.code();
+                let code = item.rule.code();
 
-            if !include_codes.is_empty() && !include_codes.contains(&code.to_string()) {
-                return false;
-            }
+                if !include_codes.is_empty() && !include_codes.contains(&code.to_string()) {
+                    return false;
+                }
 
-            if exclude_codes.contains(&code.to_string()) {
-                return false;
-            }
+                if exclude_codes.contains(&code.to_string()) {
+                    return false;
+                }
 
-            true
-        })
+                true
+            })
+            .cloned()
     }
-    pub fn annotate_to_file(self, dest_folder: &Path) {
+    pub fn annotate_to_file(self, items: &[AuditItem], dest_folder: &Path) {
+        if items.is_empty() {
+            return;
+        }
         let file_name = format!("audit_{}.py", sha256_path(&self.path));
         let dest_path = dest_folder.join(file_name);
-        let annotations = annotate_results(self.items.as_slice(), &self.path, &self.source_code);
+        let annotations = annotate_results(items, &self.path, &self.source_code);
         match annotations {
             Ok(annotated) => {
                 std::fs::write(&dest_path, annotated).unwrap_or_else(|e| {
