@@ -2,7 +2,7 @@ use crate::audit::annotate::annotate_result;
 use crate::audit::parse::audit_path;
 use crate::audit::result::{AuditConfidence, AuditItem};
 use crate::audit::result::{AuditItemJSON, Rule};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 use log::{error, info};
 use std::fs;
@@ -45,55 +45,63 @@ struct Cli {
     logging_level: String,
 }
 
+#[derive(Args, Clone, Debug)]
+struct AuditOptions {
+    #[arg(
+        help = "Input path to a file or directory containing Python files.",
+        index = 1
+    )]
+    input_path: PathBuf,
+
+    #[arg(
+        long,
+        help = "Output path for results. If not specified, results will be printed to stdout."
+    )]
+    output_path: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Output format: terminal | json ",
+        default_value = "terminal"
+    )]
+    output_format: OutputFormat,
+
+    #[arg(
+        long = "annotate",
+        help = "Include code annotations preview in JSON output."
+    )]
+    output_annotations: bool,
+
+    #[arg(long, help = "Dump annotated files to the specified folder.")]
+    dump_annotated: Option<PathBuf>,
+
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "Exclude specific detection codes. Comma separated list."
+    )]
+    exclude: Vec<String>,
+
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "Include only specific detection codes. Comma separated list. If provided, only these codes will be included."
+    )]
+    include: Vec<String>,
+
+    #[arg(
+        long,
+        default_value = "low",
+        help = "Minimum confidence level for detections to be included in the results. Supported values: low, \
+            medium, high, very_high, very_low"
+    )]
+    min_confidence: AuditConfidence,
+}
 #[derive(Subcommand)]
 enum Commands {
     Audit {
-        #[arg(
-            help = "Input path to a file or directory containing Python files.",
-            index = 1
-        )]
-        input_path: PathBuf,
-
-        #[arg(
-            long,
-            help = "Output path for results. If not specified, results will be printed to stdout."
-        )]
-        output_path: Option<PathBuf>,
-
-        #[arg(
-            long,
-            help = "Output format: terminal | json ",
-            default_value = "terminal"
-        )]
-        output_format: OutputFormat,
-
-        #[arg(long, help = "Include code annotations preview in JSON output.")]
-        annotate: bool,
-
-        #[arg(long, help = "Dump annotated files to the specified folder.")]
-        dump_annotated: Option<PathBuf>,
-
-        #[arg(
-            long,
-            value_delimiter = ',',
-            help = "Exclude specific detection codes. Comma separated list."
-        )]
-        exclude: Vec<String>,
-
-        #[arg(
-            long,
-            value_delimiter = ',',
-            help = "Include only specific detection codes. Comma separated list. If provided, only these codes will be included."
-        )]
-        include: Vec<String>,
-
-        #[arg(
-            long,
-            default_value = "low",
-            help = "Minimum confidence level for detections to be included in the results. Supported values: low, \
-            medium, high, very_high, very_low"
-        )]
-        min_confidence: AuditConfidence,
+        #[command(flatten)]
+        opts: AuditOptions,
     },
 
     Rules,
@@ -182,19 +190,9 @@ where
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn audit_python_files(
-    input_path: PathBuf,
-    output_path: Option<PathBuf>,
-    output_format: OutputFormat,
-    output_annotations: bool,
-    dump_annotated: Option<PathBuf>,
-    include: &[String],
-    exclude: &[String],
-    min_confidence: &AuditConfidence,
-) {
-    let colored = output_path.is_none();
-    let dump_dir = if let Some(dir) = dump_annotated {
+fn audit_python_files(opts: &AuditOptions) {
+    let colored = opts.output_path.is_none();
+    let dump_dir = if let Some(dir) = &opts.dump_annotated {
         if dir.exists() && !dir.is_dir() {
             error!("Dump path {:?} exists but it is not a directory", dir);
             return;
@@ -202,23 +200,24 @@ fn audit_python_files(
         if let Err(e) = fs::create_dir_all(&dir) {
             error!("Failed to create dump directory {:?}: {:?}", dir, e);
         }
-        Some(dir)
+        Some(dir.clone())
     } else {
         None
     };
 
-    match audit_path(&input_path) {
+    match audit_path(&opts.input_path) {
         Ok(results) => {
             for result in results {
-                let filtered = result.filter_items(include, exclude, min_confidence);
+                let filtered =
+                    result.filter_items(&opts.include, &opts.exclude, &opts.min_confidence);
                 if let Err(e) = process_result(
                     filtered,
                     &result.path,
                     &result.source_code,
                     colored,
-                    &output_path,
-                    &output_format,
-                    output_annotations,
+                    &opts.output_path,
+                    &opts.output_format,
+                    opts.output_annotations,
                 ) {
                     error!("{:?}", e);
                 }
@@ -241,26 +240,8 @@ pub fn run_cli(start_arg: usize) {
     env_logger::Builder::from_env(env).init();
 
     match cli.command {
-        Commands::Audit {
-            input_path,
-            output_path,
-            output_format,
-            annotate,
-            dump_annotated,
-            exclude,
-            include,
-            min_confidence,
-        } => {
-            audit_python_files(
-                input_path,
-                output_path,
-                output_format,
-                annotate,
-                dump_annotated,
-                &include,
-                &exclude,
-                &min_confidence,
-            );
+        Commands::Audit { opts } => {
+            audit_python_files(&opts);
         }
         Commands::Rules => {
             print_rules_markdown();
