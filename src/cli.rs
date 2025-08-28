@@ -5,6 +5,7 @@ use crate::audit::result::{AuditItemJSON, Rule};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
 use log::{error, info};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -68,6 +69,9 @@ enum Commands {
 
         #[arg(long, help = "Include code annotations preview in JSON output.")]
         annotate: bool,
+
+        #[arg(long, help = "Dump annotated files to the specified folder.")]
+        dump_annotated: Option<PathBuf>,
 
         #[arg(
             long,
@@ -178,16 +182,31 @@ where
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audit_python_files(
     input_path: PathBuf,
     output_path: Option<PathBuf>,
     output_format: OutputFormat,
     output_annotations: bool,
+    dump_annotated: Option<PathBuf>,
     include: &[String],
     exclude: &[String],
     min_confidence: &AuditConfidence,
 ) {
     let colored = output_path.is_none();
+    let dump_dir = if let Some(dir) = dump_annotated {
+        if dir.exists() && !dir.is_dir() {
+            error!("Dump path {:?} exists but it is not a directory", dir);
+            return;
+        }
+        if let Err(e) = fs::create_dir_all(&dir) {
+            error!("Failed to create dump directory {:?}: {:?}", dir, e);
+        }
+        Some(dir)
+    } else {
+        None
+    };
+
     match audit_path(&input_path) {
         Ok(results) => {
             for result in results {
@@ -202,6 +221,9 @@ fn audit_python_files(
                     output_annotations,
                 ) {
                     error!("{:?}", e);
+                }
+                if let Some(ref dest) = dump_dir {
+                    result.annotate_to_file(dest);
                 }
             }
         }
@@ -224,6 +246,7 @@ pub fn run_cli(start_arg: usize) {
             output_path,
             output_format,
             annotate,
+            dump_annotated,
             exclude,
             include,
             min_confidence,
@@ -233,6 +256,7 @@ pub fn run_cli(start_arg: usize) {
                 output_path,
                 output_format,
                 annotate,
+                dump_annotated,
                 &include,
                 &exclude,
                 &min_confidence,

@@ -1,7 +1,8 @@
-use crate::audit::annotate::annotate_result;
+use crate::audit::annotate::{annotate_result, annotate_results};
 use log::error;
 use ruff_text_size::TextRange;
 use serde::{Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -306,6 +307,16 @@ pub struct AuditResult {
     pub source_code: String,
 }
 
+fn sha256_path(path: &Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
+}
+
 impl AuditResult {
     pub fn filter_items<'a>(
         &'a self,
@@ -331,6 +342,24 @@ impl AuditResult {
 
             true
         })
+    }
+    pub fn annotate_to_file(self, dest_folder: &Path) {
+        let file_name = format!("audit_{}.py", sha256_path(&self.path));
+        let dest_path = dest_folder.join(file_name);
+        let annotations = annotate_results(self.items.as_slice(), &self.path, &self.source_code);
+        match annotations {
+            Ok(annotated) => {
+                std::fs::write(&dest_path, annotated).unwrap_or_else(|e| {
+                    error!(
+                        "Failed to write annotations to file {:?}: {:?}",
+                        dest_path, e
+                    )
+                });
+            }
+            Err(e) => {
+                error!("Failed to annotate results for file {:?}: {}", self.path, e);
+            }
+        }
     }
 }
 

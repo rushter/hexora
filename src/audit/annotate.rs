@@ -5,6 +5,7 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use std::path::Path;
 
+// Annotate findings for a single result
 pub fn annotate_result(
     item: &AuditItem,
     path: &Path,
@@ -43,6 +44,43 @@ pub fn annotate_result(
         if let Err(e) = term::emit(&mut buffer, &config, &file, &diagnostic) {
             return Err(e.to_string());
         }
+    }
+    Ok(String::from_utf8_lossy(buffer.as_slice()).to_string())
+}
+
+// Annotate findings for a single result
+pub fn annotate_results(
+    items: &[AuditItem],
+    path: &Path,
+    source_code: &str,
+) -> Result<String, String> {
+    let mut buffer = Buffer::no_color();
+    let labels = items
+        .iter()
+        .filter_map(|item| {
+            if let Some(location) = item.location {
+                return Some(
+                    Label::primary((), location.start().to_usize()..location.end().to_usize())
+                        .with_message(
+                            format!("{}: {}", item.rule.code(), item.description).as_str(),
+                        ),
+                );
+            }
+            None
+        })
+        .collect();
+
+    let file_path = path.display();
+    let file = SimpleFile::new(&file_path, &source_code);
+    let diagnostic = Diagnostic::warning().with_labels(labels);
+
+    let config = term::Config {
+        before_label_lines: 10_000,
+        after_label_lines: 10_000,
+        ..Default::default()
+    };
+    if let Err(e) = term::emit(&mut buffer, &config, &file, &diagnostic) {
+        return Err(e.to_string());
     }
     Ok(String::from_utf8_lossy(buffer.as_slice()).to_string())
 }
