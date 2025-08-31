@@ -1,5 +1,5 @@
 use crate::audit::helpers::ListLike;
-use crate::audit::parse::Checker;
+use crate::indexer::checker::Checker;
 use log::debug;
 use ruff_python_ast as ast;
 use ruff_python_semantic::{BindingFlags, BindingKind, Import};

@@ -1,4 +1,4 @@
-use crate::audit::parse::Checker;
+use crate::indexer::checker::Checker;
 use crate::rules::identifier::{
     suspicious_function_name, suspicious_function_parameter, suspicious_variable,
 };

@@ -1,4 +1,4 @@
-use crate::audit::parse::Checker;
+use crate::indexer::checker::Checker;
 use once_cell::sync::Lazy;
 use ruff_python_ast::Stmt;
 use serde::Serialize;

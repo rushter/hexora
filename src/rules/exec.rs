@@ -1,6 +1,6 @@
-use crate::audit::helpers::eval_const_str;
-use crate::audit::parse::Checker;
+use crate::audit::helpers::string_from_expr;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
+use crate::indexer::checker::Checker;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 
@@ -173,7 +173,7 @@ fn sys_modules_contain_imports(
     let ["sys", "modules"] = qn.segments() else {
         return None;
     };
-    let key = eval_const_str(checker, slice)?;
+    let key = string_from_expr(slice)?;
     imports.iter().any(|m| m == &key).then_some(key)
 }
 
@@ -191,7 +191,7 @@ fn importlib_contains_imports(
         return None;
     };
     let first_arg = call.arguments.args.first()?;
-    let key = eval_const_str(checker, first_arg)?;
+    let key = string_from_expr(first_arg)?;
     imports.iter().any(|m| m == &key).then_some(key)
 }
 
@@ -252,7 +252,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
                 let args = &inner_call.arguments.args;
                 if args.len() >= 2 {
                     let target = &args[0];
-                    let attr_name = eval_const_str(checker, &args[1]);
+                    let attr_name = string_from_expr(&args[1]);
 
                     if let Some(name) = attr_name {
                         if let Some((module, origin)) =

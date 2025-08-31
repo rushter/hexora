@@ -1,4 +1,4 @@
-use crate::audit::parse::Checker;
+use crate::indexer::checker::Checker;
 use crate::rules::builtins::check_builtins;
 use crate::rules::clipboard::clipboard_read;
 use crate::rules::dll_injection::dll_injection;
@@ -7,9 +7,11 @@ use crate::rules::dunder::dunder_import;
 use crate::rules::env::env_access;
 use crate::rules::exec::{code_exec, shell_exec};
 use crate::rules::literal::{check_int_literals, check_literal};
+use log::info;
 use ruff_python_ast::{self as ast, Expr};
 
 pub fn analyze(expr: &Expr, checker: &mut Checker) {
+    info!("Visiting expr parser: {:?}", expr);
     match expr {
         Expr::Call(call) => {
             shell_exec(checker, call);

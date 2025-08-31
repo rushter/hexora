@@ -1,7 +1,6 @@
-use crate::audit::helpers::ListLike;
-use crate::audit::helpers::raw_string_from_expr;
-use crate::audit::parse::Checker;
+use crate::audit::helpers::{ListLike, string_from_expr};
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
+use crate::indexer::checker::Checker;
 use crate::macros::es;
 
 use memchr::memmem;
@@ -278,7 +277,7 @@ fn literal_preview(value: &str, max_length: usize) -> String {
 }
 
 pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
-    if let Some(literal) = raw_string_from_expr(expr, checker) {
+    if let Some(literal) = string_from_expr(expr) {
         if is_hexed_string(&literal) {
             checker.audit_results.push(AuditItem {
                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),

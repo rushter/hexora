@@ -1,6 +1,6 @@
 use crate::audit::helpers::get_expression_range;
-use crate::audit::parse::Checker;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
+use crate::indexer::checker::Checker;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Identifier;
