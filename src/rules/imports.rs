@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
+use ruff_python_ast::identifier::Identifier;
 use ruff_python_ast::{self as ast};
 
 #[derive(Debug, Serialize)]
@@ -203,7 +204,7 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
                 }
             }
         }
-        Stmt::ImportFrom(ast::StmtImportFrom { module, .. }) => {
+        Stmt::ImportFrom(ast::StmtImportFrom { module, names, .. }) => {
             let Some(identifier) = module else { return };
             let import_name = identifier.as_str();
             let is_suspicious = IMPORTS.get(import_name);
@@ -229,6 +230,21 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
                     confidence: AuditConfidence::Low,
                     location: Some(identifier.range),
                 });
+            }
+
+            for alias in names {
+                let bound_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                if let Some(confidence) =
+                    crate::rules::identifier::is_suspicious_variable(bound_name.as_str())
+                {
+                    checker.audit_results.push(AuditItem {
+                        label: bound_name.as_str().to_string(),
+                        rule: Rule::SuspiciousVariable,
+                        description: format!("Suspicious variable name: {}", bound_name.as_str()),
+                        confidence,
+                        location: Some(alias.identifier()),
+                    });
+                }
             }
         }
         _ => {}

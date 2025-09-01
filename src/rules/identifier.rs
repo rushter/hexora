@@ -12,11 +12,12 @@ static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<(&str, AuditConfidence)>> = Lazy::new(|| 
         ("reverse_shell", AuditConfidence::Medium),
         ("exploit", AuditConfidence::Medium),
         ("webshell", AuditConfidence::Medium),
-        ("_obfuscator_", AuditConfidence::Medium),
+        ("_obfuscator_", AuditConfidence::VeryHigh),
+        ("__pyarmor__", AuditConfidence::VeryHigh),
     ]
 });
 
-fn is_suspicious_variable(variable: &str) -> Option<AuditConfidence> {
+pub fn is_suspicious_variable(variable: &str) -> Option<AuditConfidence> {
     SUSPICIOUS_SUBSTRINGS
         .iter()
         .find_map(|(substr, confidence)| {
@@ -102,15 +103,36 @@ pub fn suspicious_function_parameter(checker: &mut Checker, name: &Identifier) {
     }
 }
 
+pub fn suspicious_call_name(checker: &mut Checker, call: &ast::ExprCall) {
+    let maybe_name = match &*call.func {
+        ast::Expr::Name(ast::ExprName { id, .. }) => Some(id.as_str().to_string()),
+        ast::Expr::Attribute(ast::ExprAttribute { attr, .. }) => Some(attr.as_str().to_string()),
+        _ => None,
+    };
+
+    if let Some(name) = maybe_name {
+        if let Some(confidence) = is_suspicious_variable(&name) {
+            let description = format!("Suspicious function name: {}", name);
+            checker.audit_results.push(AuditItem {
+                label: name,
+                rule: Rule::SuspiciousFunctionName,
+                description,
+                confidence,
+                location: Some(call.range),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::audit::result::Rule;
     use crate::rules::test::*;
     use test_case::test_case;
 
-    #[test_case("identifier_01.py", Rule::SuspiciousVariable, vec!["__obfuscator__", "payload", "shellCODE_01",
-    "shellcode_02", "shellcode_03", "shellcode_04"])]
-    #[test_case("identifier_01.py", Rule::SuspiciousFunctionName, vec!["PAYLOAD_generator"])]
+    #[test_case("identifier_01.py", Rule::SuspiciousVariable, vec!["__pyarmor__", "__obfuscator__", "payload",
+    "shellCODE_01", "shellcode_02", "shellcode_03", "shellcode_04",])]
+    #[test_case("identifier_01.py", Rule::SuspiciousFunctionName, vec!["__pyarmor__", "PAYLOAD_generator", "PAYLOAD_generator"])]
     #[test_case("identifier_01.py", Rule::SuspiciousParameterName, vec!["shellcode_data"])]
     fn test_identifier(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
