@@ -1,4 +1,4 @@
 import sys
 
-sys.modules["builtins"].exec("print(3)")
-getattr(sys.modules["builtins"], 'eval')("1+1")
+sys.modules["buil"+"tins"].exec("prin"+"t(3)")
+getattr(sys.modules["buil"+"tins"], 'ev'+'al')("1+"+"1")
