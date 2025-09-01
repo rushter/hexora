@@ -200,7 +200,13 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             pattern: "discord.com/api/webhooks/".to_string(),
             description: "Discord webhook detected. Possible data exfiltration.".to_string(),
             confidence: AuditConfidence::High,
-            rule: Rule::DiscordWebHook,
+            rule: Rule::WebHook,
+        },
+        SuspiciousLiteral{
+            pattern: "//webhook.site/".to_string(),
+            description: "Webhook.site webhook detected. Possible data exfiltration.".to_string(),
+            confidence: AuditConfidence::High,
+            rule: Rule::WebHook,
         }
     ];
     for (path, confidence) in browser_path {

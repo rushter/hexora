@@ -79,7 +79,7 @@ pub enum Rule {
     SuspiciousLiteral,
     PathTraversal,
     BrowserExtension,
-    DiscordWebHook,
+    WebHook,
 
     // Variables and Parameters
     SuspiciousFunctionName,
@@ -147,7 +147,7 @@ impl Rule {
             Rule::SuspiciousLiteral => "HX6050",
             Rule::PathTraversal => "HX6060",
             Rule::BrowserExtension => "HX6070",
-            Rule::DiscordWebHook => "HX6080",
+            Rule::WebHook => "HX6080",
 
             // Variables and Parameters: HX7000
             Rule::SuspiciousFunctionName => "HX7000",
@@ -208,7 +208,7 @@ impl Rule {
             Rule::SuspiciousLiteral => "Suspicious literal detected; possible data enumeration.",
             Rule::PathTraversal => "Suspicious path traversal.",
             Rule::BrowserExtension => "Enumeration of sensitive browser extensions.",
-            Rule::DiscordWebHook => "Discord webhook detected. Possible data exfiltration.",
+            Rule::WebHook => "Suspicious webhook detected. Possible data exfiltration.",
 
             // Variables and Parameters
             Rule::SuspiciousFunctionName => "Suspicious function name.",
@@ -283,9 +283,7 @@ impl Rule {
             Rule::BrowserExtension => Some(
                 "Enumeration of sensitive browser extensions. Usually used to steal credentials.",
             ),
-            Rule::DiscordWebHook => {
-                Some("Discord webhooks are often used to exfiltrate (upload) collected data.")
-            }
+            Rule::WebHook => Some("Webhooks are often used to exfiltrate (upload) collected data."),
             _ => None,
         }
     }
