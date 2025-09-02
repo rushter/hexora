@@ -86,8 +86,9 @@ Tips:
 - Use `--min-confidence` to focus on high-confidence findings only.
 
 Confidence indicates how a certain piece of code is malicious.
-Some of the libraries are used for legit purposes, and it's hard to distinguish legit use-cases from malicious ones.
-That's why some of the matches have a low confidence level.
+Some libraries or code snippets are used for legit purposes, and it's hard to distinguish legit use-cases from 
+malicious ones.
+That's why some matches have a low confidence level.
 
 ## Usage in Python
 
