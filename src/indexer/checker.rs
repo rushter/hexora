@@ -1,7 +1,7 @@
 use crate::audit::resolver::resolve_assignment_to_imports;
 use crate::audit::result::AuditItem;
+use crate::indexer::semantic::add_binding;
 use crate::rules::{expression, statement};
-use itertools::Itertools;
 use ruff_linter::Locator;
 use ruff_python_ast;
 use ruff_python_ast::helpers::collect_import_from_member;
@@ -9,13 +9,8 @@ use ruff_python_ast::identifier::*;
 use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_semantic::{
-    BindingFlags, BindingId, BindingKind, FromImport, Import, SemanticModel, StarImport,
-    SubmoduleImport,
+    BindingFlags, BindingKind, FromImport, Import, SemanticModel, StarImport, SubmoduleImport,
 };
-use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
-use ruff_text_size::TextRange;
-
-const PYTHON_MINOR_VERSION: u8 = 13;
 
 pub struct Checker<'a> {
     pub semantic: SemanticModel<'a>,
@@ -36,110 +31,6 @@ impl<'a> Checker<'a> {
 
     pub const fn semantic(&self) -> &SemanticModel<'a> {
         &self.semantic
-    }
-
-    pub fn bind_builtins(&mut self) {
-        let mut bind_builtin = |builtin| {
-            let binding_id = self.semantic.push_builtin();
-            let scope = self.semantic.global_scope_mut();
-            scope.add(builtin, binding_id);
-        };
-        let standard_builtins = python_builtins(PYTHON_MINOR_VERSION, false);
-        for builtin in standard_builtins {
-            bind_builtin(builtin);
-        }
-        for builtin in MAGIC_GLOBALS {
-            bind_builtin(builtin);
-        }
-    }
-
-    pub fn add_binding(
-        &mut self,
-        name: &'a str,
-        range: TextRange,
-        kind: BindingKind<'a>,
-        mut flags: BindingFlags,
-    ) -> BindingId {
-        // Determine the scope to which the binding belongs.
-        // Per [PEP 572](https://peps.python.org/pep-0572/#scope-of-the-target), named
-        // expressions in generators and comprehensions bind to the scope that contains the
-        // outermost comprehension.
-        let scope_id = if kind.is_named_expr_assignment() {
-            self.semantic
-                .scopes
-                .ancestor_ids(self.semantic.scope_id)
-                .find_or_last(|scope_id| !self.semantic.scopes[*scope_id].kind.is_generator())
-                .unwrap_or(self.semantic.scope_id)
-        } else {
-            self.semantic.scope_id
-        };
-
-        if self.semantic.in_exception_handler() {
-            flags |= BindingFlags::IN_EXCEPT_HANDLER;
-        }
-        if self.semantic.in_assert_statement() {
-            flags |= BindingFlags::IN_ASSERT_STATEMENT;
-        }
-
-        // Create the `Binding`.
-        let binding_id = self.semantic.push_binding(range, kind, flags);
-
-        // If the name is private, mark is as such.
-        if name.starts_with('_') {
-            self.semantic.bindings[binding_id].flags |= BindingFlags::PRIVATE_DECLARATION;
-        }
-
-        // If there's an existing binding in this scope, copy its references.
-        if let Some(shadowed_id) = self.semantic.scopes[scope_id].get(name) {
-            // If this is an annotation, and we already have an existing value in the same scope,
-            // don't treat it as an assignment, but track it as a delayed annotation.
-            if self.semantic.binding(binding_id).kind.is_annotation() {
-                self.semantic
-                    .add_delayed_annotation(shadowed_id, binding_id);
-                return binding_id;
-            }
-
-            // Avoid shadowing builtins.
-            let shadowed = &self.semantic.bindings[shadowed_id];
-            if !matches!(
-                shadowed.kind,
-                BindingKind::Builtin | BindingKind::Deletion | BindingKind::UnboundException(_)
-            ) {
-                let references = shadowed.references.clone();
-                let is_global = shadowed.is_global();
-                let is_nonlocal = shadowed.is_nonlocal();
-
-                // If the shadowed binding was global, then this one is too.
-                if is_global {
-                    self.semantic.bindings[binding_id].flags |= BindingFlags::GLOBAL;
-                }
-
-                // If the shadowed binding was non-local, then this one is too.
-                if is_nonlocal {
-                    self.semantic.bindings[binding_id].flags |= BindingFlags::NONLOCAL;
-                }
-
-                self.semantic.bindings[binding_id].references = references;
-            }
-        } else if let Some(shadowed_id) = self
-            .semantic
-            .scopes
-            .ancestors(scope_id)
-            .skip(1)
-            .filter(|scope| scope.kind.is_function() || scope.kind.is_module())
-            .find_map(|scope| scope.get(name))
-        {
-            // Otherwise, if there's an existing binding in a parent scope, mark it as shadowed.
-            self.semantic
-                .shadowed_bindings
-                .insert(binding_id, shadowed_id);
-        }
-
-        // Add the binding to the scope.
-        let scope = &mut self.semantic.scopes[scope_id];
-        scope.add(name, binding_id);
-
-        binding_id
     }
 
     pub fn visit_body(&mut self, body: &'a [Stmt]) {
@@ -171,7 +62,8 @@ impl<'a> Visitor<'a> for Checker<'a> {
 
                     if alias.asname.is_none() && alias.name.contains('.') {
                         let qualified_name = ast::name::QualifiedName::user_defined(&alias.name);
-                        self.add_binding(
+                        add_binding(
+                            &mut self.semantic,
                             module,
                             alias.identifier(),
                             BindingKind::SubmoduleImport(SubmoduleImport {
@@ -194,7 +86,8 @@ impl<'a> Visitor<'a> for Checker<'a> {
 
                         let name = alias.asname.as_ref().unwrap_or(&alias.name);
                         let qualified_name = ast::name::QualifiedName::user_defined(&alias.name);
-                        self.add_binding(
+                        add_binding(
+                            &mut self.semantic,
                             name,
                             alias.identifier(),
                             BindingKind::Import(Import {
@@ -227,7 +120,8 @@ impl<'a> Visitor<'a> for Checker<'a> {
                 for alias in names {
                     if let Some("__future__") = module {
                         let name = alias.asname.as_ref().unwrap_or(&alias.name);
-                        self.add_binding(
+                        add_binding(
+                            &mut self.semantic,
                             name,
                             alias.identifier(),
                             BindingKind::FutureImport,
@@ -259,7 +153,8 @@ impl<'a> Visitor<'a> for Checker<'a> {
                         // module path, or the relative import extends beyond the package root,
                         // fallback to a literal representation (e.g., `[".", "foo"]`).
                         let qualified_name = collect_import_from_member(level, module, &alias.name);
-                        self.add_binding(
+                        add_binding(
+                            &mut self.semantic,
                             name,
                             alias.identifier(),
                             BindingKind::FromImport(FromImport {

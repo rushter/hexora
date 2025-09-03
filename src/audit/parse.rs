@@ -1,18 +1,20 @@
 use crate::audit::result::{AuditItem, AuditResult};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
-use crate::indexer::strings::StringTransformer;
-use crate::indexer::transformer::Transformer;
+use crate::indexer::node_transformer::NodeTransformer;
+use crate::indexer::semantic::bind_builtins;
 use crate::io::list_python_files;
-use log::error;
+use log::{error, info};
 use ruff_linter::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
+use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast};
 use ruff_python_semantic::{Module, ModuleKind, ModuleSource, SemanticModel};
 use std::path::Path;
 
-/// Parse a Python file and perform audit.
+/// Parse a Python file and perform an audit.
 pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
+    info!("Auditing file: {}", file_path.display());
     let source_code = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let audit_items = audit_source(file_path, source_code.clone())?;
     Ok(AuditResult {
@@ -48,7 +50,7 @@ fn audit_source(file_path: &Path, source: String) -> Result<Vec<AuditItem>, Stri
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
     let mut transformed_ast = python_ast.to_vec();
-    let mut transformer = StringTransformer::new(&locator, &mut indexer);
+    let transformer = NodeTransformer::new(&locator, indexer);
     transformer.visit_body(&mut transformed_ast);
 
     let module = Module {
@@ -59,8 +61,8 @@ fn audit_source(file_path: &Path, source: String) -> Result<Vec<AuditItem>, Stri
     };
     let semantic = SemanticModel::new(&[], file_path, module);
     let mut checker = Checker::new(semantic, &locator);
+    bind_builtins(&mut checker.semantic);
 
-    checker.bind_builtins();
     checker.visit_body(&transformed_ast);
     Ok(checker.audit_results)
 }
