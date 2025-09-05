@@ -8,11 +8,9 @@ use crate::rules::env::env_access;
 use crate::rules::exec::{code_exec, shell_exec};
 use crate::rules::identifier::suspicious_call_name;
 use crate::rules::literal::{check_int_literals, check_literal};
-use log::info;
 use ruff_python_ast::{self as ast, Expr};
 
 pub fn analyze(expr: &Expr, checker: &mut Checker) {
-    info!("Visiting expr parser: {:?}", expr);
     match expr {
         Expr::Call(call) => {
             shell_exec(checker, call);
