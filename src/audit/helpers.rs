@@ -1,3 +1,4 @@
+use crate::indexer::index::NodeIndexer;
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
@@ -73,9 +74,18 @@ impl ListLike for ast::ExprTuple {
 // transformed all strings to StringLiteral with raw values.
 // It makes it easier to process.
 #[inline]
-pub(crate) fn string_from_expr(expr: &ast::Expr) -> Option<String> {
+pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<String> {
     match expr {
         ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
+        ast::Expr::Name(ast::ExprName { node_index, .. }) => {
+            let external_expr = indexer.get_expr_by_index(node_index)?;
+            match external_expr {
+                ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
+                    Some(value.to_string())
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }

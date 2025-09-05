@@ -1,5 +1,6 @@
 use crate::audit::resolver::resolve_assignment_to_imports;
 use crate::audit::result::AuditItem;
+use crate::indexer::index::NodeIndexer;
 use crate::indexer::semantic::add_binding;
 use crate::rules::{expression, statement};
 use ruff_linter::Locator;
@@ -17,15 +18,21 @@ pub struct Checker<'a> {
     pub imports: Vec<&'a Stmt>,
     pub audit_results: Vec<AuditItem>,
     pub locator: &'a Locator<'a>,
+    pub indexer: NodeIndexer<'a>,
 }
 
 impl<'a> Checker<'a> {
-    pub fn new(semantic: SemanticModel<'a>, locator: &'a Locator) -> Self {
+    pub fn new(
+        semantic: SemanticModel<'a>,
+        locator: &'a Locator,
+        indexer: NodeIndexer<'a>,
+    ) -> Self {
         Self {
             semantic,
             imports: Vec::new(),
             audit_results: Vec::new(),
             locator,
+            indexer,
         }
     }
 

@@ -283,7 +283,7 @@ fn literal_preview(value: &str, max_length: usize) -> String {
 }
 
 pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
-    if let Some(literal) = string_from_expr(expr) {
+    if let Some(literal) = string_from_expr(expr, &checker.indexer) {
         if is_hexed_string(&literal) {
             checker.audit_results.push(AuditItem {
                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),

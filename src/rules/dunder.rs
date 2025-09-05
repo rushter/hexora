@@ -2,24 +2,25 @@ use crate::audit::helpers::string_from_expr;
 use crate::audit::resolver::matches_builtin_functions;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::index::NodeIndexer;
 use crate::rules::exec::{is_chained_with_base64_call, is_code_exec, is_shell_command};
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 
-fn get_import_name(call: &ast::ExprCall) -> Option<String> {
+fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
     let arguments = &call.arguments.args;
     if arguments.len() != 1 {
         return None;
     }
     if let Some(expr) = &arguments.first() {
-        return string_from_expr(expr);
+        return string_from_expr(expr, indexer);
     }
     None
 }
 
-fn get_dunder_import(call: &ast::ExprCall) -> Option<String> {
+fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
     if let Expr::Name(name_expr) = &*call.func {
-        let imported_module = get_import_name(call);
+        let imported_module = get_import_name(call, indexer);
         if name_expr.id.as_str() == "__import__" && imported_module.is_some() {
             return imported_module;
         }
@@ -30,7 +31,7 @@ fn get_dunder_import(call: &ast::ExprCall) -> Option<String> {
 fn check_dunder_attribute_call(checker: &mut Checker, call: &ast::ExprCall) {
     if let Expr::Attribute(attr) = &*call.func
         && let Expr::Call(attr_call) = &*attr.value
-        && let Some(dunder_import) = get_dunder_import(attr_call)
+        && let Some(dunder_import) = get_dunder_import(attr_call, &checker.indexer)
     {
         let name = attr.attr.as_str();
         let func_call: &[&str] = &[&dunder_import, name];
@@ -93,12 +94,12 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
         let name_expr = &getattr_call.arguments.args[1];
 
         let dunder_module = if let Expr::Call(import_call) = base_obj {
-            get_dunder_import(import_call)
+            get_dunder_import(import_call, &checker.indexer)
         } else {
             None
         };
         if let Some(module_name) = dunder_module {
-            if let Some(attr_name) = string_from_expr(name_expr) {
+            if let Some(attr_name) = string_from_expr(name_expr, &checker.indexer) {
                 let func_call: [&str; 2] = [&module_name, &attr_name];
                 let is_obf = is_chained_with_base64_call(checker, call);
                 if is_shell_command(&func_call) {
@@ -140,7 +141,7 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
 }
 
 pub fn dunder_import(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(name) = get_dunder_import(call) {
+    if let Some(name) = get_dunder_import(call, &checker.indexer) {
         checker.audit_results.push(AuditItem {
             label: format!("__import__(\"{}\")", name),
             rule: Rule::DunderImport,

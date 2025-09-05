@@ -45,6 +45,33 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    fn normalize_expr_to_string(&self, expr: &mut ast::Expr) {
+        // Try direct extraction first
+        if let Some(s) = self.extract_string(expr) {
+            let range = expr.range();
+            *expr = self.make_string_expr(range, s);
+            return;
+        }
+        // Try resolve via expr_mapping
+        let node_id = expr.node_index().load().as_u32();
+        let exprs_opt: Option<Vec<&ast::Expr>> = {
+            let indexer = self.indexer.borrow();
+            indexer.expr_mapping.get(&node_id).cloned()
+        };
+        if let Some(exprs) = exprs_opt {
+            for mapped in exprs.iter() {
+                let mut mapped_clone = (*mapped).clone();
+                // Normalize nested constructs
+                self.visit_expr(&mut mapped_clone);
+                if let Some(s) = self.extract_string(&mapped_clone) {
+                    let range = expr.range();
+                    *expr = self.make_string_expr(range, s);
+                    break;
+                }
+            }
+        }
+    }
+
     fn is_reverse_slice(&self, slice_expr: &ast::Expr) -> bool {
         if let ast::Expr::Slice(slc) = slice_expr {
             if slc.lower.is_none() && slc.upper.is_none() {
@@ -213,6 +240,14 @@ impl<'a> NodeTransformer<'a> {
                     }
                 }
             }
+        }
+
+        // Generalize: attempt to normalize all call arguments to strings when resolvable
+        for arg in &mut call.arguments.args {
+            self.normalize_expr_to_string(arg);
+        }
+        for keyword in &mut call.arguments.keywords {
+            self.normalize_expr_to_string(&mut keyword.value);
         }
         None
     }

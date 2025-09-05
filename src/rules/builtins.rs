@@ -42,7 +42,7 @@ fn contains_builtins_name<'a>(
     };
 
     let var_name = matches_builtin_functions(checker, &call.func, &["globals", "locals", "vars"])?;
-    let key = string_from_expr(slice)?;
+    let key = string_from_expr(slice, &checker.indexer)?;
 
     matches!(key.as_str(), "__builtins__" | "builtins").then_some((var_name, key))
 }
@@ -58,7 +58,7 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
         return None;
     };
 
-    let key = string_from_expr(slice)?;
+    let key = string_from_expr(slice, &checker.indexer)?;
     matches!(key.as_str(), "__builtins__" | "builtins").then_some(key)
 }
 
@@ -72,7 +72,7 @@ fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Opti
     };
 
     let first_arg = call.arguments.args.first()?;
-    let key = string_from_expr(first_arg)?;
+    let key = string_from_expr(first_arg, &checker.indexer)?;
 
     matches!(key.as_str(), "__builtins__" | "builtins").then_some(key)
 }
@@ -114,7 +114,7 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
             let attr_name_expr = &getattr_call.arguments.args[1];
             if let Expr::Name(base_name) = base_obj {
                 if base_name.id.as_str() == "__builtins__" {
-                    if let Some(attr_name) = string_from_expr(attr_name_expr) {
+                    if let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer) {
                         if is_eval_or_exec(&attr_name) {
                             push_exec_report(checker, call, format!("__builtins__.{}", attr_name));
                             return;
@@ -123,7 +123,7 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
                 }
             }
             // getattr(sys.modules["__builtins__" or "builtins"], "eval"/"exec")(...)
-            if let Some(attr_name) = string_from_expr(attr_name_expr) {
+            if let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer) {
                 if is_eval_or_exec(&attr_name) {
                     if let Some(key) = contains_sys_modules_builtins(checker, base_obj) {
                         push_exec_report(
