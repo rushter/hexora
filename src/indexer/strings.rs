@@ -1,38 +1,24 @@
-use crate::indexer::index::NodeIndexer;
-use crate::indexer::transformer;
+use crate::indexer::node_transformer::NodeTransformer;
 use itertools::Itertools;
-use ruff_linter::Locator;
 use ruff_python_ast::str::raw_contents;
+use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast, AtomicNodeIndex, HasNodeIndex, Operator, StringLiteralFlags};
 use ruff_text_size::{Ranged, TextRange};
-use std::collections::HashSet;
 
-/// This module rewrites string literals to their raw contents.
-/// We want to have string values unchanged.
-pub struct StringTransformer<'a> {
-    pub locator: &'a Locator<'a>,
-    pub indexer: &'a mut NodeIndexer,
-    pub updated_strings: HashSet<u32>,
-}
-
-impl<'a> StringTransformer<'a> {
-    pub fn new(locator: &'a Locator, indexer: &'a mut NodeIndexer) -> Self {
-        Self {
-            locator,
-            indexer,
-            updated_strings: HashSet::new(),
-        }
-    }
-
+impl<'a> NodeTransformer<'a> {
     fn collect_raw(&self, ranges: impl Iterator<Item = TextRange>) -> String {
         ranges
             .filter_map(|r| raw_contents(self.locator.slice(r)))
             .collect()
     }
 
-    fn make_string_expr(&mut self, range: TextRange, value: String) -> ast::Expr {
-        let node_id = self.indexer.get_index_atomic();
-        self.updated_strings.insert(node_id.load().as_u32());
+    fn make_string_expr(&self, range: TextRange, value: String) -> ast::Expr {
+        let node_id = self.indexer.borrow_mut().get_index_atomic();
+        self.updated_strings
+            .borrow_mut()
+            .insert(node_id.load().as_u32());
+
+        let inner_id = AtomicNodeIndex::from(node_id.load().as_u32());
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
             node_index: node_id,
@@ -41,7 +27,7 @@ impl<'a> StringTransformer<'a> {
                 value: Box::from(value),
                 range,
                 flags: StringLiteralFlags::empty(),
-                node_index: self.indexer.get_index_atomic(),
+                node_index: inner_id,
             }),
         })
     }
@@ -50,7 +36,7 @@ impl<'a> StringTransformer<'a> {
         match expr {
             ast::Expr::StringLiteral(s) => {
                 let sid = s.node_index.load().as_u32();
-                if self.updated_strings.contains(&sid) {
+                if self.updated_strings.borrow().contains(&sid) {
                     return s.value.iter().next().map(|seg| seg.value.to_string());
                 }
                 Some(self.collect_raw(s.value.iter().map(|r| r.range)))
@@ -58,12 +44,182 @@ impl<'a> StringTransformer<'a> {
             _ => None,
         }
     }
-}
 
-impl<'a> transformer::Transformer for StringTransformer<'a> {
-    fn visit_expr(&mut self, expr: &mut ast::Expr) {
+    fn is_reverse_slice(&self, slice_expr: &ast::Expr) -> bool {
+        if let ast::Expr::Slice(slc) = slice_expr {
+            if slc.lower.is_none() && slc.upper.is_none() {
+                if let Some(step) = &slc.step {
+                    let text = self.locator.slice(step.range());
+                    return text.trim() == "-1";
+                }
+            }
+        }
+        false
+    }
+
+    fn collect_string_elements(
+        &self,
+        elements: &[ast::Expr],
+        reverse: bool,
+    ) -> Option<Vec<String>> {
+        let mut parts: Vec<String> = Vec::with_capacity(elements.len());
+
+        for element in elements {
+            if let Some(s) = self.extract_string(element) {
+                parts.push(s);
+            } else {
+                // Try to resolve through expression mapping
+                let node_id = element.node_index().load().as_u32();
+                let exprs_opt: Option<Vec<&ast::Expr>> = {
+                    let indexer = self.indexer.borrow();
+                    indexer.expr_mapping.get(&node_id).cloned()
+                };
+                if let Some(exprs) = exprs_opt {
+                    let mut resolved = String::new();
+                    let mut any = false;
+                    for mapped in exprs.iter() {
+                        let mut mapped_clone = (*mapped).clone();
+                        self.visit_expr(&mut mapped_clone);
+                        if let Some(s) = self.extract_string(&mapped_clone) {
+                            resolved.push_str(&s);
+                            any = true;
+                        } else {
+                            any = false;
+                            resolved.clear();
+                            break;
+                        }
+                    }
+                    if any {
+                        parts.push(resolved);
+                        continue;
+                    }
+                }
+                return None;
+            }
+        }
+
+        if reverse {
+            parts.reverse();
+        }
+
+        Some(parts)
+    }
+
+    fn sequence_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
+        match expr {
+            ast::Expr::List(list) => self.collect_string_elements(&list.elts, reverse),
+            ast::Expr::Tuple(tuple) => self.collect_string_elements(&tuple.elts, reverse),
+            ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
+                self.sequence_to_parts(&sub.value, !reverse)
+            }
+            ast::Expr::Call(inner_call) => {
+                // reversed(x)
+                let is_reversed = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
+                if is_reversed
+                    && inner_call.arguments.keywords.is_empty()
+                    && inner_call.arguments.args.len() == 1
+                {
+                    return self.sequence_to_parts(&inner_call.arguments.args[0], !reverse);
+                }
+                None
+            }
+            _ => {
+                if let Some(s) = self.extract_string(expr) {
+                    let mut parts: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+                    if reverse {
+                        parts.reverse();
+                    }
+                    return Some(parts);
+                }
+
+                // Resolve variable
+                let node_id = expr.node_index().load().as_u32();
+                let exprs_opt: Option<Vec<&ast::Expr>> = {
+                    let indexer = self.indexer.borrow();
+                    indexer.expr_mapping.get(&node_id).cloned()
+                };
+                if let Some(exprs) = exprs_opt {
+                    for mapped in exprs.iter() {
+                        let mut mapped_clone = (*mapped).clone();
+                        // Normalize nested constructs
+                        self.visit_expr(&mut mapped_clone);
+                        if let Some(parts) = self.sequence_to_parts(&mapped_clone, reverse) {
+                            return Some(parts);
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// "".join(...)
+    fn handle_join_operation(
+        &self,
+        sep: &str,
+        seq_expr: &ast::Expr,
+        call_range: TextRange,
+    ) -> Option<ast::Expr> {
+        self.sequence_to_parts(seq_expr, false)
+            .map(|parts| parts.join(sep))
+            .map(|joined| self.make_string_expr(call_range, joined))
+    }
+
+    /// "a"+"b"+"c"
+    fn transform_binop(&self, binop: &mut ast::ExprBinOp) -> Option<ast::Expr> {
+        // Children are already visited by the outer traversal.
+        if let Operator::Add = binop.op {
+            if let (Some(l), Some(r)) = (
+                self.extract_string(&binop.left),
+                self.extract_string(&binop.right),
+            ) {
+                return Some(self.make_string_expr(binop.range, l + &r));
+            }
+        }
+        None
+    }
+
+    // "x"[::-1]
+    fn transform_subscript(&self, sub: &mut ast::ExprSubscript) -> Option<ast::Expr> {
+        // Children are already visited by the outer traversal.
+        if self.is_reverse_slice(&sub.slice) {
+            if let Some(s) = self.extract_string(&sub.value) {
+                let rev: String = s.chars().rev().collect();
+                return Some(self.make_string_expr(sub.range, rev));
+            }
+        }
+        None
+    }
+
+    fn transform_call(&self, call: &mut ast::ExprCall) -> Option<ast::Expr> {
+        // Children are already visited by the outer traversal.
+        if let ast::Expr::Attribute(attr) = call.func.as_ref() {
+            // b"x".decode(...)
+            if attr.attr.as_str() == "decode" {
+                if let Some(s) = self.extract_string(&attr.value) {
+                    return Some(self.make_string_expr(call.range, s));
+                }
+            }
+
+            // "".join(...)
+            if attr.attr.as_str() == "join"
+                && call.arguments.keywords.is_empty()
+                && call.arguments.args.len() == 1
+            {
+                if let Some(sep) = self.extract_string(&attr.value) {
+                    let seq_expr = &call.arguments.args[0];
+                    if let Some(result) = self.handle_join_operation(&sep, seq_expr, call.range) {
+                        return Some(result);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn transform_strings(&self, expr: &mut ast::Expr) {
         let node_id = expr.node_index().load().as_u32();
-        if self.updated_strings.contains(&node_id) {
+        if self.updated_strings.borrow_mut().contains(&node_id) {
             return;
         }
 
@@ -71,7 +227,6 @@ impl<'a> transformer::Transformer for StringTransformer<'a> {
             ast::Expr::StringLiteral(s) => {
                 let content = self.collect_raw(s.value.iter().map(|r| r.range));
                 let node_id = s.node_index.load().as_u32();
-                self.updated_strings.insert(node_id);
                 s.value = ast::StringLiteralValue::single(ast::StringLiteral {
                     value: Box::from(content),
                     range: s.range,
@@ -96,219 +251,38 @@ impl<'a> transformer::Transformer for StringTransformer<'a> {
             }
 
             ast::Expr::BinOp(binop) => {
-                self.visit_expr(&mut binop.left);
-                self.visit_operator(&mut binop.op);
-                self.visit_expr(&mut binop.right);
-
-                if let Operator::Add = binop.op {
-                    if let (Some(l), Some(r)) = (
-                        self.extract_string(&binop.left),
-                        self.extract_string(&binop.right),
-                    ) {
-                        *expr = self.make_string_expr(binop.range, l + &r);
-                        return;
-                    }
+                if let Some(new_expr) = self.transform_binop(binop) {
+                    *expr = new_expr;
                 }
             }
 
             ast::Expr::Subscript(sub) => {
-                // Handle "string"[::-1] reversal
-                self.visit_expr(&mut sub.value);
-                self.visit_expr(&mut sub.slice);
-                let is_reverse_slice = |slice_expr: &ast::Expr| -> bool {
-                    if let ast::Expr::Slice(slc) = slice_expr {
-                        if slc.lower.is_none() && slc.upper.is_none() {
-                            if let Some(step) = &slc.step {
-                                let text = self.locator.slice(step.range());
-                                return text.trim() == "-1";
-                            }
-                        }
-                    }
-                    false
-                };
-                if is_reverse_slice(&sub.slice) {
-                    if let Some(s) = self.extract_string(&sub.value) {
-                        let rev: String = s.chars().rev().collect();
-                        *expr = self.make_string_expr(sub.range, rev);
-                        return;
-                    }
+                if let Some(new_expr) = self.transform_subscript(sub) {
+                    *expr = new_expr;
                 }
             }
 
             ast::Expr::Call(call) => {
-                //  "".join([...]) where all elements are constant strings,
-                //  reversed() or [::-1]
-                self.visit_expr(&mut call.func);
-                for arg in &mut call.arguments.args {
-                    self.visit_expr(arg);
-                }
-                for kw in &mut call.arguments.keywords {
-                    self.visit_expr(&mut kw.value);
-                }
-
-                let is_reverse_slice = |slice_expr: &ast::Expr| -> bool {
-                    if let ast::Expr::Slice(slc) = slice_expr {
-                        if slc.lower.is_none() && slc.upper.is_none() {
-                            if let Some(step) = &slc.step {
-                                let text = self.locator.slice(step.range());
-                                return text.trim() == "-1";
-                            }
-                        }
-                    }
-                    false
-                };
-
-                if let ast::Expr::Attribute(attr) = call.func.as_ref() {
-                    // Handle "string".decode("...") -> "string"
-                    if attr.attr.as_str() == "decode" {
-                        if let Some(s) = self.extract_string(&attr.value) {
-                            *expr = self.make_string_expr(call.range, s);
-                            return;
-                        }
-                    }
-                    if attr.attr.as_str() == "join"
-                        && call.arguments.keywords.is_empty()
-                        && call.arguments.args.len() == 1
-                    {
-                        if let Some(sep) = self.extract_string(&attr.value) {
-                            let seq_expr = &call.arguments.args[0];
-                            let collect_elems = |elts: &Vec<ast::Expr>| -> Option<String> {
-                                let mut parts: Vec<String> = Vec::with_capacity(elts.len());
-                                for e in elts.iter() {
-                                    if let Some(s) = self.extract_string(e) {
-                                        parts.push(s);
-                                    } else {
-                                        return None;
-                                    }
-                                }
-                                Some(parts.join(&sep))
-                            };
-                            let collect_elems_rev = |elts: &Vec<ast::Expr>| -> Option<String> {
-                                let mut parts: Vec<String> = Vec::with_capacity(elts.len());
-                                for e in elts.iter() {
-                                    if let Some(s) = self.extract_string(e) {
-                                        parts.push(s);
-                                    } else {
-                                        return None;
-                                    }
-                                }
-                                parts.reverse();
-                                Some(parts.join(&sep))
-                            };
-
-                            // Direct list/tuple
-                            match seq_expr {
-                                ast::Expr::List(list) => {
-                                    if let Some(joined) = collect_elems(&list.elts) {
-                                        *expr = self.make_string_expr(call.range, joined);
-                                        return;
-                                    }
-                                }
-                                ast::Expr::Tuple(tuple) => {
-                                    if let Some(joined) = collect_elems(&tuple.elts) {
-                                        *expr = self.make_string_expr(call.range, joined);
-                                        return;
-                                    }
-                                }
-                                _ => {}
-                            }
-
-                            // Direct string argument: join characters
-                            if let Some(s) = self.extract_string(seq_expr) {
-                                let joined = s.chars().map(|c| c.to_string()).join(&sep);
-                                *expr = self.make_string_expr(call.range, joined);
-                                return;
-                            }
-
-                            // list/tuple/string with [::-1]
-                            if let ast::Expr::Subscript(sub) = seq_expr {
-                                if is_reverse_slice(&sub.slice) {
-                                    match sub.value.as_ref() {
-                                        ast::Expr::List(list) => {
-                                            if let Some(joined) = collect_elems_rev(&list.elts) {
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                        ast::Expr::Tuple(tuple) => {
-                                            if let Some(joined) = collect_elems_rev(&tuple.elts) {
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                        _ => {
-                                            if let Some(s) = self.extract_string(&sub.value) {
-                                                let parts: Vec<String> = s
-                                                    .chars()
-                                                    .rev()
-                                                    .map(|c| c.to_string())
-                                                    .collect();
-                                                let joined = parts.join(&sep);
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // reversed(...)
-                            if let ast::Expr::Call(inner_call) = seq_expr {
-                                let is_reversed = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
-                                if is_reversed
-                                    && inner_call.arguments.keywords.is_empty()
-                                    && inner_call.arguments.args.len() == 1
-                                {
-                                    let target = &inner_call.arguments.args[0];
-                                    match target {
-                                        ast::Expr::List(list) => {
-                                            if let Some(joined) = collect_elems_rev(&list.elts) {
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                        ast::Expr::Tuple(tuple) => {
-                                            if let Some(joined) = collect_elems_rev(&tuple.elts) {
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                        _ => {
-                                            if let Some(s) = self.extract_string(target) {
-                                                let parts: Vec<String> = s
-                                                    .chars()
-                                                    .rev()
-                                                    .map(|c| c.to_string())
-                                                    .collect();
-                                                let joined = parts.join(&sep);
-                                                *expr = self.make_string_expr(call.range, joined);
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if let Some(new_expr) = self.transform_call(call) {
+                    *expr = new_expr;
                 }
             }
 
             _ => {}
         }
-
-        transformer::walk_expr(self, expr);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::indexer::index::NodeIndexer;
-    use crate::indexer::strings::StringTransformer;
-    use crate::indexer::transformer::Transformer;
+    use crate::indexer::strings::NodeTransformer;
     use ruff_linter::Locator;
     use ruff_python_ast::visitor::source_order::*;
+    use ruff_python_ast::visitor::transformer::Transformer;
     use ruff_python_ast::*;
     use ruff_text_size::TextRange;
+    use unindent::unindent;
 
     #[derive(Debug, PartialEq)]
     pub struct StringItem {
@@ -341,7 +315,7 @@ mod tests {
         let mut indexer = NodeIndexer::new();
         indexer.visit_body(python_ast);
         let mut transformed_ast = python_ast.to_vec();
-        let mut transformer = StringTransformer::new(&locator, &mut indexer);
+        let transformer = NodeTransformer::new(&locator, indexer);
         transformer.visit_body(&mut transformed_ast);
         let mut visitor = StringVisitor::new();
         visitor.visit_body(&transformed_ast);
@@ -509,6 +483,58 @@ mod tests {
             location: TextRange::new(4.into(), 17.into()),
         }];
         let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_join_with_variables() {
+        let source = unindent(
+            r#"
+             a = "cool"
+             c = "".join(["the_",a, "_string"])
+        "#,
+        );
+        let expected = vec![
+            StringItem {
+                string: "cool".to_string(),
+                location: TextRange::new(4.into(), 10.into()),
+            },
+            StringItem {
+                string: "the_cool_string".to_string(),
+                location: TextRange::new(15.into(), 45.into()),
+            },
+        ];
+        let actual = get_strings(&source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_join_var() {
+        let source = unindent(
+            r#"
+             a = ["the_", "cool", "_string"]
+             c = "".join(a)
+        "#,
+        );
+        let expected = vec![
+            StringItem {
+                string: "the_".to_string(),
+                location: TextRange::new(5.into(), 11.into()),
+            },
+            StringItem {
+                string: "cool".to_string(),
+                location: TextRange::new(13.into(), 19.into()),
+            },
+            StringItem {
+                string: "_string".to_string(),
+                location: TextRange::new(21.into(), 30.into()),
+            },
+            StringItem {
+                string: "the_cool_string".to_string(),
+                location: TextRange::new(36.into(), 46.into()),
+            },
+        ];
+        let actual = get_strings(&source);
         assert_eq!(expected, actual);
     }
 }

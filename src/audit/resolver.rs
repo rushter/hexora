@@ -1,5 +1,6 @@
 use crate::audit::helpers::ListLike;
 use crate::indexer::checker::Checker;
+use crate::indexer::semantic::add_binding;
 use log::debug;
 use ruff_python_ast as ast;
 use ruff_python_semantic::{BindingFlags, BindingKind, Import};
@@ -14,7 +15,8 @@ fn bind_pair<'a>(left: &'a ast::Expr, right: &'a ast::Expr, checker: &mut Checke
                 }),
                 None => BindingKind::Assignment,
             };
-            checker.add_binding(
+            add_binding(
+                &mut checker.semantic,
                 name_expr.id.as_str(),
                 name_expr.range,
                 binding_kind,
@@ -109,7 +111,8 @@ pub fn resolve_assignment_to_imports<'a>(
                     }),
                     None => BindingKind::Assignment,
                 };
-                checker.add_binding(
+                add_binding(
+                    &mut checker.semantic,
                     name_expr.id.as_str(),
                     name_expr.range,
                     binding_kind,
