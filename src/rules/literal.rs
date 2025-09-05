@@ -244,7 +244,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
     for (name, pattern, confidence) in browser_extensions {
         m.push(SuspiciousLiteral {
             pattern: pattern.to_string(),
-            description: format!("Enumeration of {} browser extension .", name),
+            description: format!("Enumeration of {} browser extension.", name),
             confidence,
             rule: Rule::BrowserExtension,
         });

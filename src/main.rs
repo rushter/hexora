@@ -1,11 +1,4 @@
-use crate::cli::run_cli;
-
-mod audit;
-mod cli;
-mod indexer;
-mod io;
-mod macros;
-mod rules;
+use hexora::cli::run_cli;
 
 const CLI_START_ARG_STANDALONE: usize = 0;
 
