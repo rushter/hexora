@@ -5,6 +5,7 @@ use crate::indexer::node_transformer::NodeTransformer;
 use crate::indexer::semantic::bind_builtins;
 use crate::io::list_python_files;
 use log::{debug, error};
+use rayon::prelude::*;
 use ruff_linter::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::visitor::transformer::Transformer;
@@ -24,19 +25,20 @@ pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
     })
 }
 
-/// Audit multiple files lazily and return an iterator of results.
+/// Audit multiple files in parallel
 pub fn audit_path(file_path: &Path) -> Result<impl Iterator<Item = AuditResult>, &str> {
     if let Some(files) = list_python_files(file_path) {
-        let iter = files
-            .into_iter()
-            .filter_map(|path_buf| match audit_file(&path_buf) {
+        let results: Vec<AuditResult> = files
+            .par_iter()
+            .filter_map(|path_buf| match audit_file(path_buf) {
                 Ok(result) => Some(result),
                 Err(e) => {
                     error!("Error auditing file {}: {}", path_buf.display(), e);
                     None
                 }
-            });
-        Ok(iter)
+            })
+            .collect();
+        Ok(results.into_iter())
     } else {
         Err("No Python files found")
     }
