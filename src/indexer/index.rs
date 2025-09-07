@@ -52,9 +52,9 @@ impl<'a> NodeIndexer<'a> {
     pub fn get_index_atomic(&mut self) -> AtomicNodeIndex {
         AtomicNodeIndex::from(self.get_index())
     }
-    pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&Vec<&Expr>> {
+    pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&[&Expr]> {
         let id = index.load().as_u32();
-        self.expr_mapping.get(&id).map(|v| &*v)
+        self.expr_mapping.get(&id).map(|v| &**v)
     }
 }
 
