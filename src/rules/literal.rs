@@ -207,6 +207,12 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             description: "Webhook.site webhook detected. Possible data exfiltration.".to_string(),
             confidence: AuditConfidence::High,
             rule: Rule::WebHook,
+        },
+        SuspiciousLiteral{
+            pattern:"xmrig".to_string(),
+            description: "XMRig miner detected. Possible cryptomining activity.".to_string(),
+            confidence: AuditConfidence::High,
+            rule: Rule::SuspiciousLiteral,
         }
     ];
     for (path, confidence) in browser_path {
