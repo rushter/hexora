@@ -2,7 +2,6 @@ use crate::audit::result::{AuditItem, AuditResult};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
 use crate::indexer::node_transformer::NodeTransformer;
-use crate::indexer::semantic::bind_builtins;
 use crate::io::list_python_files;
 use log::{debug, error};
 use rayon::prelude::*;
@@ -10,14 +9,13 @@ use ruff_linter::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast};
-use ruff_python_semantic::{Module, ModuleKind, ModuleSource, SemanticModel};
 use std::path::Path;
 
 /// Parse a Python file and perform an audit.
 pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
     debug!("Auditing file: {}", file_path.display());
     let source_code = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
-    let audit_items = audit_source(file_path, source_code.clone())?;
+    let audit_items = audit_source(source_code.clone())?;
     Ok(AuditResult {
         path: file_path.to_path_buf(),
         items: audit_items,
@@ -44,7 +42,7 @@ pub fn audit_path(file_path: &Path) -> Result<impl Iterator<Item = AuditResult>,
     }
 }
 
-fn audit_source(file_path: &Path, source: String) -> Result<Vec<AuditItem>, String> {
+fn audit_source(source: String) -> Result<Vec<AuditItem>, String> {
     let parsed = ruff_python_parser::parse_unchecked_source(&source, ast::PySourceType::Python);
     let locator = Locator::new(&source);
     let python_ast = parsed.suite();
@@ -55,15 +53,7 @@ fn audit_source(file_path: &Path, source: String) -> Result<Vec<AuditItem>, Stri
     let transformer = NodeTransformer::new(&locator, indexer);
     transformer.visit_body(&mut transformed_ast);
 
-    let module = Module {
-        kind: ModuleKind::Module,
-        source: ModuleSource::File(file_path),
-        python_ast: &transformed_ast,
-        name: None,
-    };
-    let semantic = SemanticModel::new(&[], file_path, module);
-    let mut checker = Checker::new(semantic, &locator, transformer.indexer.into_inner());
-    bind_builtins(&mut checker.semantic);
+    let mut checker = Checker::new(&locator, transformer.indexer.into_inner());
 
     checker.visit_body(&transformed_ast);
     Ok(checker.audit_results)

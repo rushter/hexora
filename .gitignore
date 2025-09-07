@@ -57,3 +57,4 @@ target/
 .venv/
 venv/
 resources/test/test.py
+samples/

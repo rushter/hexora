@@ -72,7 +72,7 @@ pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> b
     fn contains_b64decode(checker: &Checker, expr: &ast::Expr) -> bool {
         match expr {
             ast::Expr::Call(inner_call) => {
-                if let Some(qn) = checker.semantic().resolve_qualified_name(&inner_call.func) {
+                if let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func) {
                     let segments = qn.segments();
                     if segments.len() == 2 && segments[0] == "base64" && segments[1] == "b64decode"
                     {
@@ -169,7 +169,7 @@ fn sys_modules_contain_imports(
     let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
         return None;
     };
-    let qn = checker.semantic().resolve_qualified_name(value.as_ref())?;
+    let qn = checker.indexer.resolve_qualified_name(value.as_ref())?;
     let ["sys", "modules"] = qn.segments() else {
         return None;
     };
@@ -186,7 +186,7 @@ fn importlib_contains_imports(
     let ast::Expr::Call(call) = expr else {
         return None;
     };
-    let qn = checker.semantic().resolve_qualified_name(&call.func)?;
+    let qn = checker.indexer.resolve_qualified_name(&call.func)?;
     let ["importlib", "import_module"] = qn.segments() else {
         return None;
     };
@@ -216,7 +216,7 @@ fn resolve_import_origin(
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    let qualified_name = checker.semantic().resolve_qualified_name(&call.func);
+    let qualified_name = checker.indexer.resolve_qualified_name(&call.func);
     if let Some(qualified_name) = qualified_name
         && is_shell_command(qualified_name.segments())
     {
@@ -245,7 +245,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 
     // getattr(importlib.import_module("os"), "<func>")(…) or getattr(sys.modules["os"], "<func>")(…)
     if let ast::Expr::Call(inner_call) = &*call.func {
-        if let Some(qn) = checker.semantic().resolve_qualified_name(&inner_call.func) {
+        if let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func) {
             let segments = qn.segments();
             let is_getattr = segments.last().map(|s| *s == "getattr").unwrap_or(false);
             if is_getattr {
@@ -280,11 +280,10 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 }
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    let qualified_name = checker.semantic().resolve_qualified_name(&call.func);
-    if let Some(qualified_name) = qualified_name
-        && is_code_exec(qualified_name.segments())
+    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func)
+        && is_code_exec(qn.segments())
     {
-        push_code_report(checker, call, qualified_name.to_string());
+        push_code_report(checker, call, qn.to_string());
     }
 }
 

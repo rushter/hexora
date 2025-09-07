@@ -50,7 +50,7 @@ fn dll_injection_using_ctypes(
 
 /// Checks for possible DLL injection in Python code.
 pub fn dll_injection(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qualified_name) = checker.semantic().resolve_qualified_name(&call.func) {
+    if let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) {
         let segments = qualified_name.segments();
         match segments.first().copied() {
             Some("ctypes") => {

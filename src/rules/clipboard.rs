@@ -5,7 +5,7 @@ use ruff_python_ast::name::QualifiedName;
 
 pub fn clipboard_read(checker: &mut Checker, call: &ast::ExprCall) {
     let clipboard_name: Option<QualifiedName> = checker
-        .semantic()
+        .indexer
         .resolve_qualified_name(&call.func)
         .filter(|qualified_name| {
             matches!(

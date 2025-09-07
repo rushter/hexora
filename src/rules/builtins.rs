@@ -53,7 +53,7 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
         return None;
     };
 
-    let qn = checker.semantic().resolve_qualified_name(value.as_ref())?;
+    let qn = checker.indexer.resolve_qualified_name(value.as_ref())?;
     let ["sys", "modules"] = qn.segments() else {
         return None;
     };
@@ -66,7 +66,7 @@ fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Opti
     // importlib.import_module("builtins" or "__builtins__")
     let Expr::Call(call) = expr else { return None };
 
-    let qn = checker.semantic().resolve_qualified_name(&call.func)?;
+    let qn = checker.indexer.resolve_qualified_name(&call.func)?;
     let ["importlib", "import_module"] = qn.segments() else {
         return None;
     };
