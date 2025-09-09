@@ -215,6 +215,25 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
+        // Handle os.path.join
+        if let Some(name) = resolve_qualified_name(&call.func) {
+            if name == "os.path.join"
+                && call.arguments.keywords.is_empty()
+                && !call.arguments.args.is_empty()
+            {
+                let mut parts = Vec::new();
+                for arg in &call.arguments.args {
+                    if let Some(s) = self.extract_string(arg) {
+                        parts.push(s);
+                    } else {
+                        return None;
+                    }
+                }
+                let joined = parts.join("/");
+                return Some(self.make_string_expr(call.range, joined));
+            }
+        }
+
         None
     }
 
@@ -271,6 +290,16 @@ impl<'a> NodeTransformer<'a> {
 
             _ => {}
         }
+    }
+}
+
+fn resolve_qualified_name(expr: &ast::Expr) -> Option<String> {
+    match expr {
+        ast::Expr::Name(name) => Some(name.id.to_string()),
+        ast::Expr::Attribute(attr) => {
+            resolve_qualified_name(&attr.value).map(|base| format!("{}.{}", base, attr.attr))
+        }
+        _ => None,
     }
 }
 
@@ -536,6 +565,17 @@ mod tests {
             },
         ];
         let actual = get_strings(&source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_os_path_join() {
+        let source = r#"a = os.path.join("~/.ssh", "id_rsa")"#;
+        let expected = vec![StringItem {
+            string: "~/.ssh/id_rsa".to_string(),
+            location: TextRange::new(4.into(), 36.into()),
+        }];
+        let actual = get_strings(source);
         assert_eq!(expected, actual);
     }
 }
