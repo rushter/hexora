@@ -430,7 +430,7 @@ mod tests {
     #[test_case("literal_04.py", Rule::AppEnumeration, vec!["1Password", "KeePass"])]
     #[test_case("literal_04.py", Rule::PathEnumeration, vec!["/etc/passwd"])]
     #[test_case("literal_04.py", Rule::SuspiciousLiteral, vec!["uname -a"])]
-    // #[test_case("literal_05.py", Rule::SuspiciousLiteral, vec![".ssh/id_rsa"])]
+    #[test_case("literal_05.py", Rule::SuspiciousLiteral, vec![".ssh/id_rsa"])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
