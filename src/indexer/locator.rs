@@ -60,7 +60,7 @@ impl<'a> Locator<'a> {
     ///
     /// ```
     /// # use ruff_text_size::{Ranged, TextRange, TextSize};
-    /// # use ruff_linter::Locator;
+    /// # use hexora::indexer::locator::Locator;
     ///
     /// let locator = Locator::new("Hello");
     ///
