@@ -838,40 +838,40 @@ mod tests {
             assert_eq!(resolved, None);
         });
     }
-}
 
-#[test]
-fn test_contains_builtins() {
-    let indexer = NodeIndexer::new();
-    let has_eval = indexer
-        .scope_stack
-        .first()
-        .unwrap()
-        .symbols
-        .contains_key("eval");
-    let has_getattr = indexer
-        .scope_stack
-        .first()
-        .unwrap()
-        .symbols
-        .contains_key("getattr");
-    assert!(
-        has_eval && has_getattr,
-        "Builtins should be bound in NodeIndexer global scope"
-    );
-}
+    #[test]
+    fn test_contains_builtins() {
+        let indexer = NodeIndexer::new();
+        let has_eval = indexer
+            .scope_stack
+            .first()
+            .unwrap()
+            .symbols
+            .contains_key("eval");
+        let has_getattr = indexer
+            .scope_stack
+            .first()
+            .unwrap()
+            .symbols
+            .contains_key("getattr");
+        assert!(
+            has_eval && has_getattr,
+            "Builtins should be bound in NodeIndexer global scope"
+        );
+    }
 
-#[test]
-fn test_contains_magic_vars() {
-    let indexer = NodeIndexer::new();
-    let has_dunder_name = indexer
-        .scope_stack
-        .first()
-        .unwrap()
-        .symbols
-        .contains_key("__name__");
-    assert!(
-        has_dunder_name,
-        "Magic globals like __name__ should be bound"
-    );
+    #[test]
+    fn test_contains_magic_vars() {
+        let indexer = NodeIndexer::new();
+        let has_dunder_name = indexer
+            .scope_stack
+            .first()
+            .unwrap()
+            .symbols
+            .contains_key("__name__");
+        assert!(
+            has_dunder_name,
+            "Magic globals like __name__ should be bound"
+        );
+    }
 }
