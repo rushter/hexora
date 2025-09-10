@@ -224,13 +224,9 @@ impl<'a> NodeIndexer<'a> {
             Expr::Tuple(ExprTuple { elts, .. }) | Expr::List(ExprList { elts, .. }) => Some(elts),
             _ => None,
         } {
-            let count = target_elts.len().min(value_elts.len());
-            for i in 0..count {
-                self.handle_assignment_target(target_elts[i], &value_elts[i]);
-            }
-            if target_elts.len() > value_elts.len() {
-                for elt in target_elts.iter().skip(value_elts.len()) {
-                    self.handle_assignment_target(elt, value);
+            if target_elts.len() == value_elts.len() {
+                for i in 0..target_elts.len() {
+                    self.handle_assignment_target(target_elts[i], &value_elts[i]);
                 }
             }
         } else {
@@ -880,5 +876,37 @@ mod tests {
             has_dunder_name,
             "Magic globals like __name__ should be bound"
         );
+    }
+
+    #[test]
+    fn test_sequence_unpacking_insufficient_values() {
+        let source = "a, b = [1]";
+        with_indexer(source, |indexer, _suite| {
+            let scope = &indexer.scope_stack[0];
+            assert!(!scope.symbols.contains_key("a"));
+            assert!(!scope.symbols.contains_key("b"));
+        });
+    }
+
+    #[test]
+    fn test_sequence_unpacking_extra_values() {
+        let source = "a, b = [1, 2, 3]";
+        with_indexer(source, |indexer, _suite| {
+            let scope = &indexer.scope_stack[0];
+            assert!(!scope.symbols.contains_key("a"));
+            assert!(!scope.symbols.contains_key("b"));
+        });
+    }
+
+    #[test]
+    fn test_sequence_unpacking_exact_match() {
+        let source = "a, b = [1, 2]";
+        with_indexer(source, |indexer, _suite| {
+            let scope = &indexer.scope_stack[0];
+            let a_binding = scope.symbols.get("a").unwrap();
+            assert_eq!(a_binding.assigned_expressions.len(), 1);
+            let b_binding = scope.symbols.get("b").unwrap();
+            assert_eq!(b_binding.assigned_expressions.len(), 1);
+        });
     }
 }
