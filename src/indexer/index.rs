@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 //
 // TODO:
 //  starred unpacking in assignments, e.g. a, *b = [1,2,3]
-//  handle attributes for handle_aug_assign, e.g. self.x += 1
 //  comprehensions scopes?
 //  Exception handler scopes?
 //
@@ -203,7 +202,7 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn handle_attribute_assignment(&mut self, attr: &ExprAttribute, value: &'a Expr) {
+    fn handle_self_attribute_assignment(&mut self, attr: &ExprAttribute, value: &'a Expr) {
         if let Expr::Name(ExprName { id: base_name, .. }) = &*attr.value {
             if base_name.as_str() == "self" {
                 if let Some(idx) = self.find_class_scope() {
@@ -217,6 +216,10 @@ impl<'a> NodeIndexer<'a> {
                 }
             }
         }
+    }
+
+    fn handle_attribute_assignment(&mut self, attr: &ExprAttribute, value: &'a Expr) {
+        self.handle_self_attribute_assignment(attr, value);
     }
 
     fn handle_sequence_assignment(&mut self, target_elts: &[&'a Expr], value: &'a Expr) {
@@ -572,10 +575,16 @@ impl<'a> NodeIndexer<'a> {
     }
 
     fn handle_aug_assign(&mut self, target: &'a Expr, value: &'a Expr) {
-        if let Expr::Name(ExprName { id, .. }) = target {
-            if let Some(symbol) = self.current_scope_mut().symbols.get_mut(id.as_str()) {
-                symbol.add_assigned_expression(value);
+        match target {
+            Expr::Name(ExprName { id, .. }) => {
+                if let Some(symbol) = self.current_scope_mut().symbols.get_mut(id.as_str()) {
+                    symbol.add_assigned_expression(value);
+                }
             }
+            Expr::Attribute(attr) => {
+                self.handle_self_attribute_assignment(attr, value);
+            }
+            _ => {}
         }
     }
 
@@ -908,5 +917,37 @@ mod tests {
             let b_binding = scope.symbols.get("b").unwrap();
             assert_eq!(b_binding.assigned_expressions.len(), 1);
         });
+    }
+
+    #[test]
+    fn test_aug_assign_attribute() {
+        let source = unindent(
+            r#"
+            class Test:
+                def __init__(self):
+                    self.x = 1
+                def test_func(self):
+                    self.x += 2
+                    y = self.x
+            "#,
+        );
+        let expected = HashMap::from([(1027, vec!["1", "2"])]);
+        let actual = get_result(&source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_aug_assign_attribute_no_prior() {
+        let source = unindent(
+            r#"
+            class Test:
+                def test_func(self):
+                    self.x += 2
+                    y = self.x
+            "#,
+        );
+        let expected = HashMap::from([(1016, vec!["2"])]);
+        let actual = get_result(&source);
+        assert_eq!(expected, actual);
     }
 }
