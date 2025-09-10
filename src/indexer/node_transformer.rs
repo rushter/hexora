@@ -1,5 +1,5 @@
 use crate::indexer::index::NodeIndexer;
-use ruff_linter::Locator;
+use crate::indexer::locator::Locator;
 use ruff_python_ast::visitor::transformer;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast};

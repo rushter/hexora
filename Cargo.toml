@@ -30,7 +30,7 @@ path = "src/main.rs"
 [dependencies]
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="a1fdd66f10a045a574efb20e422868b21decda40" }
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="a1fdd66f10a045a574efb20e422868b21decda40" }
-ruff_linter = { git = "https://github.com/astral-sh/ruff/", rev="a1fdd66f10a045a574efb20e422868b21decda40"}
+ruff_source_file = { git = "https://github.com/astral-sh/ruff/", rev="a1fdd66f10a045a574efb20e422868b21decda40"}
 ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="a1fdd66f10a045a574efb20e422868b21decda40" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="a1fdd66f10a045a574efb20e422868b21decda40" }
 

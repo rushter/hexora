@@ -301,7 +301,22 @@ pub struct AuditItem {
     pub rule: Rule,
     pub description: String,
     pub confidence: AuditConfidence,
+    #[serde(serialize_with = "serialize_text_range")]
     pub location: Option<TextRange>,
+}
+
+fn serialize_text_range<S>(range: &Option<TextRange>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match range {
+        Some(range) => {
+            let start: u32 = range.start().into();
+            let end: u32 = range.end().into();
+            serializer.serialize_some(&(start, end))
+        }
+        None => serializer.serialize_none(),
+    }
 }
 
 #[derive(Debug)]

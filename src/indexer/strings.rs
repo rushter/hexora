@@ -317,8 +317,8 @@ fn resolve_qualified_name(expr: &ast::Expr) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use crate::indexer::index::NodeIndexer;
+    use crate::indexer::locator::Locator;
     use crate::indexer::strings::NodeTransformer;
-    use ruff_linter::Locator;
     use ruff_python_ast::visitor::source_order::*;
     use ruff_python_ast::visitor::transformer::Transformer;
     use ruff_python_ast::*;

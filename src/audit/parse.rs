@@ -1,11 +1,11 @@
 use crate::audit::result::{AuditItem, AuditResult};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
+use crate::indexer::locator::Locator;
 use crate::indexer::node_transformer::NodeTransformer;
 use crate::io::list_python_files;
 use log::{debug, error};
 use rayon::prelude::*;
-use ruff_linter::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast};

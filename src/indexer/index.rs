@@ -625,7 +625,7 @@ impl<'a> NodeIndexer<'a> {
 mod tests {
     use super::*;
     use crate::audit::helpers::get_expression_range;
-    use ruff_linter::Locator;
+    use crate::indexer::locator::Locator;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
     use std::collections::HashMap;
