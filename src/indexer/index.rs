@@ -4,6 +4,13 @@ use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use std::collections::{HashMap, HashSet};
 
+//
+// TODO:
+//  starred unpacking in assignments, e.g. a, *b = [1,2,3]
+//  handle attributes for handle_aug_assign, e.g. self.x += 1
+//  comprehensions scopes?
+//  Exception handler scopes?
+//
 pub type NodeId = u32;
 
 #[derive(Debug, Clone)]
