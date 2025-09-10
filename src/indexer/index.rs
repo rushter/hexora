@@ -75,7 +75,7 @@ pub struct Scope<'a> {
 
 pub struct NodeIndexer<'a> {
     pub expr_mapping: HashMap<NodeId, Vec<&'a Expr>>,
-    index: u32,
+    index: NodeId,
     scope_stack: Vec<Scope<'a>>,
     call_qualified_names: HashMap<NodeId, String>,
 }
@@ -133,15 +133,15 @@ impl<'a> NodeIndexer<'a> {
     {
         node.node_index().set(self.get_index());
     }
-    pub fn get_index(&mut self) -> u32 {
+    pub fn get_index(&mut self) -> NodeIndex {
         self.index += 1;
+        NodeIndex::from(self.index)
+    }
+    pub fn get_index_u32(&mut self) -> u32 {
         self.index
     }
-    pub fn get_index_atomic(&mut self) -> AtomicNodeIndex {
-        AtomicNodeIndex::from(self.get_index())
-    }
     pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&[&Expr]> {
-        let id = index.load().as_u32();
+        let id = index.load().as_u32()?;
         self.expr_mapping.get(&id).map(|v| &**v)
     }
 
@@ -242,7 +242,7 @@ impl<'a> NodeIndexer<'a> {
         expr: &Expr,
         visited: &mut HashSet<NodeId>,
     ) -> Option<Vec<String>> {
-        let node_id = expr.node_index().load().as_u32();
+        let node_id = expr.node_index().load().as_u32()?;
         if !visited.insert(node_id) {
             return None;
         }
@@ -572,8 +572,9 @@ impl<'a> NodeIndexer<'a> {
         match expr {
             Expr::Call(_) => {
                 if let Some(qn) = self.resolve_qualified_name(expr) {
-                    let id = expr.node_index().load().as_u32();
-                    self.call_qualified_names.insert(id, qn.to_string());
+                    if let Some(id) = expr.node_index().load().as_u32() {
+                        self.call_qualified_names.insert(id, qn.to_string());
+                    }
                 }
             }
             Expr::Name(ExprName { id, ctx, .. }) => {
@@ -597,12 +598,10 @@ impl<'a> NodeIndexer<'a> {
 
     fn handle_name_load(&mut self, id: &str, expr: &'a Expr) {
         if let Some(binding) = self.lookup_binding(id) {
-            let load_node_id = expr.node_index().load().as_u32();
-            let exprs = binding.assigned_expressions.clone();
-            self.expr_mapping
-                .entry(load_node_id)
-                .or_default()
-                .extend(exprs);
+            if let Some(node_id) = expr.node_index().load().as_u32() {
+                let exprs = binding.assigned_expressions.clone();
+                self.expr_mapping.entry(node_id).or_default().extend(exprs);
+            }
         }
     }
 
@@ -611,12 +610,10 @@ impl<'a> NodeIndexer<'a> {
             if base_name.as_str() == "self" {
                 if let Some(idx) = self.find_class_scope() {
                     if let Some(binding) = self.scope_stack[idx].symbols.get(attr) {
-                        let load_node_id = expr.node_index().load().as_u32();
-                        let exprs = binding.assigned_expressions.clone();
-                        self.expr_mapping
-                            .entry(load_node_id)
-                            .or_default()
-                            .extend(exprs);
+                        if let Some(node_id) = expr.node_index().load().as_u32() {
+                            let exprs = binding.assigned_expressions.clone();
+                            self.expr_mapping.entry(node_id).or_default().extend(exprs);
+                        }
                     }
                 }
             }

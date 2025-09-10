@@ -2,7 +2,9 @@ use crate::indexer::node_transformer::NodeTransformer;
 use itertools::Itertools;
 use ruff_python_ast::str::raw_contents;
 use ruff_python_ast::visitor::transformer::Transformer;
-use ruff_python_ast::{self as ast, AtomicNodeIndex, HasNodeIndex, Operator, StringLiteralFlags};
+use ruff_python_ast::{
+    self as ast, AtomicNodeIndex, HasNodeIndex, NodeIndex, Operator, StringLiteralFlags,
+};
 use ruff_text_size::{Ranged, TextRange};
 
 impl<'a> NodeTransformer<'a> {
@@ -13,15 +15,17 @@ impl<'a> NodeTransformer<'a> {
     }
 
     fn make_string_expr(&self, range: TextRange, value: String) -> ast::Expr {
-        let node_id = self.indexer.borrow_mut().get_index_atomic();
-        self.updated_strings
-            .borrow_mut()
-            .insert(node_id.load().as_u32());
+        let node_id = self.indexer.borrow_mut().get_index_u32();
+        self.updated_strings.borrow_mut().insert(node_id);
 
-        let inner_id = AtomicNodeIndex::from(node_id.load().as_u32());
+        let string_id = AtomicNodeIndex::NONE;
+        string_id.set(NodeIndex::from(node_id));
+
+        let inner_id = AtomicNodeIndex::NONE;
+        inner_id.set(NodeIndex::from(node_id));
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
-            node_index: node_id,
+            node_index: string_id,
             range,
             value: ast::StringLiteralValue::single(ast::StringLiteral {
                 value: Box::from(value),
@@ -35,7 +39,7 @@ impl<'a> NodeTransformer<'a> {
     fn extract_string(&self, expr: &ast::Expr) -> Option<String> {
         match expr {
             ast::Expr::StringLiteral(s) => {
-                let sid = s.node_index.load().as_u32();
+                let sid = s.node_index.load().as_u32()?;
                 if self.updated_strings.borrow().contains(&sid) {
                     return s.value.iter().next().map(|seg| seg.value.to_string());
                 }
@@ -69,7 +73,7 @@ impl<'a> NodeTransformer<'a> {
                 parts.push(s);
             } else {
                 // Try to resolve through expression mapping
-                let node_id = element.node_index().load().as_u32();
+                let node_id = element.node_index().load().as_u32()?;
                 let exprs_opt: Option<Vec<&ast::Expr>> = {
                     let indexer = self.indexer.borrow();
                     indexer.expr_mapping.get(&node_id).cloned()
@@ -133,7 +137,7 @@ impl<'a> NodeTransformer<'a> {
                 }
 
                 // Resolve variable
-                let node_id = expr.node_index().load().as_u32();
+                let node_id = expr.node_index().load().as_u32()?;
                 let exprs_opt: Option<Vec<&ast::Expr>> = {
                     let indexer = self.indexer.borrow();
                     indexer.expr_mapping.get(&node_id).cloned()
@@ -238,20 +242,27 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub fn transform_strings(&self, expr: &mut ast::Expr) {
-        let node_id = expr.node_index().load().as_u32();
+        let Some(node_id) = expr.node_index().load().as_u32() else {
+            return;
+        };
+
         if self.updated_strings.borrow_mut().contains(&node_id) {
             return;
         }
 
         match expr {
             ast::Expr::StringLiteral(s) => {
+                let Some(node_id) = s.node_index().load().as_u32() else {
+                    return;
+                };
                 let content = self.collect_raw(s.value.iter().map(|r| r.range));
-                let node_id = s.node_index.load().as_u32();
+                let index = AtomicNodeIndex::NONE;
+                index.set(NodeIndex::from(node_id));
                 s.value = ast::StringLiteralValue::single(ast::StringLiteral {
                     value: Box::from(content),
                     range: s.range,
                     flags: StringLiteralFlags::empty(),
-                    node_index: AtomicNodeIndex::from(node_id),
+                    node_index: index,
                 });
             }
 
