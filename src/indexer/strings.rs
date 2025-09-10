@@ -15,14 +15,12 @@ impl<'a> NodeTransformer<'a> {
     }
 
     fn make_string_expr(&self, range: TextRange, value: String) -> ast::Expr {
-        let node_id = self.indexer.borrow_mut().get_index_u32();
-        self.updated_strings.borrow_mut().insert(node_id);
+        let string_id = self.indexer.borrow_mut().get_atomic_index();
+        self.updated_strings
+            .borrow_mut()
+            .insert(self.indexer.borrow().current_index());
 
-        let string_id = AtomicNodeIndex::NONE;
-        string_id.set(NodeIndex::from(node_id));
-
-        let inner_id = AtomicNodeIndex::NONE;
-        inner_id.set(NodeIndex::from(node_id));
+        let inner_id = self.indexer.borrow_mut().get_atomic_index();
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
             node_index: string_id,

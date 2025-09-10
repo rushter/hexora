@@ -133,13 +133,21 @@ impl<'a> NodeIndexer<'a> {
     {
         node.node_index().set(self.get_index());
     }
+
+    pub fn current_index(&self) -> NodeId {
+        self.index
+    }
+
     pub fn get_index(&mut self) -> NodeIndex {
         self.index += 1;
         NodeIndex::from(self.index)
     }
-    pub fn get_index_u32(&mut self) -> u32 {
-        self.index
+    pub fn get_atomic_index(&mut self) -> AtomicNodeIndex {
+        let index = AtomicNodeIndex::NONE;
+        index.set(self.get_index());
+        index
     }
+
     pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&[&Expr]> {
         let id = index.load().as_u32()?;
         self.expr_mapping.get(&id).map(|v| &**v)
