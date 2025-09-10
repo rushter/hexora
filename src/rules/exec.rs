@@ -114,10 +114,36 @@ pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> b
     false
 }
 
+fn contains_curl_wget_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+    if let Some(s) = string_from_expr(expr, &checker.indexer) {
+        s.contains("curl") || s.contains("wget")
+    } else {
+        match expr {
+            ast::Expr::List(l) => l.elts.iter().any(|e| contains_curl_wget_expr(checker, e)),
+            ast::Expr::Tuple(t) => t.elts.iter().any(|e| contains_curl_wget_expr(checker, e)),
+            _ => false,
+        }
+    }
+}
+
+fn contains_curl_wget(checker: &Checker, call: &ast::ExprCall) -> bool {
+    for arg in &call.arguments.args {
+        if contains_curl_wget_expr(checker, arg) {
+            return true;
+        }
+    }
+    for kw in &call.arguments.keywords {
+        if contains_curl_wget_expr(checker, &kw.value) {
+            return true;
+        }
+    }
+    false
+}
+
 fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let is_obf = is_chained_with_base64_call(checker, call);
     checker.audit_results.push(AuditItem {
-        label,
+        label: label.clone(),
         rule: if is_obf {
             Rule::ObfuscateShellExec
         } else {
@@ -135,6 +161,21 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
         },
         location: Some(call.range),
     });
+
+    if contains_curl_wget(checker, call) {
+        let is_obf = is_chained_with_base64_call(checker, call);
+        checker.audit_results.push(AuditItem {
+            label,
+            rule: Rule::CurlWgetExec,
+            description: if is_obf {
+                "Execution of obfuscated curl/wget in shell command".to_string()
+            } else {
+                "Execution of curl/wget in shell command".to_string()
+            },
+            confidence: AuditConfidence::High,
+            location: Some(call.range),
+        });
+    }
 }
 
 fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
@@ -315,6 +356,7 @@ mod tests {
             "getattr(sys.modules[\"commands\"], \"getstatusoutput\")"
         ]
     )]
+    #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

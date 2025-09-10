@@ -54,6 +54,7 @@ pub enum Rule {
     DunderShellExec,
     DunderCodeExec,
     DLLInjection,
+    CurlWgetExec,
 
     // Obfuscation/Execution
     ObfuscateShellExec,
@@ -122,6 +123,7 @@ impl Rule {
             Rule::DunderShellExec => "HX3020",
             Rule::DunderCodeExec => "HX3030",
             Rule::DLLInjection => "HX3040",
+            Rule::CurlWgetExec => "HX3050",
 
             // Obfuscation/Execution: HX4000
             Rule::ObfuscateShellExec => "HX4000",
@@ -179,6 +181,7 @@ impl Rule {
             Rule::DunderShellExec => "Execution of a shell command via `__import__`.",
             Rule::DunderCodeExec => "Execution of code via `__import__`.",
             Rule::DLLInjection => "Possible DLL injection.",
+            Rule::CurlWgetExec => "Execution of curl or wget in shell command.",
 
             // Obfuscation/Execution
             Rule::ObfuscateShellExec => "Execution of an obfuscated shell command.",
@@ -263,6 +266,9 @@ impl Rule {
             Rule::DunderImport => Some(
                 "``__import__`` can be used to used to avoid detection of imports and code execution.",
             ),
+            Rule::CurlWgetExec => {
+                Some("Curl and wget can be used to download and execute malicious scripts.")
+            }
 
             // Literals and data blobs
             Rule::Base64String => {

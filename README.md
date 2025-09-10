@@ -133,6 +133,7 @@ Right now, the following rules are available:
 | HX3020 | DunderShellExec | Execution of a shell command via `__import__`. |
 | HX3030 | DunderCodeExec | Execution of code via `__import__`. |
 | HX3040 | DLLInjection | Possible DLL injection. |
+| HX3050 | CurlWgetExec | Execution of curl or wget in shell command. |
 | HX4000 | ObfuscateShellExec | Execution of an obfuscated shell command. |
 | HX4010 | ObfuscatedCodeExec | Execution of obfuscated code. |
 | HX4020 | ObfuscatedDunderShellExec | Execution of an obfuscated shell command via `__import__`. |
