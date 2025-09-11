@@ -47,6 +47,41 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    fn resolve_expr_to_string(&self, expr: &ast::Expr) -> Option<String> {
+        if let Some(s) = self.extract_string(expr) {
+            return Some(s);
+        }
+
+        // Try to resolve through expression mapping
+        let node_id = expr.node_index().load().as_u32()?;
+        let exprs_opt: Option<Vec<&ast::Expr>> = {
+            let indexer = self.indexer.borrow();
+            indexer.expr_mapping.get(&node_id).cloned()
+        };
+
+        if let Some(exprs) = exprs_opt {
+            let mut resolved = String::new();
+            let mut any = false;
+            for mapped in exprs.iter() {
+                let mut mapped_clone = (*mapped).clone();
+                self.visit_expr(&mut mapped_clone);
+                if let Some(s) = self.extract_string(&mapped_clone) {
+                    resolved.push_str(&s);
+                    any = true;
+                } else {
+                    any = false;
+                    resolved.clear();
+                    break;
+                }
+            }
+            if any {
+                return Some(resolved);
+            }
+        }
+
+        None
+    }
+
     #[inline]
     fn is_reverse_slice(&self, slice_expr: &ast::Expr) -> bool {
         if let ast::Expr::Slice(slc) = slice_expr {
@@ -65,41 +100,10 @@ impl<'a> NodeTransformer<'a> {
         elements: &[ast::Expr],
         reverse: bool,
     ) -> Option<Vec<String>> {
-        let mut parts: Vec<String> = Vec::with_capacity(elements.len());
-
-        for element in elements {
-            if let Some(s) = self.extract_string(element) {
-                parts.push(s);
-            } else {
-                // Try to resolve through expression mapping
-                let node_id = element.node_index().load().as_u32()?;
-                let exprs_opt: Option<Vec<&ast::Expr>> = {
-                    let indexer = self.indexer.borrow();
-                    indexer.expr_mapping.get(&node_id).cloned()
-                };
-                if let Some(exprs) = exprs_opt {
-                    let mut resolved = String::new();
-                    let mut any = false;
-                    for mapped in exprs.iter() {
-                        let mut mapped_clone = (*mapped).clone();
-                        self.visit_expr(&mut mapped_clone);
-                        if let Some(s) = self.extract_string(&mapped_clone) {
-                            resolved.push_str(&s);
-                            any = true;
-                        } else {
-                            any = false;
-                            resolved.clear();
-                            break;
-                        }
-                    }
-                    if any {
-                        parts.push(resolved);
-                        continue;
-                    }
-                }
-                return None;
-            }
-        }
+        let mut parts = elements
+            .iter()
+            .map(|e| self.resolve_expr_to_string(e))
+            .collect::<Option<Vec<String>>>()?;
 
         if reverse {
             parts.reverse();
