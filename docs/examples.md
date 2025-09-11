@@ -216,3 +216,18 @@ warning[HX6000]: Base64 encoded string found, potentially obfuscated code.
     Help: Base64-encoded strings can be used to obfuscate code or data.
 
 ```
+
+
+# SSH private key enumeration
+
+```bash
+  ┌─ resources/test/literal_05.py:4:30
+  │
+1 │ import os
+2 │ 
+3 │ key_name = "id_rsa"
+4 │ ssh_key = os.path.expanduser(os.path.join("~/.ssh", key_name))
+  │                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ HX6050
+  │
+  = Confidence: High
+```
