@@ -47,6 +47,7 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    #[inline]
     fn is_reverse_slice(&self, slice_expr: &ast::Expr) -> bool {
         if let ast::Expr::Slice(slc) = slice_expr {
             if slc.lower.is_none() && slc.upper.is_none() {
@@ -156,6 +157,7 @@ impl<'a> NodeTransformer<'a> {
     }
 
     /// "".join(...)
+    #[inline]
     fn handle_join_operation(
         &self,
         sep: &str,
@@ -168,6 +170,7 @@ impl<'a> NodeTransformer<'a> {
     }
 
     /// "a"+"b"+"c"
+    #[inline]
     fn transform_binop(&self, binop: &mut ast::ExprBinOp) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
         if let Operator::Add = binop.op {
@@ -182,6 +185,7 @@ impl<'a> NodeTransformer<'a> {
     }
 
     // "x"[::-1]
+    #[inline]
     fn transform_subscript(&self, sub: &mut ast::ExprSubscript) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
         if self.is_reverse_slice(&sub.slice) {
@@ -193,6 +197,7 @@ impl<'a> NodeTransformer<'a> {
         None
     }
 
+    #[inline]
     fn transform_call(&self, call: &mut ast::ExprCall) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
         if let ast::Expr::Attribute(attr) = call.func.as_ref() {
