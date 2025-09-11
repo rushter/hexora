@@ -52,34 +52,21 @@ impl<'a> NodeTransformer<'a> {
             return Some(s);
         }
 
-        // Try to resolve through expression mapping
         let node_id = expr.node_index().load().as_u32()?;
-        let exprs_opt: Option<Vec<&ast::Expr>> = {
-            let indexer = self.indexer.borrow();
-            indexer.expr_mapping.get(&node_id).cloned()
-        };
+        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
 
-        if let Some(exprs) = exprs_opt {
-            let mut resolved = String::new();
-            let mut any = false;
-            for mapped in exprs.iter() {
-                let mut mapped_clone = (*mapped).clone();
-                self.visit_expr(&mut mapped_clone);
-                if let Some(s) = self.extract_string(&mapped_clone) {
-                    resolved.push_str(&s);
-                    any = true;
-                } else {
-                    any = false;
-                    resolved.clear();
-                    break;
-                }
-            }
-            if any {
-                return Some(resolved);
+        let mut resolved = String::new();
+        for mapped in exprs.iter() {
+            let mut mapped_clone = (*mapped).clone();
+            self.visit_expr(&mut mapped_clone);
+            if let Some(s) = self.extract_string(&mapped_clone) {
+                resolved.push_str(&s);
+            } else {
+                // N.B.: We currently abort if any part cannot be resolved to a string.
+                return None;
             }
         }
-
-        None
+        Some(resolved)
     }
 
     #[inline]
@@ -114,21 +101,27 @@ impl<'a> NodeTransformer<'a> {
 
     fn sequence_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
         match expr {
-            ast::Expr::List(list) => self.collect_string_elements(&list.elts, reverse),
-            ast::Expr::Tuple(tuple) => self.collect_string_elements(&tuple.elts, reverse),
+            ast::Expr::List(_) | ast::Expr::Tuple(_) => {
+                let elts = match expr {
+                    ast::Expr::List(l) => &l.elts,
+                    ast::Expr::Tuple(t) => &t.elts,
+                    _ => unreachable!(),
+                };
+                self.collect_string_elements(elts, reverse)
+            }
             ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
                 self.sequence_to_parts(&sub.value, !reverse)
             }
             ast::Expr::Call(inner_call) => {
-                // reversed(x)
                 let is_reversed = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
                 if is_reversed
                     && inner_call.arguments.keywords.is_empty()
                     && inner_call.arguments.args.len() == 1
                 {
-                    return self.sequence_to_parts(&inner_call.arguments.args[0], !reverse);
+                    self.sequence_to_parts(&inner_call.arguments.args[0], !reverse)
+                } else {
+                    None
                 }
-                None
             }
             _ => {
                 if let Some(s) = self.extract_string(expr) {
@@ -136,28 +129,25 @@ impl<'a> NodeTransformer<'a> {
                     if reverse {
                         parts.reverse();
                     }
-                    return Some(parts);
+                    Some(parts)
+                } else {
+                    self.resolve_variable_to_parts(expr, reverse)
                 }
-
-                // Resolve variable
-                let node_id = expr.node_index().load().as_u32()?;
-                let exprs_opt: Option<Vec<&ast::Expr>> = {
-                    let indexer = self.indexer.borrow();
-                    indexer.expr_mapping.get(&node_id).cloned()
-                };
-                if let Some(exprs) = exprs_opt {
-                    for mapped in exprs.iter() {
-                        let mut mapped_clone = (*mapped).clone();
-                        // Normalize nested constructs
-                        self.visit_expr(&mut mapped_clone);
-                        if let Some(parts) = self.sequence_to_parts(&mapped_clone, reverse) {
-                            return Some(parts);
-                        }
-                    }
-                }
-                None
             }
         }
+    }
+
+    fn resolve_variable_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
+        let node_id = expr.node_index().load().as_u32()?;
+        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
+        for mapped in exprs.iter() {
+            let mut mapped_clone = (*mapped).clone();
+            self.visit_expr(&mut mapped_clone);
+            if let Some(parts) = self.sequence_to_parts(&mapped_clone, reverse) {
+                return Some(parts);
+            }
+        }
+        None
     }
 
     /// "".join(...)
