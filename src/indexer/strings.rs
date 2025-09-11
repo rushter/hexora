@@ -228,16 +228,11 @@ impl<'a> NodeTransformer<'a> {
                 && call.arguments.keywords.is_empty()
                 && !call.arguments.args.is_empty()
             {
-                let mut parts = Vec::new();
-                for arg in &call.arguments.args {
-                    if let Some(s) = self.extract_string(arg) {
-                        parts.push(s);
-                    } else {
-                        return None;
-                    }
+                if let Some(parts) = self.collect_string_elements(&call.arguments.args, false) {
+                    let joined = parts.join("/");
+                    return Some(self.make_string_expr(call.range, joined));
                 }
-                let joined = parts.join("/");
-                return Some(self.make_string_expr(call.range, joined));
+                return None;
             }
         }
 
