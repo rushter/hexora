@@ -18,13 +18,13 @@ static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
         name:"BlankOBF",
         description:"BlankOBF is a code obfuscation tool that can be used to hide malicious code.",
         rule:Rule::SuspiciousComment,
-        confidence:AuditConfidence::Medium
+        confidence:AuditConfidence::VeryHigh
     },
     SuspiciousComment{
         name:"obfuscated by",
         description:"Code obfuscation tools can be used to hide malicious code.",
         rule:Rule::SuspiciousComment,
-        confidence:AuditConfidence::Medium
+        confidence:AuditConfidence::VeryHigh
     },
     ];
     rules
