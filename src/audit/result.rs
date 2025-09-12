@@ -90,6 +90,7 @@ pub enum Rule {
     // Other
     BinaryDownload,
     BuiltinsVariable,
+    SuspiciousComment,
 }
 impl Serialize for Rule {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -159,6 +160,7 @@ impl Rule {
             // Other: HX8000
             Rule::BinaryDownload => "HX8000",
             Rule::BuiltinsVariable => "HX8010",
+            Rule::SuspiciousComment => "HX8020",
         }
     }
 
@@ -221,6 +223,7 @@ impl Rule {
             // Other
             Rule::BinaryDownload => "Suspicious binary download.",
             Rule::BuiltinsVariable => "Suspicious builtin variable usage.",
+            Rule::SuspiciousComment => "Suspicious comment.",
         }
     }
     pub fn help(&self) -> Option<&str> {

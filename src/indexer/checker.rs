@@ -1,6 +1,7 @@
 use crate::audit::result::AuditItem;
 use crate::indexer::index::NodeIndexer;
 use crate::indexer::locator::Locator;
+use crate::rules::comments::check_comments;
 use crate::rules::{expression, statement};
 use ruff_python_ast;
 use ruff_python_ast::visitor::Visitor;
@@ -27,6 +28,9 @@ impl<'a> Checker<'a> {
         for stmt in body {
             self.visit_stmt(stmt);
         }
+    }
+    pub fn check_comments(&mut self) {
+        check_comments(self);
     }
 }
 

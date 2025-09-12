@@ -1,7 +1,9 @@
 use ruff_python_ast::name::{QualifiedName, QualifiedNameBuilder};
 use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::*;
+use ruff_python_parser::{TokenKind, Tokens};
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
+use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
 
 //
@@ -84,6 +86,7 @@ pub struct NodeIndexer<'a> {
     index: NodeId,
     scope_stack: Vec<Scope<'a>>,
     call_qualified_names: HashMap<NodeId, String>,
+    pub comments: Vec<TextRange>,
 }
 
 impl<'a> Default for NodeIndexer<'a> {
@@ -98,9 +101,10 @@ impl<'a> NodeIndexer<'a> {
     pub fn new() -> Self {
         let mut this = Self {
             index: 0,
-            expr_mapping: HashMap::with_capacity(1024),
+            expr_mapping: HashMap::with_capacity(512),
             scope_stack: Vec::with_capacity(16),
-            call_qualified_names: HashMap::with_capacity(512),
+            call_qualified_names: HashMap::with_capacity(256),
+            comments: Vec::with_capacity(25),
         };
         this.push_scope(ScopeKind::Module);
         this.bind_builtins();
@@ -131,6 +135,13 @@ impl<'a> NodeIndexer<'a> {
 
         // Reserve indices <1000 for builtins / special cases.
         self.index = 1000;
+    }
+    pub fn index_comments(&mut self, tokens: &Tokens) {
+        for token in tokens {
+            if token.kind() == TokenKind::Comment {
+                self.comments.push(token.range());
+            }
+        }
     }
 
     pub fn visit_node<T>(&mut self, node: &T)

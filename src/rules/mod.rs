@@ -9,6 +9,7 @@ mod imports;
 mod literal;
 
 mod builtins;
+pub mod comments;
 pub mod expression;
 pub mod statement;
 

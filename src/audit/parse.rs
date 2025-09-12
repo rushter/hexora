@@ -49,12 +49,14 @@ fn audit_source(source: String) -> Result<Vec<AuditItem>, String> {
 
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
+    indexer.index_comments(parsed.tokens());
+
     let mut transformed_ast = python_ast.to_vec();
     let transformer = NodeTransformer::new(&locator, indexer);
     transformer.visit_body(&mut transformed_ast);
 
     let mut checker = Checker::new(&locator, transformer.indexer.into_inner());
-
+    checker.check_comments();
     checker.visit_body(&transformed_ast);
     Ok(checker.audit_results)
 }
