@@ -19,7 +19,14 @@ static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
         description:"BlankOBF is a code obfuscation tool that can be used to hide malicious code.",
         rule:Rule::SuspiciousComment,
         confidence:AuditConfidence::Medium
-    }];
+    },
+    SuspiciousComment{
+        name:"obfuscated by",
+        description:"Code obfuscation tools can be used to hide malicious code.",
+        rule:Rule::SuspiciousComment,
+        confidence:AuditConfidence::Medium
+    },
+    ];
     rules
 });
 
@@ -46,7 +53,7 @@ mod tests {
     use crate::rules::test::*;
     use test_case::test_case;
 
-    #[test_case("comments_01.py", Rule::SuspiciousComment, vec!["BlankOBF", "BlankOBF"])]
+    #[test_case("comments_01.py", Rule::SuspiciousComment, vec!["BlankOBF", "BlankOBF", "obfuscated by"])]
     fn test_comment(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
