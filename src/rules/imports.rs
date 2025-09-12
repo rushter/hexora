@@ -8,6 +8,19 @@ use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use ruff_python_ast::identifier::Identifier;
 use ruff_python_ast::{self as ast};
 
+macro_rules! add_import {
+    ($map:expr, $name:expr, $desc:expr, $rule:expr) => {
+        $map.insert(
+            $name,
+            SuspiciousImport {
+                name: $name,
+                description: $desc,
+                rule: $rule,
+            },
+        );
+    };
+}
+
 #[derive(Debug, Serialize)]
 pub struct SuspiciousImport {
     pub name: &'static str,
@@ -15,170 +28,28 @@ pub struct SuspiciousImport {
     pub rule: Option<Rule>,
 }
 
+#[rustfmt::skip]
 static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert(
-        "struct",
-        SuspiciousImport {
-            name: "struct",
-            description: None,
-            rule: Some(Rule::StructImport),
-        },
-    );
-    m.insert(
-        "ctypes",
-        SuspiciousImport {
-            name: "ctypes",
-            description: None,
-            rule: Some(Rule::CtypesImport),
-        },
-    );
-
-    m.insert(
-        "scapy",
-        SuspiciousImport {
-            name: "scapy",
-            description: Some("scapy can be used to craft malicious packets."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "impacket",
-        SuspiciousImport {
-            name: "impacket",
-            description: Some("impacket can be used to craft malicious payload"),
-            rule: None,
-        },
-    );
-    m.insert(
-        "winappdbg",
-        SuspiciousImport {
-            name: "winappdbg",
-            description: Some("winappdbg can be used to access process memory."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "stegano",
-        SuspiciousImport {
-            name: "stegano",
-            description: Some("stegano is a library that can be used to hide data in images."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "judyb",
-        SuspiciousImport {
-            name: "judyb",
-            description: Some("judyb is a library that can be used to hide data in images."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "steganography",
-        SuspiciousImport {
-            name: "steganography",
-            description: Some(
-                "steganography is a library that can be used to hide data in images.",
-            ),
-            rule: None,
-        },
-    );
-    m.insert(
-        "pynput",
-        SuspiciousImport {
-            name: "pynput",
-            description: Some(
-                "pynput can be used to monitor input devices and implement keyloggers.",
-            ),
-            rule: None,
-        },
-    );
-    m.insert(
-        "keyboard",
-        SuspiciousImport {
-            name: "keyboard",
-            description: Some("keyboard enables global key event hooks and keylogging."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "mss",
-        SuspiciousImport {
-            name: "mss",
-            description: Some("mss package allows taking screenshots of your system"),
-            rule: None,
-        },
-    );
-    m.insert(
-        "telnetlib",
-        SuspiciousImport {
-            name: "telnetlib",
-            description: Some(
-                "telnetlib can be used to automate Telnet sessions for unauthorized access.",
-            ),
-            rule: None,
-        },
-    );
-    m.insert(
-        "ftplib",
-        SuspiciousImport {
-            name: "ftplib",
-            description: Some("ftplib can be used to exfiltrate data"),
-            rule: None,
-        },
-    );
-    m.insert(
-        "pickle",
-        SuspiciousImport {
-            name: "pickle",
-            description: None,
-            rule: Some(Rule::PickleImport),
-        },
-    );
-    m.insert(
-        "marshal",
-        SuspiciousImport {
-            name: "marshal",
-            description: None,
-            rule: Some(Rule::MarshalImport),
-        },
-    );
-    m.insert(
-        "socket",
-        SuspiciousImport {
-            name: "socket",
-            description: None,
-            rule: Some(Rule::SocketImport),
-        },
-    );
-    m.insert(
-        "pyperclip",
-        SuspiciousImport {
-            name: "pyperclip",
-            description: Some("pyperclip can be used to copy and paste data from the clipboard."),
-            rule: None,
-        },
-    );
-    m.insert(
-        "paramiko",
-        SuspiciousImport {
-            name: "paramiko",
-            description: Some(
-                "paramiko can be used to automate SSH sessions for unauthorized access.",
-            ),
-            rule: None,
-        },
-    );
-    m.insert(
-        "win32com",
-        SuspiciousImport {
-            name: "win32com",
-            description: Some("win32com can be used to exploit Windows systems."),
-            rule: None,
-        },
-    );
-
+    add_import!(m, "struct", None, Some(Rule::StructImport));
+    add_import!(m, "ctypes", None, Some(Rule::CtypesImport));
+    add_import!(m, "scapy", Some("scapy can be used to craft malicious packets."), None);
+    add_import!(m, "impacket", Some("impacket can be used to craft malicious payload"), None);
+    add_import!(m, "winappdbg", Some("winappdbg can be used to access process memory."), None);
+    add_import!(m, "stegano", Some("stegano is a library that can be used to hide data in images."), None);
+    add_import!(m, "judyb", Some("judyb is a library that can be used to hide data in images."), None);
+    add_import!(m, "steganography", Some("steganography is a library that can be used to hide data in images."), None);
+    add_import!(m, "pynput", Some("pynput can be used to monitor input devices and implement keyloggers."), None);
+    add_import!(m, "keyboard", Some("keyboard enables global key event hooks and keylogging."), None);
+    add_import!(m, "mss", Some("mss package allows taking screenshots of your system"), None);
+    add_import!(m, "telnetlib", Some("telnetlib can be used to automate Telnet sessions for unauthorized access."), None);
+    add_import!(m, "ftplib", Some("ftplib can be used to exfiltrate data"), None);
+    add_import!(m, "pickle", None, Some(Rule::PickleImport));
+    add_import!(m, "marshal", None, Some(Rule::MarshalImport));
+    add_import!(m, "socket", None, Some(Rule::SocketImport));
+    add_import!(m, "pyperclip", Some("pyperclip can be used to copy and paste data from the clipboard."), None);
+    add_import!(m, "paramiko", Some("paramiko can be used to automate SSH sessions for unauthorized access."), None);
+    add_import!(m, "win32com", Some("win32com can be used to exploit Windows systems."), None);
     m
 });
 
