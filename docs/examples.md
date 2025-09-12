@@ -218,7 +218,7 @@ warning[HX6000]: Base64 encoded string found, potentially obfuscated code.
 ```
 
 
-# SSH private key enumeration
+## SSH private key enumeration
 
 ```bash
   ┌─ resources/test/literal_05.py:4:30
@@ -232,7 +232,7 @@ warning[HX6000]: Base64 encoded string found, potentially obfuscated code.
   = Confidence: High
 ```
 
-# Suspicious comments
+## Suspicious comments
 
 ```bash
 warning[HX8020]: Pyarmor is a code obfuscation tool that can be used to hide malicious code.
