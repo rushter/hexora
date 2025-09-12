@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use ruff_python_ast::identifier::Identifier;
 use ruff_python_ast::{self as ast};
+use ruff_text_size::TextRange;
 
 macro_rules! add_import {
     ($map:expr, $name:expr, $desc:expr, $rule:expr) => {
@@ -53,62 +54,59 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     m
 });
 
+fn add_suspicious_import(
+    checker: &mut Checker,
+    suspicious_import: &SuspiciousImport,
+    label: String,
+    location: TextRange,
+) {
+    let description = match &suspicious_import.description {
+        Some(description) => description.to_string(),
+        None => suspicious_import
+            .rule
+            .as_ref()
+            .expect("Rule should be set for suspicious imports")
+            .description()
+            .to_string(),
+    };
+    let rule = match &suspicious_import.rule {
+        Some(rule) => rule.clone(),
+        None => Rule::SuspiciousImport,
+    };
+    checker.audit_results.push(AuditItem {
+        label,
+        rule,
+        description,
+        confidence: AuditConfidence::Low,
+        location: Some(location),
+    });
+}
+
 pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
     match stmt {
         Stmt::Import(ast::StmtImport { names, .. }) => {
             for name in names {
                 let import_name = name.name.as_str();
-                let is_suspicious = IMPORTS.get(import_name);
-                if let Some(suspicious_import) = is_suspicious {
-                    let description = match &suspicious_import.description {
-                        Some(description) => description.to_string(),
-                        None => suspicious_import
-                            .rule
-                            .as_ref()
-                            .expect("Rule should be set for suspicious imports")
-                            .description()
-                            .to_string(),
-                    };
-                    let rule = match &suspicious_import.rule {
-                        Some(rule) => rule.clone(),
-                        None => Rule::SuspiciousImport,
-                    };
-                    checker.audit_results.push(AuditItem {
-                        label: import_name.to_string(),
-                        rule,
-                        description,
-                        confidence: AuditConfidence::Low,
-                        location: Some(name.range),
-                    });
+                if let Some(suspicious_import) = IMPORTS.get(import_name) {
+                    add_suspicious_import(
+                        checker,
+                        suspicious_import,
+                        import_name.to_string(),
+                        name.range,
+                    );
                 }
             }
         }
         Stmt::ImportFrom(ast::StmtImportFrom { module, names, .. }) => {
             let Some(identifier) = module else { return };
             let import_name = identifier.as_str();
-            let is_suspicious = IMPORTS.get(import_name);
-            if let Some(suspicious_import) = is_suspicious {
-                let description = match &suspicious_import.description {
-                    Some(description) => description.to_string(),
-
-                    None => suspicious_import
-                        .rule
-                        .as_ref()
-                        .expect("Rule should be set for suspicious imports")
-                        .description()
-                        .to_string(),
-                };
-                let rule = match &suspicious_import.rule {
-                    Some(rule) => rule.clone(),
-                    None => Rule::SuspiciousImport,
-                };
-                checker.audit_results.push(AuditItem {
-                    label: import_name.to_string(),
-                    rule,
-                    description,
-                    confidence: AuditConfidence::Low,
-                    location: Some(identifier.range),
-                });
+            if let Some(suspicious_import) = IMPORTS.get(import_name) {
+                add_suspicious_import(
+                    checker,
+                    suspicious_import,
+                    import_name.to_string(),
+                    identifier.range,
+                );
             }
 
             for alias in names {
