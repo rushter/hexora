@@ -221,12 +221,18 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             rule: Rule::SuspiciousLiteral,
         },
         SuspiciousLiteral{
-            pattern:".ssh/id_rsa".to_string()
-            .to_string(),
+            pattern:".ssh/id_rsa".to_string(),
             description: "Enumeration of a private SSH key. Possible data exfiltration.".to_string(),
             confidence: AuditConfidence::High,
             rule: Rule::SuspiciousLiteral,
+        },
+        SuspiciousLiteral{
+            pattern:"WScript.Shell".to_string(),
+            description: "Suspicious usage of Windows Shell. Potential exploitation.".to_string(),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
         }
+
 
     ];
     for (path, confidence) in browser_path {
@@ -431,6 +437,7 @@ mod tests {
     #[test_case("literal_04.py", Rule::PathEnumeration, vec!["/etc/passwd"])]
     #[test_case("literal_04.py", Rule::SuspiciousLiteral, vec!["uname -a"])]
     #[test_case("literal_05.py", Rule::SuspiciousLiteral, vec![".ssh/id_rsa"])]
+    #[test_case("literal_06.py", Rule::SuspiciousLiteral, vec!["WScript.Shell"])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

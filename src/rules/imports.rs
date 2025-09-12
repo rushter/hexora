@@ -170,6 +170,14 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
             rule: None,
         },
     );
+    m.insert(
+        "win32com",
+        SuspiciousImport {
+            name: "win32com",
+            description: Some("win32com can be used to exploit Windows systems."),
+            rule: None,
+        },
+    );
 
     m
 });
