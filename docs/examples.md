@@ -231,3 +231,18 @@ warning[HX6000]: Base64 encoded string found, potentially obfuscated code.
   │
   = Confidence: High
 ```
+
+# Suspicious comments
+
+```bash
+warning[HX8020]: Pyarmor is a code obfuscation tool that can be used to hide malicious code.
+  ┌─ resources/test/comments_01.py:7:1
+  │
+4 │ 
+5 │ 
+6 │ # Pyarmor 8.2.9 (trial), 000000, 2024-04-30T14:19:52.674801
+  │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ HX8020
+8 │ 
+  │
+  = Confidence: VeryHigh
+```
