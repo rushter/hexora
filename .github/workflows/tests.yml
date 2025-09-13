@@ -27,3 +27,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt --all -- --check
       - run: cargo clippy -- -D warnings
+  spelling:
+    name: Spell Check with Typos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v4
+      - name: Spell Check Repo
+        uses: crate-ci/typos@v1.36.2
+        with:
+          files: ./src

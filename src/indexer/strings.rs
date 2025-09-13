@@ -421,8 +421,8 @@ mod tests {
 
     #[test]
     fn test_join_reversed_list() {
-        let source = r#"a = "".join(reversed(["a","b"]))"#;
-        let expected = vec![string_item!("ba", 4, 32)];
+        let source = r#"a = "".join(reversed(["tion","mo"]))"#;
+        let expected = vec![string_item!("motion", 4, 36)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
     }
