@@ -217,15 +217,16 @@ impl<'a> NodeIndexer<'a> {
     fn handle_self_attribute_assignment(&mut self, attr: &ExprAttribute, value: &'a Expr) {
         if let Expr::Name(ExprName { id: base_name, .. }) = &*attr.value
             && base_name.as_str() == "self"
-                && let Some(idx) = self.find_class_scope() {
-                    let symbols = &mut self.scope_stack[idx].symbols;
-                    if let Some(symbol) = symbols.get_mut(attr.attr.as_str()) {
-                        symbol.add_assigned_expression(value);
-                    } else {
-                        let symbol = SymbolBinding::assignment(Some(value));
-                        symbols.insert(attr.attr.to_string(), symbol);
-                    }
-                }
+            && let Some(idx) = self.find_class_scope()
+        {
+            let symbols = &mut self.scope_stack[idx].symbols;
+            if let Some(symbol) = symbols.get_mut(attr.attr.as_str()) {
+                symbol.add_assigned_expression(value);
+            } else {
+                let symbol = SymbolBinding::assignment(Some(value));
+                symbols.insert(attr.attr.to_string(), symbol);
+            }
+        }
     }
 
     fn handle_attribute_assignment(&mut self, attr: &ExprAttribute, value: &'a Expr) {
@@ -338,9 +339,10 @@ impl<'a> NodeIndexer<'a> {
             if path.len() == 1 {
                 let name = path.remove(0);
                 if let Some(binding) = self.lookup_binding(&name)
-                    && matches!(binding.kind, BindingKind::Builtin) {
-                        return Some(QualifiedName::from_segments(vec![name]));
-                    }
+                    && matches!(binding.kind, BindingKind::Builtin)
+                {
+                    return Some(QualifiedName::from_segments(vec![name]));
+                }
                 path.push(name);
             }
             Some(QualifiedName::from_segments(path))
@@ -596,9 +598,10 @@ impl<'a> NodeIndexer<'a> {
         match expr {
             Expr::Call(_) => {
                 if let Some(qn) = self.resolve_qualified_name(expr)
-                    && let Some(id) = expr.node_index().load().as_u32() {
-                        self.call_qualified_names.insert(id, qn);
-                    }
+                    && let Some(id) = expr.node_index().load().as_u32()
+                {
+                    self.call_qualified_names.insert(id, qn);
+                }
             }
             Expr::Name(ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
@@ -621,21 +624,23 @@ impl<'a> NodeIndexer<'a> {
 
     fn handle_name_load(&mut self, id: &str, expr: &'a Expr) {
         if let Some(binding) = self.lookup_binding(id)
-            && let Some(node_id) = expr.node_index().load().as_u32() {
-                let exprs = binding.assigned_expressions.clone();
-                self.expr_mapping.entry(node_id).or_default().extend(exprs);
-            }
+            && let Some(node_id) = expr.node_index().load().as_u32()
+        {
+            let exprs = binding.assigned_expressions.clone();
+            self.expr_mapping.entry(node_id).or_default().extend(exprs);
+        }
     }
 
     fn handle_attribute_load(&mut self, obj: &'a Expr, attr: &str, expr: &'a Expr) {
         if let Expr::Name(ExprName { id: base_name, .. }) = obj
             && base_name.as_str() == "self"
-                && let Some(idx) = self.find_class_scope()
-                    && let Some(binding) = self.scope_stack[idx].symbols.get(attr)
-                        && let Some(node_id) = expr.node_index().load().as_u32() {
-                            let exprs = binding.assigned_expressions.clone();
-                            self.expr_mapping.entry(node_id).or_default().extend(exprs);
-                        }
+            && let Some(idx) = self.find_class_scope()
+            && let Some(binding) = self.scope_stack[idx].symbols.get(attr)
+            && let Some(node_id) = expr.node_index().load().as_u32()
+        {
+            let exprs = binding.assigned_expressions.clone();
+            self.expr_mapping.entry(node_id).or_default().extend(exprs);
+        }
     }
 }
 

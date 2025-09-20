@@ -79,27 +79,29 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
     // __builtins__.eval/exec(...)
     if let Expr::Attribute(attr) = &*call.func
         && let Expr::Name(name_expr) = &*attr.value
-            && name_expr.id.as_str() == "__builtins__" {
-                let name = attr.attr.as_str();
-                if is_eval_or_exec(name) {
-                    push_exec_report(checker, call, format!("__builtins__.{}", name));
-                    return;
-                }
-            }
+        && name_expr.id.as_str() == "__builtins__"
+    {
+        let name = attr.attr.as_str();
+        if is_eval_or_exec(name) {
+            push_exec_report(checker, call, format!("__builtins__.{}", name));
+            return;
+        }
+    }
 
     // importlib.import_module("__builtins__" or "builtins").eval/exec(...)
     if let Expr::Attribute(attr) = &*call.func
-        && let Some(key) = contains_importlib_builtins_call(checker, &attr.value) {
-            let name = attr.attr.as_str();
-            if is_eval_or_exec(name) {
-                push_exec_report(
-                    checker,
-                    call,
-                    format!("importlib.import_module(\"{}\").{}", key, name),
-                );
-                return;
-            }
+        && let Some(key) = contains_importlib_builtins_call(checker, &attr.value)
+    {
+        let name = attr.attr.as_str();
+        if is_eval_or_exec(name) {
+            push_exec_report(
+                checker,
+                call,
+                format!("importlib.import_module(\"{}\").{}", key, name),
+            );
+            return;
         }
+    }
 
     // getattr(__builtins__, "eval"/"exec")(...)
     if let Expr::Call(getattr_call) = &*call.func {
@@ -109,54 +111,58 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
             let attr_name_expr = &getattr_call.arguments.args[1];
             if let Expr::Name(base_name) = base_obj
                 && base_name.id.as_str() == "__builtins__"
-                    && let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
-                        && is_eval_or_exec(&attr_name) {
-                            push_exec_report(checker, call, format!("__builtins__.{}", attr_name));
-                            return;
-                        }
+                && let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
+                && is_eval_or_exec(&attr_name)
+            {
+                push_exec_report(checker, call, format!("__builtins__.{}", attr_name));
+                return;
+            }
             // getattr(sys.modules["__builtins__" or "builtins"], "eval"/"exec")(...)
             if let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
-                && is_eval_or_exec(&attr_name) {
-                    if let Some(key) = contains_sys_modules_builtins(checker, base_obj) {
-                        push_exec_report(
-                            checker,
-                            call,
-                            format!("sys.modules[\"{}\"].{}", key, attr_name),
-                        );
-                        return;
-                    }
-                    // getattr(importlib.import_module("__builtins__" or "builtins"), "eval"/"exec")(...)
-                    if let Some(key) = contains_importlib_builtins_call(checker, base_obj) {
-                        push_exec_report(
-                            checker,
-                            call,
-                            format!("importlib.import_module(\"{}\").{}", key, attr_name),
-                        );
-                        return;
-                    }
+                && is_eval_or_exec(&attr_name)
+            {
+                if let Some(key) = contains_sys_modules_builtins(checker, base_obj) {
+                    push_exec_report(
+                        checker,
+                        call,
+                        format!("sys.modules[\"{}\"].{}", key, attr_name),
+                    );
+                    return;
                 }
+                // getattr(importlib.import_module("__builtins__" or "builtins"), "eval"/"exec")(...)
+                if let Some(key) = contains_importlib_builtins_call(checker, base_obj) {
+                    push_exec_report(
+                        checker,
+                        call,
+                        format!("importlib.import_module(\"{}\").{}", key, attr_name),
+                    );
+                    return;
+                }
+            }
         }
     }
 
     // sys.modules["__builtins__" or "builtins"].eval/exec(...)
     if let Expr::Attribute(attr) = &*call.func
-        && let Some(key) = contains_sys_modules_builtins(checker, &attr.value) {
-            let name = attr.attr.as_str();
-            if is_eval_or_exec(name) {
-                push_exec_report(checker, call, format!("sys.modules[\"{}\"].{}", key, name));
-                return;
-            }
+        && let Some(key) = contains_sys_modules_builtins(checker, &attr.value)
+    {
+        let name = attr.attr.as_str();
+        if is_eval_or_exec(name) {
+            push_exec_report(checker, call, format!("sys.modules[\"{}\"].{}", key, name));
+            return;
         }
+    }
 
     // globals()["__builtins__" or "builtins"].eval/exec(...)
     if let Expr::Attribute(attr) = &*call.func
-        && let Some((var_name, key)) = contains_builtins_name(checker, &attr.value) {
-            let name = attr.attr.as_str();
-            if is_eval_or_exec(name) {
-                push_exec_report(checker, call, format!("{}[\"{}\"].{}", var_name, key, name));
-                return;
-            }
+        && let Some((var_name, key)) = contains_builtins_name(checker, &attr.value)
+    {
+        let name = attr.attr.as_str();
+        if is_eval_or_exec(name) {
+            push_exec_report(checker, call, format!("{}[\"{}\"].{}", var_name, key, name));
+            return;
         }
+    }
 
     // globals()['__builtins__' or 'builtins'](...)
     if let Some((var_name, key)) = contains_builtins_name(checker, &call.func) {

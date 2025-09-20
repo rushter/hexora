@@ -111,16 +111,17 @@ pub fn suspicious_call_name(checker: &mut Checker, call: &ast::ExprCall) {
     };
 
     if let Some(name) = maybe_name
-        && let Some(confidence) = is_suspicious_variable(&name) {
-            let description = format!("Suspicious function name: {}", name);
-            checker.audit_results.push(AuditItem {
-                label: name,
-                rule: Rule::SuspiciousFunctionName,
-                description,
-                confidence,
-                location: Some(call.range),
-            });
-        }
+        && let Some(confidence) = is_suspicious_variable(&name)
+    {
+        let description = format!("Suspicious function name: {}", name);
+        checker.audit_results.push(AuditItem {
+            label: name,
+            rule: Rule::SuspiciousFunctionName,
+            description,
+            confidence,
+            location: Some(call.range),
+        });
+    }
 }
 
 #[cfg(test)]

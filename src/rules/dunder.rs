@@ -99,43 +99,49 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
             None
         };
         if let Some(module_name) = dunder_module
-            && let Some(attr_name) = string_from_expr(name_expr, &checker.indexer) {
-                let func_call: [&str; 2] = [&module_name, &attr_name];
-                let is_obf = is_chained_with_base64_call(checker, call);
-                if is_shell_command(&func_call) {
-                    checker.audit_results.push(AuditItem {
-                        label: func_call.join("."),
-                        rule: if is_obf { Rule::ObfuscatedDunderShellExec } else { Rule::DunderShellExec },
-                        description: if is_obf {
-                            "Execution of an obfuscated shell command via getattr(__import__(..), ..)".to_string()
-                        } else {
-                            "Execution of an unwanted shell command via getattr(__import__(..)), ..)".to_string()
-                        },
-                        confidence: AuditConfidence::VeryHigh,
-                        location: Some(call.range),
-                    });
-                    return;
-                }
-                if is_code_exec(&func_call) {
-                    checker.audit_results.push(AuditItem {
-                        label: func_call.join("."),
-                        rule: if is_obf {
-                            Rule::ObfuscatedDunderCodeExec
-                        } else {
-                            Rule::DunderCodeExec
-                        },
-                        description: if is_obf {
-                            "Execution of an obfuscated code via getattr(__import__(..), ..)"
-                                .to_string()
-                        } else {
-                            "Execution of an unwanted code via getattr(__import__(..), ..)"
-                                .to_string()
-                        },
-                        confidence: AuditConfidence::VeryHigh,
-                        location: Some(call.range),
-                    });
-                }
+            && let Some(attr_name) = string_from_expr(name_expr, &checker.indexer)
+        {
+            let func_call: [&str; 2] = [&module_name, &attr_name];
+            let is_obf = is_chained_with_base64_call(checker, call);
+            if is_shell_command(&func_call) {
+                checker.audit_results.push(AuditItem {
+                    label: func_call.join("."),
+                    rule: if is_obf {
+                        Rule::ObfuscatedDunderShellExec
+                    } else {
+                        Rule::DunderShellExec
+                    },
+                    description: if is_obf {
+                        "Execution of an obfuscated shell command via getattr(__import__(..), ..)"
+                            .to_string()
+                    } else {
+                        "Execution of an unwanted shell command via getattr(__import__(..)), ..)"
+                            .to_string()
+                    },
+                    confidence: AuditConfidence::VeryHigh,
+                    location: Some(call.range),
+                });
+                return;
             }
+            if is_code_exec(&func_call) {
+                checker.audit_results.push(AuditItem {
+                    label: func_call.join("."),
+                    rule: if is_obf {
+                        Rule::ObfuscatedDunderCodeExec
+                    } else {
+                        Rule::DunderCodeExec
+                    },
+                    description: if is_obf {
+                        "Execution of an obfuscated code via getattr(__import__(..), ..)"
+                            .to_string()
+                    } else {
+                        "Execution of an unwanted code via getattr(__import__(..), ..)".to_string()
+                    },
+                    confidence: AuditConfidence::VeryHigh,
+                    location: Some(call.range),
+                });
+            }
+        }
     }
 }
 
