@@ -71,14 +71,12 @@ impl<'a> NodeTransformer<'a> {
 
     #[inline]
     fn is_reverse_slice(&self, slice_expr: &ast::Expr) -> bool {
-        if let ast::Expr::Slice(slc) = slice_expr {
-            if slc.lower.is_none() && slc.upper.is_none() {
-                if let Some(step) = &slc.step {
+        if let ast::Expr::Slice(slc) = slice_expr
+            && slc.lower.is_none() && slc.upper.is_none()
+                && let Some(step) = &slc.step {
                     let text = self.locator.slice(step.range());
                     return text.trim() == "-1";
                 }
-            }
-        }
         false
     }
 
@@ -167,14 +165,13 @@ impl<'a> NodeTransformer<'a> {
     #[inline]
     fn transform_binop(&self, binop: &mut ast::ExprBinOp) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
-        if let Operator::Add = binop.op {
-            if let (Some(l), Some(r)) = (
+        if let Operator::Add = binop.op
+            && let (Some(l), Some(r)) = (
                 self.extract_string(&binop.left),
                 self.extract_string(&binop.right),
             ) {
                 return Some(self.make_string_expr(binop.range, l + &r));
             }
-        }
         None
     }
 
@@ -182,12 +179,11 @@ impl<'a> NodeTransformer<'a> {
     #[inline]
     fn transform_subscript(&self, sub: &mut ast::ExprSubscript) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
-        if self.is_reverse_slice(&sub.slice) {
-            if let Some(s) = self.extract_string(&sub.value) {
+        if self.is_reverse_slice(&sub.slice)
+            && let Some(s) = self.extract_string(&sub.value) {
                 let rev: String = s.chars().rev().collect();
                 return Some(self.make_string_expr(sub.range, rev));
             }
-        }
         None
     }
 
@@ -196,29 +192,26 @@ impl<'a> NodeTransformer<'a> {
         // Children are already visited by the outer traversal.
         if let ast::Expr::Attribute(attr) = call.func.as_ref() {
             // b"x".decode(...)
-            if attr.attr.as_str() == "decode" {
-                if let Some(s) = self.extract_string(&attr.value) {
+            if attr.attr.as_str() == "decode"
+                && let Some(s) = self.extract_string(&attr.value) {
                     return Some(self.make_string_expr(call.range, s));
                 }
-            }
 
             // "".join(...)
             if attr.attr.as_str() == "join"
                 && call.arguments.keywords.is_empty()
                 && call.arguments.args.len() == 1
-            {
-                if let Some(sep) = self.extract_string(&attr.value) {
+                && let Some(sep) = self.extract_string(&attr.value) {
                     let seq_expr = &call.arguments.args[0];
                     if let Some(result) = self.handle_join_operation(&sep, seq_expr, call.range) {
                         return Some(result);
                     }
                 }
-            }
         }
 
         // Handle os.path.join
-        if let Some(name) = resolve_qualified_name(&call.func) {
-            if name == "os.path.join"
+        if let Some(name) = resolve_qualified_name(&call.func)
+            && name == "os.path.join"
                 && call.arguments.keywords.is_empty()
                 && !call.arguments.args.is_empty()
             {
@@ -228,7 +221,6 @@ impl<'a> NodeTransformer<'a> {
                 }
                 return None;
             }
-        }
 
         None
     }

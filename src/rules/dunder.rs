@@ -98,8 +98,8 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
         } else {
             None
         };
-        if let Some(module_name) = dunder_module {
-            if let Some(attr_name) = string_from_expr(name_expr, &checker.indexer) {
+        if let Some(module_name) = dunder_module
+            && let Some(attr_name) = string_from_expr(name_expr, &checker.indexer) {
                 let func_call: [&str; 2] = [&module_name, &attr_name];
                 let is_obf = is_chained_with_base64_call(checker, call);
                 if is_shell_command(&func_call) {
@@ -136,7 +136,6 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
                     });
                 }
             }
-        }
     }
 }
 
