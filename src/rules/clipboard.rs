@@ -1,22 +1,23 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+
 use ruff_python_ast as ast;
-use ruff_python_ast::name::QualifiedName;
 
 pub fn clipboard_read(checker: &mut Checker, call: &ast::ExprCall) {
-    let clipboard_name: Option<QualifiedName> = checker
-        .indexer
-        .resolve_qualified_name(&call.func)
-        .filter(|qualified_name| {
-            matches!(
-                qualified_name.segments(),
-                ["pyperclip", "paste"] | ["win32clipboard", "GetClipboardData"]
-            )
-        });
+    let clipboard_name =
+        checker
+            .indexer
+            .resolve_qualified_name(&call.func)
+            .filter(|qualified_name| {
+                matches!(
+                    qualified_name.segments().as_slice(),
+                    ["pyperclip", "paste"] | ["win32clipboard", "GetClipboardData"]
+                )
+            });
 
     if let Some(clipboard_name) = clipboard_name {
         checker.audit_results.push(AuditItem {
-            label: clipboard_name.to_string(),
+            label: clipboard_name.as_str(),
             rule: Rule::ClipboardRead,
             description: "Reading from the clipboard can be used to exfiltrate sensitive data."
                 .to_string(),

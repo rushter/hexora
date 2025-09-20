@@ -1,10 +1,11 @@
-use ruff_python_ast::name::{QualifiedName, QualifiedNameBuilder};
 use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::*;
 use ruff_python_parser::{TokenKind, Tokens};
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
+
+use crate::indexer::name::QualifiedName;
 
 //
 // TODO:
@@ -85,7 +86,7 @@ pub struct NodeIndexer<'a> {
     pub expr_mapping: HashMap<NodeId, Vec<&'a Expr>>,
     index: NodeId,
     scope_stack: Vec<Scope<'a>>,
-    call_qualified_names: HashMap<NodeId, String>,
+    call_qualified_names: HashMap<NodeId, QualifiedName>,
     pub comments: Vec<TextRange>,
 }
 
@@ -329,7 +330,7 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName<'b>> {
+    pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
         let target = match expr {
             Expr::Call(call) => &call.func,
             _ => expr,
@@ -340,24 +341,19 @@ impl<'a> NodeIndexer<'a> {
                 let name = path.remove(0);
                 if let Some(binding) = self.lookup_binding(&name) {
                     if matches!(binding.kind, BindingKind::Builtin) {
-                        return Some(QualifiedName::builtin(Box::leak(name.into_boxed_str())));
+                        return Some(QualifiedName::from_segments(vec![name]));
                     }
                 }
                 path.push(name);
             }
-            let mut builder = QualifiedNameBuilder::default();
-            for s in path {
-                let leaked = Box::leak(s.into_boxed_str());
-                builder.push(leaked);
-            }
-            Some(builder.build())
+            Some(QualifiedName::from_segments(path))
         } else {
             None
         }
     }
 
-    pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&str> {
-        self.call_qualified_names.get(&node_id).map(|s| s.as_str())
+    pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&QualifiedName> {
+        self.call_qualified_names.get(&node_id)
     }
 
     fn find_class_scope(&self) -> Option<usize> {
@@ -604,7 +600,7 @@ impl<'a> NodeIndexer<'a> {
             Expr::Call(_) => {
                 if let Some(qn) = self.resolve_qualified_name(expr) {
                     if let Some(id) = expr.node_index().load().as_u32() {
-                        self.call_qualified_names.insert(id, qn.to_string());
+                        self.call_qualified_names.insert(id, qn);
                     }
                 }
             }
@@ -705,7 +701,7 @@ mod tests {
     ) -> Option<String> {
         if let Stmt::Expr(StmtExpr { value, .. }) = &suite[index] {
             if let Expr::Call(_) = &**value {
-                indexer.resolve_qualified_name(value).map(|q| q.to_string())
+                indexer.resolve_qualified_name(value).map(|qn| qn.as_str())
             } else {
                 None
             }

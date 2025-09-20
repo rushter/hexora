@@ -41,7 +41,7 @@ fn is_download_request(segments: &[&str]) -> bool {
 pub fn binary_download(checker: &mut Checker, call: &ast::ExprCall) {
     let qualified_name = checker.indexer.resolve_qualified_name(&call.func);
     if let Some(qualified_name) = qualified_name
-        && is_download_request(qualified_name.segments())
+        && is_download_request(&qualified_name.segments())
         && let Some(text) = contains_download_extension(call)
     {
         checker.audit_results.push(AuditItem {

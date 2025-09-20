@@ -1,5 +1,6 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use std::collections::HashSet;
@@ -51,7 +52,7 @@ pub fn env_access(checker: &mut Checker, call: &ast::ExprCall) {
         .resolve_qualified_name(&call.func)
         .is_some_and(|qualified_name| {
             matches!(
-                qualified_name.segments(),
+                qualified_name.segments().as_slice(),
                 ["os", "environ", "get"] | ["os", "getenv"]
             )
         });

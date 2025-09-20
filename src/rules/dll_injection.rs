@@ -1,19 +1,20 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::name::QualifiedName;
+
 use log::info;
 use ruff_python_ast as ast;
-use ruff_python_ast::name::QualifiedName;
 use ruff_text_size::TextRange;
 
 fn dll_injection_using_ctypes(
     qualified_name: &QualifiedName,
     range: &TextRange,
 ) -> Option<AuditItem> {
-    let segments = qualified_name.segments();
+    let import_segments = qualified_name.segments();
 
-    if segments.len() == 2 && qualified_name.segments().eq(&["ctypes", "CDLL"]) {
+    if import_segments.as_slice() == ["ctypes", "CDLL"] {
         return Some(AuditItem {
-            label: qualified_name.to_string(),
+            label: qualified_name.as_str(),
             rule: Rule::DLLInjection,
             description: "Possible DLL injection. CDLL is used to load a DLL.".to_string(),
             confidence: AuditConfidence::High,
@@ -21,19 +22,17 @@ fn dll_injection_using_ctypes(
         });
     }
 
-    if !(segments.len() > 3
-        && qualified_name
-            .segments()
-            .starts_with(&["ctypes", "windll", "kernel32"]))
+    if !(import_segments.len() > 3
+        && import_segments.starts_with(&["ctypes", "windll", "kernel32"]))
     {
         return None;
     }
-    let last_segment = segments.last().copied().unwrap();
+    let last_segment = *import_segments.last().unwrap();
     match last_segment {
         "OpenProcess" | "CreateRemoteThread" | "CreateProcessW" | "CreateProcessA"
         | "LoadLibraryA" | "VirtualAllocEx" | "WriteProcessMemory" | "RtlMoveMemory" => {
             return Some(AuditItem {
-                label: qualified_name.to_string(),
+                label: qualified_name.as_str(),
                 rule: Rule::DLLInjection,
                 description: format!(
                     "Possible DLL injection. Process manipulation using `{last_segment}`."
@@ -51,8 +50,7 @@ fn dll_injection_using_ctypes(
 /// Checks for possible DLL injection in Python code.
 pub fn dll_injection(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) {
-        let segments = qualified_name.segments();
-        match segments.first().copied() {
+        match qualified_name.segments().first().copied() {
             Some("ctypes") => {
                 if let Some(result) = dll_injection_using_ctypes(&qualified_name, &call.range) {
                     checker.audit_results.push(result);

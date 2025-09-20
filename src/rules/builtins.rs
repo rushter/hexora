@@ -2,6 +2,7 @@ use crate::audit::helpers::string_from_expr;
 use crate::audit::resolver::matches_builtin_functions;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+
 use crate::rules::exec::is_chained_with_base64_call;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
@@ -30,10 +31,7 @@ fn push_exec_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
     });
 }
 
-fn contains_builtins_name<'a>(
-    checker: &'a Checker,
-    expr: &'a ast::Expr,
-) -> Option<(&'a str, String)> {
+fn contains_builtins_name(checker: &Checker, expr: &ast::Expr) -> Option<(String, String)> {
     let Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
         return None;
     };
@@ -54,9 +52,9 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
     };
 
     let qn = checker.indexer.resolve_qualified_name(value.as_ref())?;
-    let ["sys", "modules"] = qn.segments() else {
+    if qn.segments() != ["sys", "modules"] {
         return None;
-    };
+    }
 
     let key = string_from_expr(slice, &checker.indexer)?;
     matches!(key.as_str(), "__builtins__" | "builtins").then_some(key)
@@ -67,9 +65,9 @@ fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Opti
     let Expr::Call(call) = expr else { return None };
 
     let qn = checker.indexer.resolve_qualified_name(&call.func)?;
-    let ["importlib", "import_module"] = qn.segments() else {
+    if qn.segments() != ["importlib", "import_module"] {
         return None;
-    };
+    }
 
     let first_arg = call.arguments.args.first()?;
     let key = string_from_expr(first_arg, &checker.indexer)?;
