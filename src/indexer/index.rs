@@ -15,6 +15,8 @@ use crate::indexer::name::QualifiedName;
 //
 pub type NodeId = u32;
 
+const PYTHON_MINOR_VERSION: u8 = 13;
+
 #[derive(Debug, Clone)]
 enum BindingKind {
     Builtin,
@@ -95,8 +97,6 @@ impl<'a> Default for NodeIndexer<'a> {
         Self::new()
     }
 }
-
-const PYTHON_MINOR_VERSION: u8 = 13;
 
 impl<'a> NodeIndexer<'a> {
     pub fn new() -> Self {
