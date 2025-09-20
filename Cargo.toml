@@ -9,7 +9,7 @@ repository = "https://github.com/rushter/hexora"
 homepage = "https://github.com/rushter/hexora"
 keywords = ["python", "ast", "security", "audit"]
 authors = ["Artem Golubin <me@rushter.com>"]
-rust-version = "1.87.0"
+rust-version = "1.90"
 
 [lib]
 name = "hexora"
