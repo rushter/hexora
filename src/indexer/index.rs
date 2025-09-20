@@ -70,13 +70,13 @@ impl<'a> SymbolBinding<'a> {
 }
 
 #[derive(PartialEq)]
-pub enum ScopeKind {
+enum ScopeKind {
     Module,
     Class,
     Function,
 }
 
-pub struct Scope<'a> {
+struct Scope<'a> {
     pub kind: ScopeKind,
     symbols: HashMap<String, SymbolBinding<'a>>,
     pub parent_scope: Option<usize>,
