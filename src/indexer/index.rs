@@ -102,9 +102,9 @@ impl<'a> NodeIndexer<'a> {
     pub fn new() -> Self {
         let mut this = Self {
             index: 0,
-            expr_mapping: HashMap::with_capacity(512),
+            expr_mapping: HashMap::with_capacity(256),
             scope_stack: Vec::with_capacity(16),
-            call_qualified_names: HashMap::with_capacity(256),
+            call_qualified_names: HashMap::with_capacity(128),
             comments: Vec::with_capacity(25),
         };
         this.push_scope(ScopeKind::Module);
