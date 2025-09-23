@@ -21,7 +21,7 @@ pub fn clipboard_read(checker: &mut Checker, call: &ast::ExprCall) {
             rule: Rule::ClipboardRead,
             description: "Reading from the clipboard can be used to exfiltrate sensitive data."
                 .to_string(),
-            confidence: AuditConfidence::High,
+            confidence: AuditConfidence::Low,
             location: Some(call.range),
         })
     }
