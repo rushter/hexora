@@ -42,6 +42,8 @@ logging.basicConfig(
 )
 
 PYPI_PREFIX = "https://files.pythonhosted.org/packages"
+USER_AGENT = "hexora-pypi-downloader/1.0 (+https://github.com/rushter/hexora)"
+DEFAULT_TIMEOUT = 30
 
 
 def get_clickhouse_client() -> clickhouse_connect.driver.client.Client:
@@ -67,7 +69,7 @@ def query_recent_packages(days: int) -> list[tuple[str, str]]:
 
 
 def download_file(url: str, output_path: str):
-    with requests.get(url, stream=True) as response:
+    with requests.get(url, stream=True, headers={"User-Agent": USER_AGENT}, timeout=DEFAULT_TIMEOUT) as response:
         response.raise_for_status()
         with open(output_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
@@ -78,8 +80,28 @@ def download_file(url: str, output_path: str):
 
 def extract_package(temp_path: str, target_dir: str):
     with tarfile.open(temp_path, "r:gz") as tar:
-        tar.extractall(target_dir)
+        safe_extract(tar, target_dir)
 
+def _is_within_directory(directory: str, target: str) -> bool:
+    directory = os.path.abspath(directory)
+    target = os.path.abspath(target)
+    try:
+        common = os.path.commonpath([directory, target])
+    except Exception:
+        return False
+    return common == directory
+
+
+def safe_extract(tar: tarfile.TarFile, path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+    for member in tar.getmembers():
+        member_path = os.path.join(path, member.name)
+        if not _is_within_directory(path, member_path):
+            raise RuntimeError(f"Unsafe tar member path: {member.name}")
+        if member.issym() or member.islnk():
+            logging.debug(f"Skipping link in archive: {member.name}")
+            continue
+        tar.extract(member, path)
 
 def process_package(row: tuple[str, str], output_path_base: str):
     download_path = f"{PYPI_PREFIX}/{row[1]}"
