@@ -54,7 +54,7 @@ def get_clickhouse_client() -> clickhouse_connect.driver.client.Client:
     )
 
 
-def query_recent_packages(days: int):
+def query_recent_packages(days: int) -> list[tuple[str, str]]:
     client = get_clickhouse_client()
     query = """
     select name, path
@@ -62,7 +62,8 @@ def query_recent_packages(days: int):
     where upload_time >= now() - toIntervalDay(%(days)s)
     and python_version = 'source'
     """
-    return client.query(query, parameters={"days": days}).result_rows
+    result = client.query(query, parameters={"days": days}).result_rows
+    return [(str(row[0]), str(row[1])) for row in result]
 
 
 def download_file(url: str, output_path: str):
@@ -124,7 +125,14 @@ def main():
         action="store_true",
         help="List available packages and URLs without downloading",
     )
+    parser.add_argument(
+        "--logging-level",
+        default="info",
+        choices=["debug", "info", "warning", "error", "critical"],
+        help="Set the logging level (default: info)",
+    )
     args = parser.parse_args()
+    logging.getLogger().setLevel(getattr(logging, args.logging_level.upper()))
     data = query_recent_packages(args.days)
 
     if args.dry:
