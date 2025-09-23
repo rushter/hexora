@@ -17,7 +17,7 @@ fn dll_injection_using_ctypes(
             label: qualified_name.as_str(),
             rule: Rule::DLLInjection,
             description: "Possible DLL injection. CDLL is used to load a DLL.".to_string(),
-            confidence: AuditConfidence::High,
+            confidence: AuditConfidence::Low,
             location: Some(*range),
         });
     }
