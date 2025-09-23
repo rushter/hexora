@@ -3,12 +3,19 @@
 
 Run using uv:
 
-    uv run download_pypi.py --days 7 --output-path packages
+    uv run download_pypi.py --days 7 --output-path pypi_packages
 
 Run using pip and python:
 
     pip install requests clickhouse-connect
-    python download_pypi.py --days 7 --output-path packages
+    python download_pypi.py --days 7 --output-path pypi_packages
+
+Auditing files:
+
+    hexora audit  --logging-level info pypi_packages/ --dump-annotated annotations
+
+You can now check the annotations folder for annotated files. Alternatively, you omit the --dump-annotated flag and
+check the output of the terminal.
 
 """
 
