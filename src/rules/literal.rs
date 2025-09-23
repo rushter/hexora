@@ -223,7 +223,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         SuspiciousLiteral{
             pattern:".ssh/id_rsa".to_string(),
             description: "Enumeration of a private SSH key. Possible data exfiltration.".to_string(),
-            confidence: AuditConfidence::High,
+            confidence: AuditConfidence::Low,
             rule: Rule::SuspiciousLiteral,
         },
         SuspiciousLiteral{
