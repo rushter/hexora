@@ -7,25 +7,32 @@ use crate::rules::exec::is_chained_with_base64_call;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 
+const EVAL_EXEC: [&str; 2] = ["eval", "exec"];
+const VARS_FUNCTIONS: [&str; 3] = ["globals", "locals", "vars"];
+const BUILTINS_MODULE: [&str; 2] = ["__builtins__", "builtins"];
+
 #[inline]
 fn is_eval_or_exec(name: &str) -> bool {
-    name == "eval" || name == "exec"
+    EVAL_EXEC.contains(&name)
 }
 
 fn push_exec_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let is_obf = is_chained_with_base64_call(checker, call);
+    let (rule, description) = if is_obf {
+        (
+            Rule::ObfuscatedCodeExec,
+            "Execution of obfuscated code".to_string(),
+        )
+    } else {
+        (
+            Rule::CodeExec,
+            "Possible execution of unwanted code".to_string(),
+        )
+    };
     checker.audit_results.push(AuditItem {
         label,
-        rule: if is_obf {
-            Rule::ObfuscatedCodeExec
-        } else {
-            Rule::CodeExec
-        },
-        description: if is_obf {
-            "Execution of obfuscated code".to_string()
-        } else {
-            "Possible execution of unwanted code".to_string()
-        },
+        rule,
+        description,
         confidence: AuditConfidence::VeryHigh,
         location: Some(call.range),
     });
@@ -39,10 +46,12 @@ fn contains_builtins_name(checker: &Checker, expr: &ast::Expr) -> Option<(String
         return None;
     };
 
-    let var_name = matches_builtin_functions(checker, &call.func, &["globals", "locals", "vars"])?;
+    let var_name = matches_builtin_functions(checker, &call.func, &VARS_FUNCTIONS)?;
     let key = string_from_expr(slice, &checker.indexer)?;
 
-    matches!(key.as_str(), "__builtins__" | "builtins").then_some((var_name, key))
+    BUILTINS_MODULE
+        .contains(&key.as_str())
+        .then_some((var_name, key))
 }
 
 fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<String> {
@@ -57,7 +66,7 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
     }
 
     let key = string_from_expr(slice, &checker.indexer)?;
-    matches!(key.as_str(), "__builtins__" | "builtins").then_some(key)
+    BUILTINS_MODULE.contains(&key.as_str()).then_some(key)
 }
 
 fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Option<String> {
@@ -72,7 +81,7 @@ fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Opti
     let first_arg = call.arguments.args.first()?;
     let key = string_from_expr(first_arg, &checker.indexer)?;
 
-    matches!(key.as_str(), "__builtins__" | "builtins").then_some(key)
+    BUILTINS_MODULE.contains(&key.as_str()).then_some(key)
 }
 
 pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
