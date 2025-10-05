@@ -6,6 +6,17 @@ use log::info;
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
+const SUSPICIOUS_FUNCTIONS: &[&str] = &[
+    "OpenProcess",
+    "CreateRemoteThread",
+    "CreateProcessW",
+    "CreateProcessA",
+    "LoadLibraryA",
+    "VirtualAllocEx",
+    "WriteProcessMemory",
+    "RtlMoveMemory",
+];
+
 fn dll_injection_using_ctypes(
     qualified_name: &QualifiedName,
     range: &TextRange,
@@ -22,27 +33,19 @@ fn dll_injection_using_ctypes(
         });
     }
 
-    if !(import_segments.len() > 3
-        && import_segments.starts_with(&["ctypes", "windll", "kernel32"]))
-    {
-        return None;
-    }
-    let last_segment = *import_segments.last().unwrap();
-    match last_segment {
-        "OpenProcess" | "CreateRemoteThread" | "CreateProcessW" | "CreateProcessA"
-        | "LoadLibraryA" | "VirtualAllocEx" | "WriteProcessMemory" | "RtlMoveMemory" => {
+    if import_segments.len() > 3 && import_segments.starts_with(&["ctypes", "windll", "kernel32"]) {
+        let last_segment = import_segments.last().unwrap();
+        if SUSPICIOUS_FUNCTIONS.contains(last_segment) {
             return Some(AuditItem {
                 label: qualified_name.as_str(),
                 rule: Rule::DLLInjection,
                 description: format!(
                     "Possible DLL injection. Process manipulation using `{last_segment}`."
-                )
-                .to_string(),
+                ),
                 confidence: AuditConfidence::High,
                 location: Some(*range),
             });
         }
-        _ => {}
     }
     None
 }
