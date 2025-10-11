@@ -349,7 +349,7 @@ impl AuditResult {
         // TODO: this is very inefficient, ignored codes should not be checked in the first place.
         self.items
             .iter()
-            .filter(move |item| {
+            .filter(|item| {
                 if &item.confidence < min_confidence {
                     return false;
                 }
