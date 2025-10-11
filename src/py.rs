@@ -31,7 +31,7 @@ fn run_cli() -> PyResult<()> {
 fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
     let results = parse::audit_path(&input_path);
     match results {
-        Ok(results) => Python::with_gil(|py| {
+        Ok(results) => Python::attach(|py| {
             let mut items = Vec::new();
             for r in results {
                 let res = AuditResult {
@@ -58,7 +58,7 @@ fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
 fn audit_file(input_path: PathBuf) -> PyResult<Py<PyAny>> {
     let result = parse::audit_file(&input_path);
     match result {
-        Ok(res) => Python::with_gil(|py| {
+        Ok(res) => Python::attach(|py| {
             let res = AuditResult {
                 items: res.items,
                 path: res.path,

@@ -191,15 +191,15 @@ where
 
 fn audit_python_files(opts: &AuditOptions) {
     let colored = opts.output_path.is_none();
-    let dump_dir = if let Some(dir) = &opts.dump_annotated {
-        if dir.exists() && !dir.is_dir() {
-            error!("Dump path {:?} exists but it is not a directory", dir);
+    let dump_dir = if let Some(path) = &opts.dump_annotated {
+        if path.exists() && !path.is_dir() {
+            error!("Dump path {:?} exists but it is not a directory", path);
             return;
         }
-        if let Err(e) = fs::create_dir_all(dir) {
-            error!("Failed to create dump directory {:?}: {:?}", dir, e);
+        if let Err(e) = fs::create_dir_all(path) {
+            error!("Failed to create dump directory {:?}: {:?}", path, e);
         }
-        Some(dir.clone())
+        Some(path.clone())
     } else {
         None
     };
@@ -227,7 +227,7 @@ fn audit_python_files(opts: &AuditOptions) {
             }
         }
         Err(e) => {
-            error!("{:?}", e);
+            error!("Can't audit specified path: {:?}", e);
         }
     }
 }

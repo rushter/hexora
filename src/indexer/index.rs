@@ -15,7 +15,7 @@ use crate::indexer::name::QualifiedName;
 //
 pub type NodeId = u32;
 
-const PYTHON_MINOR_VERSION: u8 = 13;
+const PYTHON_MINOR_VERSION: u8 = 14;
 
 #[derive(Debug, Clone)]
 enum BindingKind {
