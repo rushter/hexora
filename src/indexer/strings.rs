@@ -47,19 +47,31 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    fn get_resolved_exprs(&self, expr: &ast::Expr) -> Option<Vec<ast::Expr>> {
+        let node_id = expr.node_index().load().as_u32()?;
+        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
+        Some(
+            exprs
+                .iter()
+                .map(|&e| {
+                    let mut cloned = e.clone();
+                    self.visit_expr(&mut cloned);
+                    cloned
+                })
+                .collect(),
+        )
+    }
+
     fn resolve_expr_to_string(&self, expr: &ast::Expr) -> Option<String> {
         if let Some(s) = self.extract_string(expr) {
             return Some(s);
         }
 
-        let node_id = expr.node_index().load().as_u32()?;
-        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
+        let resolved_exprs = self.get_resolved_exprs(expr)?;
 
         let mut resolved = String::new();
-        for mapped in exprs.iter() {
-            let mut mapped_clone = (*mapped).clone();
-            self.visit_expr(&mut mapped_clone);
-            if let Some(s) = self.extract_string(&mapped_clone) {
+        for mapped in resolved_exprs.iter() {
+            if let Some(s) = self.extract_string(mapped) {
                 resolved.push_str(&s);
             } else {
                 // N.B.: We currently abort if any part cannot be resolved to a string.
@@ -138,12 +150,9 @@ impl<'a> NodeTransformer<'a> {
     }
 
     fn resolve_variable_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
-        let node_id = expr.node_index().load().as_u32()?;
-        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
-        for mapped in exprs.iter() {
-            let mut mapped_clone = (*mapped).clone();
-            self.visit_expr(&mut mapped_clone);
-            if let Some(parts) = self.sequence_to_parts(&mapped_clone, reverse) {
+        let resolved_exprs = self.get_resolved_exprs(expr)?;
+        for resolved in resolved_exprs {
+            if let Some(parts) = self.sequence_to_parts(&resolved, reverse) {
                 return Some(parts);
             }
         }
