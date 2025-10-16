@@ -21,6 +21,10 @@ fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String
 fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
     if let Expr::Name(name_expr) = &*call.func {
         let imported_module = get_import_name(call, indexer);
+        if imported_module.as_deref() == Some("typing") {
+            // Ignore typing imports, they are everywhere.
+            return None;
+        }
         if name_expr.id.as_str() == "__import__" && imported_module.is_some() {
             return imported_module;
         }
