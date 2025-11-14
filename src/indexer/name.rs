@@ -26,28 +26,12 @@ impl QualifiedName {
         self.segments.len() == parts.len() && self.segments.iter().zip(parts).all(|(a, b)| a == b)
     }
 
-    pub fn starts_with(&self, parts: &[&str]) -> bool {
-        self.segments.len() >= parts.len()
-            && self.segments[..parts.len()]
-                .iter()
-                .zip(parts)
-                .all(|(a, b)| a == b)
-    }
-
     pub fn first(&self) -> Option<&str> {
         self.segments.first().map(|s| s.as_str())
     }
 
     pub fn last(&self) -> Option<&str> {
         self.segments.last().map(|s| s.as_str())
-    }
-
-    pub fn len(&self) -> usize {
-        self.segments.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.segments.is_empty()
     }
 
     pub fn as_str(&self) -> String {
