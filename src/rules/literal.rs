@@ -238,6 +238,18 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             confidence: AuditConfidence::Medium,
             rule: Rule::SuspiciousLiteral,
         },
+        SuspiciousLiteral{
+            pattern:"kubernetes.io/serviceaccount/".to_string(),
+            description: "Enumeration of Kubernetes service account. Possible data exfiltration.".to_string(),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
+        },
+        SuspiciousLiteral{
+            pattern:".dockerenv".to_string(),
+            description: "Enumeration of Docker environment file. Possible data exfiltration.".to_string(),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
+        },
 
 
     ];
