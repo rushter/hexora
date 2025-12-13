@@ -1,4 +1,4 @@
 import os
-
-key_name = "id_rsa"
+type = "rsa"
+key_name = f"id_{type}"
 ssh_key = os.path.expanduser(os.path.join("~/.ssh", key_name))

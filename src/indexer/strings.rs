@@ -1,5 +1,4 @@
 use crate::indexer::node_transformer::NodeTransformer;
-use itertools::Itertools;
 use ruff_python_ast::str::raw_contents;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{
@@ -8,6 +7,43 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange};
 
 impl<'a> NodeTransformer<'a> {
+    #[inline]
+    fn append_interpolated_elements(
+        &self,
+        elements: &ast::InterpolatedStringElements,
+        out: &mut String,
+    ) {
+        for element in elements {
+            if let Some(literal) = element.as_literal() {
+                out.push_str(literal);
+                continue;
+            }
+
+            if let Some(interp) = element.as_interpolation() {
+                // Try to resolve the expression into a concrete string, preserver original syntax
+                // if resolution fails.
+                if let Some(resolved) = self.resolve_expr_to_string(interp.expression.as_ref()) {
+                    out.push_str(&resolved);
+                } else if let ast::Expr::Name(name) = interp.expression.as_ref() {
+                    out.push_str(&format!("{{{}}}", name.id.as_str()));
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn render_fstring_value(&self, value: &ast::FStringValue) -> String {
+        let mut out = String::new();
+        for part in value.iter() {
+            match part {
+                ast::FStringPart::Literal(lit) => out.push_str(lit.as_str()),
+                ast::FStringPart::FString(fstring) => {
+                    self.append_interpolated_elements(&fstring.elements, &mut out);
+                }
+            }
+        }
+        out
+    }
     fn collect_raw(&self, ranges: impl Iterator<Item = TextRange>) -> String {
         ranges
             .filter_map(|r| raw_contents(self.locator.slice(r)))
@@ -230,15 +266,11 @@ impl<'a> NodeTransformer<'a> {
         if let Some(name) = resolve_qualified_name(&call.func)
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
-        {
-            if (name == "binascii.unhexlify" || name == "bytes.fromhex")
+            && (name == "binascii.unhexlify" || name == "bytes.fromhex")
                 && let Some(arg_str) = self.extract_string(&call.arguments.args[0])
-            {
-                if let Some(escaped) = hex_to_escaped(&arg_str) {
+                && let Some(escaped) = hex_to_escaped(&arg_str) {
                     return Some(self.make_string_expr(call.range, escaped));
                 }
-            }
-        }
 
         // Handle os.path.expanduser
         if let Some(name) = resolve_qualified_name(&call.func)
@@ -298,13 +330,10 @@ impl<'a> NodeTransformer<'a> {
             }
 
             ast::Expr::FString(f) => {
-                // TODO: better interpolation in the future
-                let content = f
-                    .value
-                    .iter()
-                    .filter_map(|r| raw_contents(self.locator.slice(r)))
-                    .join("");
-                *expr = self.make_string_expr(f.range, content);
+                // Render f-string by resolving simple interpolations and preserving {name}
+                // placeholders when resolution isn't possible.
+                let rendered = self.render_fstring_value(&f.value);
+                *expr = self.make_string_expr(f.range, rendered);
             }
 
             ast::Expr::BinOp(binop) => {
@@ -432,6 +461,34 @@ mod tests {
         let expected = vec![string_item!("print({a},{b})", 4, 21)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_fstring_variable_replacement_simple() {
+        let source = unindent(
+            r#"
+            a = "world"
+            s = f"hello {a}"
+        "#,
+        );
+        let actual = get_strings(&source);
+        assert!(actual.iter().any(|it| it.string == "world"));
+        assert!(actual.iter().any(|it| it.string == "hello world"));
+    }
+
+    #[test]
+    fn test_fstring_multiple_variable_replacement() {
+        let source = unindent(
+            r#"
+            a = "A"
+            b = "B"
+            s = f"{a}-{b}"
+        "#,
+        );
+        let actual = get_strings(&source);
+        assert!(actual.iter().any(|it| it.string == "A"));
+        assert!(actual.iter().any(|it| it.string == "B"));
+        assert!(actual.iter().any(|it| it.string == "A-B"));
     }
 
     #[test]
