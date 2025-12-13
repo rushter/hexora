@@ -304,7 +304,7 @@ impl<'a> NodeTransformer<'a> {
             return;
         };
 
-        if self.updated_strings.borrow_mut().contains(&node_id) {
+        if self.updated_strings.borrow().contains(&node_id) {
             return;
         }
 
