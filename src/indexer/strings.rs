@@ -224,6 +224,17 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
+        // Handle os.path.expanduser
+        if let Some(name) = resolve_qualified_name(&call.func)
+            && name == "os.path.expanduser"
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 1
+            && let Some(s) = self.extract_string(&call.arguments.args[0])
+            && s == "~"
+        {
+            return Some(self.make_string_expr(call.range, "~".to_string()));
+        }
+
         // Handle os.path.join
         if let Some(name) = resolve_qualified_name(&call.func)
             && name == "os.path.join"
@@ -528,6 +539,22 @@ mod tests {
     fn test_os_path_join() {
         let source = r#"a = os.path.join("~/.ssh", "id_rsa")"#;
         let expected = vec![string_item!("~/.ssh/id_rsa", 4, 36)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_os_path_expanduser() {
+        let source = r#"a = os.path.expanduser("~")"#;
+        let expected = vec![string_item!("~", 4, 27)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_os_path_join_with_expanduser() {
+        let source = r#"a = os.path.join(os.path.expanduser("~"), ".aws", "credentials")"#;
+        let expected = vec![string_item!("~/.aws/credentials", 4, 64)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
     }
