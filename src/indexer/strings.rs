@@ -8,6 +8,37 @@ use ruff_text_size::{Ranged, TextRange};
 
 impl<'a> NodeTransformer<'a> {
     #[inline]
+    fn iterable_elts<'e>(&self, expr: &'e ast::Expr) -> Option<&'e [ast::Expr]> {
+        match expr {
+            ast::Expr::List(l) => Some(&l.elts),
+            ast::Expr::Tuple(t) => Some(&t.elts),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn call_is_simple_reversed<'e>(&self, call: &'e ast::ExprCall) -> Option<&'e ast::Expr> {
+        let is_reversed =
+            matches!(call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
+        if is_reversed && call.arguments.keywords.is_empty() && call.arguments.args.len() == 1 {
+            Some(&call.arguments.args[0])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn collect_u32s_from_elts(&self, elts: &[ast::Expr], reverse: bool) -> Option<Vec<u32>> {
+        let mut out: Vec<u32> = elts
+            .iter()
+            .map(|e| self.extract_int_literal_u32(e))
+            .collect::<Option<Vec<u32>>>()?;
+        if reverse {
+            out.reverse();
+        }
+        Some(out)
+    }
+    #[inline]
     fn append_interpolated_elements(
         &self,
         elements: &ast::InterpolatedStringElements,
@@ -148,25 +179,24 @@ impl<'a> NodeTransformer<'a> {
     }
 
     fn sequence_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
+        if let Some(codepoints) = self.collect_u32s_from_iterable(expr, reverse) {
+            return codepoints
+                .into_iter()
+                .map(|cp| std::char::from_u32(cp).map(|ch| ch.to_string()))
+                .collect();
+        }
+
+        if let Some(elts) = self.iterable_elts(expr) {
+            return self.collect_string_elements(elts, reverse);
+        }
+
         match expr {
-            ast::Expr::List(_) | ast::Expr::Tuple(_) => {
-                let elts = match expr {
-                    ast::Expr::List(l) => &l.elts,
-                    ast::Expr::Tuple(t) => &t.elts,
-                    _ => unreachable!(),
-                };
-                self.collect_string_elements(elts, reverse)
-            }
             ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
                 self.sequence_to_parts(&sub.value, !reverse)
             }
             ast::Expr::Call(inner_call) => {
-                let is_reversed = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "reversed");
-                if is_reversed
-                    && inner_call.arguments.keywords.is_empty()
-                    && inner_call.arguments.args.len() == 1
-                {
-                    self.sequence_to_parts(&inner_call.arguments.args[0], !reverse)
+                if let Some(arg) = self.call_is_simple_reversed(inner_call) {
+                    self.sequence_to_parts(arg, !reverse)
                 } else {
                     None
                 }
@@ -181,6 +211,80 @@ impl<'a> NodeTransformer<'a> {
                 } else {
                     self.resolve_variable_to_parts(expr, reverse)
                 }
+            }
+        }
+    }
+
+    fn extract_int_literal_u32(&self, expr: &ast::Expr) -> Option<u32> {
+        if let ast::Expr::NumberLiteral(num) = expr {
+            // Only handle simple integer literals
+            if let Some(int_ref) = num.value.as_int()
+                && let Some(u) = int_ref.as_u32()
+            {
+                return Some(u);
+            }
+            return None;
+        }
+        None
+    }
+
+    fn collect_u32s_from_iterable(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<u32>> {
+        if let Some(elts) = self.iterable_elts(expr) {
+            return self.collect_u32s_from_elts(elts, reverse);
+        }
+
+        match expr {
+            ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
+                self.collect_u32s_from_iterable(&sub.value, !reverse)
+            }
+            ast::Expr::Call(inner_call) => {
+                if let Some(arg) = self.call_is_simple_reversed(inner_call) {
+                    return self.collect_u32s_from_iterable(arg, !reverse);
+                }
+
+                // Support: map(chr, iterable)
+                let is_map = matches!(inner_call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "map");
+                if is_map
+                    && inner_call.arguments.keywords.is_empty()
+                    && inner_call.arguments.args.len() == 2
+                    && matches!(&inner_call.arguments.args[0], ast::Expr::Name(name) if name.id.as_str() == "chr")
+                {
+                    let iter_expr = &inner_call.arguments.args[1];
+                    return self.collect_u32s_from_iterable(iter_expr, reverse);
+                }
+
+                None
+            }
+            // Support: (chr(x) for x in data)
+            ast::Expr::Generator(generator) => {
+                if generator.generators.len() == 1 {
+                    let elt_call = match generator.elt.as_ref() {
+                        ast::Expr::Call(call) => call,
+                        _ => return None,
+                    };
+                    if matches!(
+                        elt_call.func.as_ref(),
+                        ast::Expr::Name(name) if name.id.as_str() == "chr"
+                    ) && elt_call.arguments.keywords.is_empty()
+                        && elt_call.arguments.args.len() == 1
+                    {
+                        let comp = &generator.generators[0];
+                        if comp.ifs.is_empty() && !comp.is_async {
+                            return self.collect_u32s_from_iterable(&comp.iter, reverse);
+                        }
+                    }
+                }
+                None
+            }
+            _ => {
+                if let Some(resolved_exprs) = self.get_resolved_exprs(expr) {
+                    for e in resolved_exprs {
+                        if let Some(v) = self.collect_u32s_from_iterable(&e, reverse) {
+                            return Some(v);
+                        }
+                    }
+                }
+                None
             }
         }
     }
@@ -260,21 +364,24 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
+        let qualified = resolve_qualified_name(&call.func);
+
         // binascii.unhexlify(..) or bytes.fromhex(..)
         // Just extract them for now
         // TODO: handle it in a better way
-        if let Some(name) = resolve_qualified_name(&call.func)
+        if let Some(name) = qualified.as_ref()
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
-            && (name == "binascii.unhexlify" || name == "bytes.fromhex")
-                && let Some(arg_str) = self.extract_string(&call.arguments.args[0])
-                && let Some(escaped) = hex_to_escaped(&arg_str) {
-                    return Some(self.make_string_expr(call.range, escaped));
-                }
+            && (name.as_str() == "binascii.unhexlify" || name.as_str() == "bytes.fromhex")
+            && let Some(arg_str) = self.extract_string(&call.arguments.args[0])
+            && let Some(escaped) = hex_to_escaped(&arg_str)
+        {
+            return Some(self.make_string_expr(call.range, escaped));
+        }
 
         // Handle os.path.expanduser
-        if let Some(name) = resolve_qualified_name(&call.func)
-            && name == "os.path.expanduser"
+        if let Some(name) = qualified.as_ref()
+            && name.as_str() == "os.path.expanduser"
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
             && let Some(s) = self.extract_string(&call.arguments.args[0])
@@ -284,8 +391,8 @@ impl<'a> NodeTransformer<'a> {
         }
 
         // Handle os.path.join
-        if let Some(name) = resolve_qualified_name(&call.func)
-            && name == "os.path.join"
+        if let Some(name) = qualified.as_ref()
+            && name.as_str() == "os.path.join"
             && call.arguments.keywords.is_empty()
             && !call.arguments.args.is_empty()
         {
@@ -664,5 +771,21 @@ mod tests {
         let source = r#"a = bytes.fromhex("41 42 43")"#;
         let actual = get_strings(source);
         assert!(actual.iter().any(|it| it.string == "\\x41\\x42\\x43"));
+    }
+
+    #[test]
+    fn test_join_map_chr_list() {
+        let source = r#"a = "".join(map(chr, [97, 98, 99]))"#;
+        let expected = vec![string_item!("abc", 4, 35)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_join_generator_chr_tuple() {
+        let source = r#"a = "".join(chr(x) for x in (65, 66))"#;
+        let expected = vec![string_item!("AB", 4, 37)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
     }
 }
