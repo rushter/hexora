@@ -7,10 +7,13 @@ use std::collections::HashSet;
 
 static ENV_VARS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
+        "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AZURE_CLIENT_ID",
+        "AZURE_CLIENT_SECRET",
         "AZURE_PASSWORD",
         "AZURE_STORAGE_CONNECTION_STRING",
+        "AZURE_STORAGE_KEY",
         "AZURE_USERNAME",
         "binance_api",
         "binance_secret",
@@ -22,6 +25,7 @@ static ENV_VARS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "DOCKER_PASSWORD",
         "DOCKER_USERNAME",
         "FACEBOOK_APP_SECRET",
+        "GCP_PROJECT",
         "GH_TOKEN",
         "GITHUB_TOKEN",
         "GITLAB_TOKEN",
@@ -42,7 +46,6 @@ static ENV_VARS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "SLACK_TOKEN",
         "TELEGRAM_BOT_TOKEN",
         "VAULT_TOKEN",
-        "AWS_ACCESS_KEY_ID",
     ])
 });
 
