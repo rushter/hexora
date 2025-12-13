@@ -28,11 +28,11 @@ name = "hexora"
 path = "src/main.rs"
 
 [dependencies]
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="188c0dce29efdc6c9e9cb230defa522ae5f8d594" }
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="188c0dce29efdc6c9e9cb230defa522ae5f8d594" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff/", rev="188c0dce29efdc6c9e9cb230defa522ae5f8d594"}
-ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="188c0dce29efdc6c9e9cb230defa522ae5f8d594" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="188c0dce29efdc6c9e9cb230defa522ae5f8d594" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160"}
+ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
 log = "0.4.28"

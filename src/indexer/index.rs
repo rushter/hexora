@@ -1,6 +1,6 @@
+use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::*;
-use ruff_python_parser::{TokenKind, Tokens};
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
