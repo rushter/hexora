@@ -224,6 +224,22 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
+        // binascii.unhexlify(..) or bytes.fromhex(..)
+        // Just extract them for now
+        // TODO: handle it in a better way
+        if let Some(name) = resolve_qualified_name(&call.func)
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 1
+        {
+            if (name == "binascii.unhexlify" || name == "bytes.fromhex")
+                && let Some(arg_str) = self.extract_string(&call.arguments.args[0])
+            {
+                if let Some(escaped) = hex_to_escaped(&arg_str) {
+                    return Some(self.make_string_expr(call.range, escaped));
+                }
+            }
+        }
+
         // Handle os.path.expanduser
         if let Some(name) = resolve_qualified_name(&call.func)
             && name == "os.path.expanduser"
@@ -322,6 +338,26 @@ fn resolve_qualified_name(expr: &ast::Expr) -> Option<String> {
         }
         _ => None,
     }
+}
+#[inline]
+fn hex_to_escaped(input: &str) -> Option<String> {
+    let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    if filtered.len() < 2 || !filtered.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut out = String::new();
+    let bytes = filtered.as_bytes();
+    for i in (0..bytes.len()).step_by(2) {
+        let h = bytes[i] as char;
+        let l = bytes[i + 1] as char;
+        if !(h.is_ascii_hexdigit() && l.is_ascii_hexdigit()) {
+            return None;
+        }
+        out.push_str("\\x");
+        out.push(h.to_ascii_lowercase());
+        out.push(l.to_ascii_lowercase());
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -557,5 +593,19 @@ mod tests {
         let expected = vec![string_item!("~/.aws/credentials", 4, 64)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_binascii_unhexlify() {
+        let source = r#"a = binascii.unhexlify("414243")"#;
+        let actual = get_strings(source);
+        assert!(actual.iter().any(|it| it.string == "\\x41\\x42\\x43"));
+    }
+
+    #[test]
+    fn test_bytes_fromhex_with_spaces() {
+        let source = r#"a = bytes.fromhex("41 42 43")"#;
+        let actual = get_strings(source);
+        assert!(actual.iter().any(|it| it.string == "\\x41\\x42\\x43"));
     }
 }
