@@ -407,6 +407,21 @@ impl<'a> NodeTransformer<'a> {
             return None;
         }
 
+        // Handle bytes([10,20, ..])
+        if let ast::Expr::Name(name) = &*call.func
+            && name.id.as_str() == "bytes"
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 1
+            && let Some(codepoints) =
+                self.collect_u32s_from_iterable(&call.arguments.args[0], false)
+        {
+            let s: String = codepoints
+                .into_iter()
+                .filter_map(std::char::from_u32)
+                .collect();
+            return Some(self.make_string_expr(call.range, s));
+        }
+
         None
     }
 
@@ -794,6 +809,14 @@ mod tests {
     fn test_join_generator_chr_tuple() {
         let source = r#"a = "".join(chr(x) for x in (65, 66))"#;
         let expected = vec![string_item!("AB", 4, 37)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_bytes_decode() {
+        let source = r#"a = bytes([98, 97, 115, 104]).decode()"#;
+        let expected = vec![string_item!("bash", 4, 38)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
     }
