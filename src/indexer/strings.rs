@@ -190,42 +190,37 @@ impl<'a> NodeTransformer<'a> {
             return self.collect_string_elements(elts, reverse);
         }
 
-        match expr {
-            ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
-                self.sequence_to_parts(&sub.value, !reverse)
-            }
-            ast::Expr::Call(inner_call) => {
-                if let Some(arg) = self.call_is_simple_reversed(inner_call) {
-                    self.sequence_to_parts(arg, !reverse)
-                } else {
-                    None
-                }
-            }
-            _ => {
-                if let Some(s) = self.extract_string(expr) {
-                    let mut parts: Vec<String> = s.chars().map(|c| c.to_string()).collect();
-                    if reverse {
-                        parts.reverse();
-                    }
-                    Some(parts)
-                } else {
-                    self.resolve_variable_to_parts(expr, reverse)
-                }
+        if let ast::Expr::Subscript(sub) = expr
+            && self.is_reverse_slice(&sub.slice)
+        {
+            return self.sequence_to_parts(&sub.value, !reverse);
+        }
+
+        if let ast::Expr::Call(inner_call) = expr {
+            if let Some(arg) = self.call_is_simple_reversed(inner_call) {
+                return self.sequence_to_parts(arg, !reverse);
+            } else {
+                return None;
             }
         }
+
+        if let Some(s) = self.extract_string(expr) {
+            let mut parts: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+            if reverse {
+                parts.reverse();
+            }
+            return Some(parts);
+        }
+
+        self.resolve_variable_to_parts(expr, reverse)
     }
 
     fn extract_int_literal_u32(&self, expr: &ast::Expr) -> Option<u32> {
-        if let ast::Expr::NumberLiteral(num) = expr {
-            // Only handle simple integer literals
-            if let Some(int_ref) = num.value.as_int()
-                && let Some(u) = int_ref.as_u32()
-            {
-                return Some(u);
-            }
+        let ast::Expr::NumberLiteral(num) = expr else {
             return None;
-        }
-        None
+        };
+        let int_ref = num.value.as_int()?;
+        int_ref.as_u32()
     }
 
     fn collect_u32s_from_iterable(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<u32>> {
@@ -255,26 +250,28 @@ impl<'a> NodeTransformer<'a> {
 
                 None
             }
-            // Support: (chr(x) for x in data)
+
+            // Handle (chr(x) for x in data)
+            // Only supports single generator without ifs for now
             ast::Expr::Generator(generator) => {
-                if generator.generators.len() == 1 {
-                    let elt_call = match generator.elt.as_ref() {
-                        ast::Expr::Call(call) => call,
-                        _ => return None,
-                    };
-                    if matches!(
-                        elt_call.func.as_ref(),
-                        ast::Expr::Name(name) if name.id.as_str() == "chr"
-                    ) && elt_call.arguments.keywords.is_empty()
-                        && elt_call.arguments.args.len() == 1
-                    {
-                        let comp = &generator.generators[0];
-                        if comp.ifs.is_empty() && !comp.is_async {
-                            return self.collect_u32s_from_iterable(&comp.iter, reverse);
-                        }
-                    }
+                if generator.generators.len() != 1 {
+                    return None;
                 }
-                None
+                let ast::Expr::Call(elt_call) = generator.elt.as_ref() else {
+                    return None;
+                };
+                let is_chr_call = matches!(
+                    elt_call.func.as_ref(),
+                    ast::Expr::Name(name) if name.id.as_str() == "chr"
+                );
+                if !is_chr_call || elt_call.arguments.len() != 1 {
+                    return None;
+                }
+                let comp = &generator.generators[0];
+                if !comp.ifs.is_empty() || comp.is_async {
+                    return None;
+                }
+                self.collect_u32s_from_iterable(&comp.iter, reverse)
             }
             _ => {
                 if let Some(resolved_exprs) = self.get_resolved_exprs(expr) {
@@ -345,22 +342,23 @@ impl<'a> NodeTransformer<'a> {
         // Children are already visited by the outer traversal.
         if let ast::Expr::Attribute(attr) = call.func.as_ref() {
             // b"x".decode(...)
-            if attr.attr.as_str() == "decode"
-                && let Some(s) = self.extract_string(&attr.value)
-            {
-                return Some(self.make_string_expr(call.range, s));
+            if attr.attr.as_str() == "decode" {
+                if let Some(s) = self.extract_string(&attr.value) {
+                    return Some(self.make_string_expr(call.range, s));
+                }
+                return None;
             }
 
             // "".join(...)
             if attr.attr.as_str() == "join"
                 && call.arguments.keywords.is_empty()
                 && call.arguments.args.len() == 1
-                && let Some(sep) = self.extract_string(&attr.value)
             {
-                let seq_expr = &call.arguments.args[0];
-                if let Some(result) = self.handle_join_operation(&sep, seq_expr, call.range) {
-                    return Some(result);
+                if let Some(sep) = self.extract_string(&attr.value) {
+                    let seq_expr = &call.arguments.args[0];
+                    return self.handle_join_operation(&sep, seq_expr, call.range);
                 }
+                return None;
             }
         }
 
@@ -373,10 +371,13 @@ impl<'a> NodeTransformer<'a> {
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
             && (name.as_str() == "binascii.unhexlify" || name.as_str() == "bytes.fromhex")
-            && let Some(arg_str) = self.extract_string(&call.arguments.args[0])
-            && let Some(escaped) = hex_to_escaped(&arg_str)
         {
-            return Some(self.make_string_expr(call.range, escaped));
+            if let Some(arg_str) = self.extract_string(&call.arguments.args[0])
+                && let Some(escaped) = hex_to_escaped(&arg_str)
+            {
+                return Some(self.make_string_expr(call.range, escaped));
+            }
+            return None;
         }
 
         // Handle os.path.expanduser
@@ -384,10 +385,13 @@ impl<'a> NodeTransformer<'a> {
             && name.as_str() == "os.path.expanduser"
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
-            && let Some(s) = self.extract_string(&call.arguments.args[0])
-            && s == "~"
         {
-            return Some(self.make_string_expr(call.range, "~".to_string()));
+            if let Some(s) = self.extract_string(&call.arguments.args[0])
+                && s == "~"
+            {
+                return Some(self.make_string_expr(call.range, "~".to_string()));
+            }
+            return None;
         }
 
         // Handle os.path.join
@@ -475,25 +479,30 @@ fn resolve_qualified_name(expr: &ast::Expr) -> Option<String> {
         _ => None,
     }
 }
+
 #[inline]
 fn hex_to_escaped(input: &str) -> Option<String> {
     let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-    if filtered.len() < 2 || !filtered.len().is_multiple_of(2) {
+    if filtered.is_empty() || !filtered.len().is_multiple_of(2) {
         return None;
     }
-    let mut out = String::new();
-    let bytes = filtered.as_bytes();
-    for i in (0..bytes.len()).step_by(2) {
-        let h = bytes[i] as char;
-        let l = bytes[i + 1] as char;
-        if !(h.is_ascii_hexdigit() && l.is_ascii_hexdigit()) {
-            return None;
-        }
-        out.push_str("\\x");
-        out.push(h.to_ascii_lowercase());
-        out.push(l.to_ascii_lowercase());
-    }
-    Some(out)
+    filtered
+        .as_bytes()
+        .chunks(2)
+        .map(|chunk| {
+            let h = chunk[0] as char;
+            let l = chunk[1] as char;
+            if h.is_ascii_hexdigit() && l.is_ascii_hexdigit() {
+                Some(format!(
+                    "\\x{}{}",
+                    h.to_ascii_lowercase(),
+                    l.to_ascii_lowercase()
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
