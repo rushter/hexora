@@ -1,5 +1,6 @@
 # hexora
-![PyPI - Version](https://img.shields.io/pypi/v/hexora)
+
+[![PyPI - Version](https://img.shields.io/pypi/v/hexora?logo=pypi&label=Pypi&logoColor=fff)](https://pypi.org/project/hexora)
 
 
 Hexora is a static analysis tool designed to detect malicious and harmful patterns in Python code.
