@@ -250,6 +250,12 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             confidence: AuditConfidence::Medium,
             rule: Rule::SuspiciousLiteral,
         },
+        SuspiciousLiteral{
+            pattern:"/dev/tcp".to_string(),
+            description: "Suspicious TCP connection attempt. Potential exploitation.".to_string(),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
+        },
 
 
     ];
@@ -457,6 +463,7 @@ mod tests {
     #[test_case("literal_05.py", Rule::SuspiciousLiteral, vec![".ssh/id_rsa"])]
     #[test_case("literal_06.py", Rule::SuspiciousLiteral, vec!["WScript.Shell"])]
     #[test_case("literal_07.py", Rule::SuspiciousLiteral, vec![".aws/credentials"])]
+    #[test_case("literal_08.py", Rule::SuspiciousLiteral, vec!["/dev/tcp"])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
