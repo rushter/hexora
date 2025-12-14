@@ -1,6 +1,6 @@
 [project]
 name = 'hexora'
-version = '0.2.0'
+version = '0.2.1'
 description = 'Static analysis of malicous Python scripts.'
 readme = 'README.md'
 requires-python = '>=3.9'
