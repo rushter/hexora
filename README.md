@@ -1,4 +1,6 @@
 # hexora
+![PyPI - Version](https://img.shields.io/pypi/v/hexora)
+
 
 Hexora is a static analysis tool designed to detect malicious and harmful patterns in Python code.
 
@@ -41,7 +43,7 @@ hexora --help
 
 ## Audit single file
 
-```bash 
+```bash
 >  hexora audit test.py
 
 warning[HX2000]: Reading from the clipboard can be used to exfiltrate sensitive data.
@@ -54,7 +56,7 @@ warning[HX2000]: Reading from the clipboard can be used to exfiltrate sensitive 
   │
   = Confidence: High
     Help: Clipboard access can be used to exfiltrate sensitive data such as passwords and keys.
-    
+
 warning[HX3000]: Possible execution of unwanted code
    ┌─ resources/test/test.py:20:1
    │
@@ -75,7 +77,7 @@ hexora audit --output-format terminal resources/test/
 ## Audit packages from virtual environment
 
 ```bash
-hexora audit --exclude HX5020,HX5030,HX5040,HX5050,HX5060 --min-confidence high .venv/lib/python3.11/site-packages/ 
+hexora audit --exclude HX5020,HX5030,HX5040,HX5050,HX5060 --min-confidence high .venv/lib/python3.11/site-packages/
 ```
 
 Where `python3.11` is the version of the Python in virtual environment.
@@ -86,7 +88,7 @@ Tips:
 - Use `--min-confidence` to focus on high-confidence findings only.
 
 Confidence indicates how a certain piece of code is malicious.
-Some libraries or code snippets are used for legit purposes, and it's hard to distinguish legit use-cases from 
+Some libraries or code snippets are used for legit purposes, and it's hard to distinguish legit use-cases from
 malicious ones.
 That's why some matches have a low confidence level.
 
