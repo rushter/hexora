@@ -3,7 +3,7 @@ use crate::audit::resolver::matches_builtin_functions;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 
-use crate::rules::exec::is_chained_with_base64_call;
+use crate::rules::exec::is_chained_with_decoder_call;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 
@@ -17,7 +17,7 @@ fn is_eval_or_exec(name: &str) -> bool {
 }
 
 fn push_exec_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
-    let is_obf = is_chained_with_base64_call(checker, call);
+    let is_obf = is_chained_with_decoder_call(checker, call);
     let (rule, description) = if is_obf {
         (
             Rule::ObfuscatedCodeExec,

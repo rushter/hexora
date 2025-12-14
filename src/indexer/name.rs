@@ -26,6 +26,10 @@ impl QualifiedName {
         self.segments.len() == parts.len() && self.segments.iter().zip(parts).all(|(a, b)| a == b)
     }
 
+    pub fn starts_with(&self, parts: &[&str]) -> bool {
+        self.segments.len() >= parts.len() && self.segments.iter().zip(parts).all(|(a, b)| a == b)
+    }
+
     pub fn first(&self) -> Option<&str> {
         self.segments.first().map(|s| s.as_str())
     }

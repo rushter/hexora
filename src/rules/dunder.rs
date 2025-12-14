@@ -3,7 +3,7 @@ use crate::audit::resolver::matches_builtin_functions;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
-use crate::rules::exec::{is_chained_with_base64_call, is_code_exec, is_shell_command};
+use crate::rules::exec::{is_chained_with_decoder_call, is_code_exec, is_shell_command};
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 
@@ -40,7 +40,7 @@ fn check_dunder_attribute_call(checker: &mut Checker, call: &ast::ExprCall) {
         let name = attr.attr.as_str();
         let func_call: &[&str] = &[&dunder_import, name];
         if is_shell_command(func_call) {
-            if is_chained_with_base64_call(checker, call) {
+            if is_chained_with_decoder_call(checker, call) {
                 checker.audit_results.push(AuditItem {
                     label: func_call.join("."),
                     rule: Rule::ObfuscatedDunderShellExec,
@@ -61,7 +61,7 @@ fn check_dunder_attribute_call(checker: &mut Checker, call: &ast::ExprCall) {
             }
         };
         if is_code_exec(func_call) {
-            if is_chained_with_base64_call(checker, call) {
+            if is_chained_with_decoder_call(checker, call) {
                 checker.audit_results.push(AuditItem {
                     label: func_call.join("."),
                     rule: Rule::ObfuscatedDunderCodeExec,
@@ -106,7 +106,7 @@ fn check_dunder_getattr_call(checker: &mut Checker, call: &ast::ExprCall) {
             && let Some(attr_name) = string_from_expr(name_expr, &checker.indexer)
         {
             let func_call: [&str; 2] = [&module_name, &attr_name];
-            let is_obf = is_chained_with_base64_call(checker, call);
+            let is_obf = is_chained_with_decoder_call(checker, call);
             if is_shell_command(&func_call) {
                 checker.audit_results.push(AuditItem {
                     label: func_call.join("."),

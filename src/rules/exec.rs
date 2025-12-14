@@ -8,6 +8,16 @@ use ruff_python_ast as ast;
 static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
 
+static SUSPICIOUS_DECODERS: Lazy<&[(&str, &[&str])]> = Lazy::new(|| {
+    &[
+        ("base64", &["b64decode"]),
+        ("zlib", &["decompress"]),
+        ("codecs", &["decode"]),
+        ("marshal", &["loads"]),
+        ("pickle", &["loads"]),
+    ]
+});
+
 pub fn is_shell_command(segments: &[&str]) -> bool {
     match segments {
         &[module, submodule] => match module {
@@ -70,44 +80,46 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
     }
 }
 
-pub fn is_chained_with_base64_call(checker: &Checker, call: &ast::ExprCall) -> bool {
-    fn contains_b64decode(checker: &Checker, expr: &ast::Expr) -> bool {
+pub fn is_chained_with_decoder_call(checker: &Checker, call: &ast::ExprCall) -> bool {
+    fn contains_decoder(checker: &Checker, expr: &ast::Expr) -> bool {
         match expr {
             ast::Expr::Call(inner_call) => {
-                if let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func)
-                    && qn.is_exact(&["base64", "b64decode"])
-                {
-                    return true;
+                if let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func) {
+                    for (module, funcs) in *SUSPICIOUS_DECODERS {
+                        if qn.starts_with(&[module]) && funcs.contains(&qn.last().unwrap_or("")) {
+                            return true;
+                        }
+                    }
                 }
                 for arg in &*inner_call.arguments.args {
-                    if contains_b64decode(checker, arg) {
+                    if contains_decoder(checker, arg) {
                         return true;
                     }
                 }
                 for kw in &*inner_call.arguments.keywords {
-                    if contains_b64decode(checker, &kw.value) {
+                    if contains_decoder(checker, &kw.value) {
                         return true;
                     }
                 }
                 false
             }
             ast::Expr::List(ast::ExprList { elts, .. }) => {
-                elts.iter().any(|elt| contains_b64decode(checker, elt))
+                elts.iter().any(|elt| contains_decoder(checker, elt))
             }
             ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                elts.iter().any(|elt| contains_b64decode(checker, elt))
+                elts.iter().any(|elt| contains_decoder(checker, elt))
             }
             _ => false,
         }
     }
 
     for arg in &*call.arguments.args {
-        if contains_b64decode(checker, arg) {
+        if contains_decoder(checker, arg) {
             return true;
         }
     }
     for kw in &*call.arguments.keywords {
-        if contains_b64decode(checker, &kw.value) {
+        if contains_decoder(checker, &kw.value) {
             return true;
         }
     }
@@ -141,7 +153,7 @@ fn contains_curl_wget(checker: &Checker, call: &ast::ExprCall) -> bool {
 }
 
 fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
-    let is_obf = is_chained_with_base64_call(checker, call);
+    let is_obf = is_chained_with_decoder_call(checker, call);
     checker.audit_results.push(AuditItem {
         label: label.clone(),
         rule: if is_obf {
@@ -163,7 +175,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
     });
 
     if contains_curl_wget(checker, call) {
-        let is_obf = is_chained_with_base64_call(checker, call);
+        let is_obf = is_chained_with_decoder_call(checker, call);
         checker.audit_results.push(AuditItem {
             label,
             rule: Rule::CurlWgetExec,
@@ -179,7 +191,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
 }
 
 fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
-    let is_obf = is_chained_with_base64_call(checker, call);
+    let is_obf = is_chained_with_decoder_call(checker, call);
     checker.audit_results.push(AuditItem {
         label,
         rule: if is_obf {
