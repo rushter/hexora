@@ -385,9 +385,11 @@ where
                     if is_hex_literal {
                         break;
                     }
-                    num_int_literals += 1;
-                    if preview_literals.len() < LITERALS_PREVIEW_MAX_COUNT {
-                        preview_literals.push(raw_value);
+                    if number.value.is_int() {
+                        num_int_literals += 1;
+                        if preview_literals.len() < LITERALS_PREVIEW_MAX_COUNT {
+                            preview_literals.push(raw_value);
+                        }
                     }
                 }
             }
@@ -464,6 +466,7 @@ mod tests {
     #[test_case("literal_06.py", Rule::SuspiciousLiteral, vec!["WScript.Shell"])]
     #[test_case("literal_07.py", Rule::SuspiciousLiteral, vec![".aws/credentials"])]
     #[test_case("literal_08.py", Rule::SuspiciousLiteral, vec!["/dev/tcp"])]
+    #[test_case("literal_08.py", Rule::IntLiterals, vec![])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
