@@ -1,6 +1,5 @@
 name: Build wheels
 
-
 on:
   release:
     types:
@@ -18,13 +17,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-        python-version: [ 39, 310, 311, 312, 313 ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: [39, 310, 311, 312, 313, 314]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pypa/cibuildwheel@v3.0.0
+      - uses: pypa/cibuildwheel@v3.3.0
         env:
           CIBW_BUILD: "cp${{ matrix.python-version}}-*"
 
@@ -40,8 +39,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-24.04-arm ]
-        python-version: [ 39, 310, 311, 312, 313 ]
+        os: [ubuntu-24.04-arm]
+        python-version: [39, 310, 311, 312, 313, 314]
 
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +80,7 @@ jobs:
           path: ./dist/*.tar.gz
 
   upload_pypi:
-    needs: [ build_wheels, build_sdist, build_wheels_aarch64 ]
+    needs: [build_wheels, build_sdist, build_wheels_aarch64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
