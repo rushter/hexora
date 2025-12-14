@@ -16,6 +16,10 @@ hexora = 'hexora._hexora:run_cli'
 build-backend = "setuptools.build_meta"
 requires = ["setuptools>=62.4", "wheel", "setuptools-rust>=1.5.2"]
 
+[project.urls]
+Homepage = "https://github.com/rushter/hexora"
+Repository = "https://github.com/rushter/hexora"
+Documentation = "https://github.com/rushter/hexora/blob/main/README.md"
 
 
 [tool.cibuildwheel]
