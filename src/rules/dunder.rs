@@ -4,8 +4,12 @@ use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
 use crate::rules::exec::{is_chained_with_decoder_call, is_code_exec, is_shell_command};
+use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
+
+static IGNORED_DUNDER_IMPORTS: Lazy<&[&str]> =
+    Lazy::new(|| &["typing", "pkg_resources", "pkgutil"]);
 
 fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
     let arguments = &call.arguments.args;
@@ -21,8 +25,9 @@ fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String
 fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
     if let Expr::Name(name_expr) = &*call.func {
         let imported_module = get_import_name(call, indexer);
-        if imported_module.as_deref() == Some("typing") {
-            // Ignore typing imports, they are everywhere.
+        if let Some(module) = imported_module.as_deref()
+            && IGNORED_DUNDER_IMPORTS.contains(&module)
+        {
             return None;
         }
         if name_expr.id.as_str() == "__import__" && imported_module.is_some() {
@@ -174,6 +179,7 @@ mod tests {
     #[test_case("dunder_01.py", Rule::DunderShellExec, vec!["subprocess.call", "os.system"])]
     #[test_case("dunder_02.py", Rule::DunderCodeExec, vec!["builtins.exec", "builtins.eval", "builtins.eval", "builtins.eval", "builtins.eval"])]
     #[test_case("dunder_02.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]
+    #[test_case("dunder_03.py", Rule::DunderImport, vec!["__import__(\"sys\")"])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderShellExec, vec!["os.system",])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]
     fn test_dunder(path: &str, rule: Rule, expected_names: Vec<&str>) {
