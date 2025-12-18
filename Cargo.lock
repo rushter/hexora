@@ -401,6 +401,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hexora_io"
+version = "0.1.0"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

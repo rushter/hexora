@@ -9,9 +9,12 @@ setup(
             binding=Binding.PyO3,
             debug=False,
             features=["python"],
+            path="crates/hexora/Cargo.toml",
         )
     ],
-    packages=["hexora", ],
+    packages=[
+        "hexora",
+    ],
     zip_safe=False,
     package_dir={"hexora": "hexora"},
     package_data={"hexora": ["py.typed"]},
