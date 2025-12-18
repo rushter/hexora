@@ -77,6 +77,7 @@ impl<'a> NodeTransformer<'a> {
     }
     fn collect_raw(&self, ranges: impl Iterator<Item = TextRange>) -> String {
         ranges
+            .filter(|r| r.start() < r.end() && (r.end() - r.start()).to_usize() > 1)
             .filter_map(|r| raw_contents(self.locator.slice(r)))
             .collect()
     }
