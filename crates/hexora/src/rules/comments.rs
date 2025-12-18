@@ -44,7 +44,7 @@ pub fn check_comments(checker: &mut Checker) {
             if memmem::find(comment_str.as_bytes(), comment_rule.name.as_bytes()).is_some() {
                 checker.audit_results.push(AuditItem {
                     label: comment_rule.name.to_string(),
-                    rule: comment_rule.rule.clone(),
+                    rule: comment_rule.rule,
                     description: comment_rule.description.to_string(),
                     confidence: comment_rule.confidence,
                     location: Some(*comment),

@@ -2,6 +2,7 @@ use crate::audit::annotate::annotate_result;
 use crate::audit::parse::audit_path;
 use crate::audit::result::{AuditConfidence, AuditItem};
 use crate::audit::result::{AuditItemJSON, Rule};
+use crate::benchmark::run_benchmark;
 use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 use log::{error, info};
@@ -97,14 +98,40 @@ struct AuditOptions {
     )]
     min_confidence: AuditConfidence,
 }
+#[derive(Args, Clone, Debug)]
+struct BenchmarkOptions {
+    #[arg(
+        help = "Input path to a file or directory containing Python files.",
+        index = 1
+    )]
+    input_path: PathBuf,
+
+    #[arg(long, help = "Print zip paths with missing audits.")]
+    print_missing: bool,
+}
+
 #[derive(Subcommand)]
 enum Commands {
+    /// Audit a file or directory for malicious patterns.
     Audit {
         #[command(flatten)]
         opts: AuditOptions,
     },
 
+    /// List all available rules and their descriptions.
     Rules,
+
+    /// Run a performance benchmark on a set of files.
+    Benchmark {
+        #[command(flatten)]
+        opts: BenchmarkOptions,
+    },
+
+    /// This command is used to safely inspect archived malicious package.
+    DumpPackage {
+        #[arg(help = "Path to the zip file.", index = 1)]
+        path: PathBuf,
+    },
 }
 
 #[allow(clippy::format_in_format_args)]
@@ -245,6 +272,19 @@ pub fn run_cli(start_arg: usize) {
         }
         Commands::Rules => {
             print_rules_markdown();
+        }
+        Commands::Benchmark { opts } => match run_benchmark(&opts.input_path) {
+            Ok(result) => {
+                result.print_results(opts.print_missing);
+            }
+            Err(e) => {
+                error!("Benchmark failed: {}", e);
+            }
+        },
+        Commands::DumpPackage { path } => {
+            if let Err(e) = hexora_io::dump_package(&path) {
+                error!("Dump package failed: {}", e);
+            }
         }
     }
 

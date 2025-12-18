@@ -70,7 +70,7 @@ fn add_suspicious_import(
             .to_string(),
     };
     let rule = match &suspicious_import.rule {
-        Some(rule) => rule.clone(),
+        Some(rule) => *rule,
         None => Rule::SuspiciousImport,
     };
     checker.audit_results.push(AuditItem {

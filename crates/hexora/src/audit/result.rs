@@ -8,7 +8,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, EnumIter, Hash)]
 pub enum AuditConfidence {
     #[serde(rename = "very_low")]
     VeryLow = 1,
@@ -37,7 +37,7 @@ impl FromStr for AuditConfidence {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, EnumIter)]
+#[derive(Debug, Eq, PartialEq, Clone, EnumIter, Hash, Copy)]
 pub enum Rule {
     // Enumeration
     AppEnumeration,
@@ -326,6 +326,7 @@ where
 pub struct AuditResult {
     pub items: Vec<AuditItem>,
     pub path: PathBuf,
+    pub zip_path: Option<PathBuf>,
     pub source_code: String,
 }
 

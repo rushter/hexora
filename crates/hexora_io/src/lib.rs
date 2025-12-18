@@ -26,6 +26,21 @@ fn is_zip_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+pub struct PythonFile {
+    pub file_path: PathBuf,
+    pub content: String,
+    pub zip_path: Option<PathBuf>,
+}
+
+impl PythonFile {
+    pub fn full_path(&self) -> String {
+        match &self.zip_path {
+            Some(zp) => format!("{}:{}", self.file_path.display(), zp.display()),
+            None => self.file_path.display().to_string(),
+        }
+    }
+}
+
 struct ZipIterator {
     archive: zip::ZipArchive<fs::File>,
     zip_path: PathBuf,
@@ -66,7 +81,7 @@ impl ZipIterator {
 }
 
 impl Iterator for ZipIterator {
-    type Item = (PathBuf, String);
+    type Item = PythonFile;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current_index < self.num_files {
@@ -88,9 +103,12 @@ impl Iterator for ZipIterator {
             if is_python_file(&path_in_zip) {
                 let mut content = String::new();
                 if file.read_to_string(&mut content).is_ok() {
-                    let full_path = PathBuf::from(format!("{}:{}", self.zip_path.display(), name));
                     self.matched_count += 1;
-                    return Some((full_path, content));
+                    return Some(PythonFile {
+                        file_path: path_in_zip,
+                        content,
+                        zip_path: Some(self.zip_path.clone()),
+                    });
                 }
             }
         }
@@ -105,13 +123,13 @@ impl Iterator for ZipIterator {
 }
 
 enum EntryIterator {
-    FileSystem(std::iter::Once<(PathBuf, String)>),
+    FileSystem(std::iter::Once<PythonFile>),
     Zip(ZipIterator),
     Empty,
 }
 
 impl Iterator for EntryIterator {
-    type Item = (PathBuf, String);
+    type Item = PythonFile;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -122,7 +140,7 @@ impl Iterator for EntryIterator {
     }
 }
 
-pub fn list_python_files(path: &Path) -> impl Iterator<Item = (PathBuf, String)> {
+pub fn list_python_files(path: &Path) -> impl Iterator<Item = PythonFile> {
     walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -131,10 +149,11 @@ pub fn list_python_files(path: &Path) -> impl Iterator<Item = (PathBuf, String)>
             if entry_path.is_file() {
                 if is_python_file(entry_path) {
                     if let Ok(content) = fs::read_to_string(entry_path) {
-                        return EntryIterator::FileSystem(std::iter::once((
-                            entry_path.to_owned(),
+                        return EntryIterator::FileSystem(std::iter::once(PythonFile {
+                            file_path: entry_path.to_owned(),
                             content,
-                        )));
+                            zip_path: None,
+                        }));
                     }
                 } else if is_zip_file(entry_path)
                     && let Some(it) = ZipIterator::new(entry_path)
@@ -146,13 +165,23 @@ pub fn list_python_files(path: &Path) -> impl Iterator<Item = (PathBuf, String)>
         })
 }
 
+pub fn dump_package(path: &Path) -> Result<(), std::io::Error> {
+    for file in list_python_files(path) {
+        if file.zip_path.is_some() {
+            println!("--- File: {:?} ---", file.file_path);
+            println!("{}", file.content);
+            println!("-----------------------");
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 
     use crate::list_python_files;
     use std::fs;
     use std::io::Write;
-    use std::path::PathBuf;
     use tempfile::tempdir;
     use zip::write::SimpleFileOptions;
 
@@ -175,19 +204,23 @@ mod tests {
         let txt_path = dir.path().join("test.txt");
         fs::write(&txt_path, "ignore me").unwrap();
 
-        let results: Vec<(PathBuf, String)> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path()).collect();
 
         assert_eq!(results.len(), 2);
 
         let mut found_py = false;
         let mut found_zip_py = false;
 
-        for (path, content) in results {
-            if path.ends_with("test.py") {
-                assert_eq!(content, "print('hello')");
+        for file in results {
+            if file.file_path.ends_with("test.py") {
+                assert_eq!(file.content, "print('hello')");
+                assert!(file.zip_path.is_none());
+                assert_eq!(file.full_path(), py_path.display().to_string());
                 found_py = true;
-            } else if path.to_str().unwrap().contains("test.zip:inner.py") {
-                assert_eq!(content, "print('zip')");
+            } else if file.file_path.ends_with("inner.py") && file.zip_path.is_some() {
+                assert_eq!(file.content, "print('zip')");
+                assert!(file.zip_path.as_ref().unwrap().ends_with("test.zip"));
+                assert_eq!(file.full_path(), format!("inner.py:{}", zip_path.display()));
                 found_zip_py = true;
             }
         }
@@ -209,7 +242,7 @@ mod tests {
         zip.write_all(b"not a python file").unwrap();
         zip.finish().unwrap();
 
-        let results: Vec<(PathBuf, String)> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path()).collect();
         assert_eq!(results.len(), 0);
     }
 
@@ -227,20 +260,21 @@ mod tests {
         zip.write_all(b"print('infected')").unwrap();
         zip.finish().unwrap();
 
-        let results: Vec<(PathBuf, String)> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path()).collect();
 
         assert_eq!(
             results.len(),
             1,
             "Should have found one python file in protected zip"
         );
+        assert!(results[0].file_path.ends_with("secret.py"));
         assert!(
             results[0]
-                .0
-                .to_str()
+                .zip_path
+                .as_ref()
                 .unwrap()
-                .contains("protected.zip:secret.py")
+                .ends_with("protected.zip")
         );
-        assert_eq!(results[0].1, "print('infected')");
+        assert_eq!(results[0].content, "print('infected')");
     }
 }

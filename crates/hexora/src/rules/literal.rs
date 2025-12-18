@@ -437,7 +437,7 @@ pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast
         if memmem::find(normalized_literal.as_bytes(), name.as_bytes()).is_some() {
             checker.audit_results.push(AuditItem {
                 label: suspicious_literal.pattern.clone(),
-                rule: suspicious_literal.rule.clone(),
+                rule: suspicious_literal.rule,
                 description: suspicious_literal.description.clone(),
                 confidence: suspicious_literal.confidence,
                 location: Some(expr.range()),

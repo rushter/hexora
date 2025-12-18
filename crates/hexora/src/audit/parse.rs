@@ -14,14 +14,18 @@ use std::path::{Path, PathBuf};
 pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
     debug!("Auditing file: {}", file_path.display());
     let source_code = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
-    audit_file_with_content(file_path.to_path_buf(), source_code)
+    audit_file_with_content(file_path.to_path_buf(), None, source_code)
 }
 
-fn audit_file_with_content(file_path: PathBuf, source_code: String) -> Result<AuditResult, String> {
-    debug!("Auditing file: {}", file_path.display());
+fn audit_file_with_content(
+    file_path: PathBuf,
+    zip_path: Option<PathBuf>,
+    source_code: String,
+) -> Result<AuditResult, String> {
     let audit_items = audit_source(source_code.clone())?;
     Ok(AuditResult {
         path: file_path,
+        zip_path,
         items: audit_items,
         source_code,
     })
@@ -32,11 +36,12 @@ pub fn audit_path(file_path: &Path) -> Result<impl Iterator<Item = AuditResult>,
     let files = list_python_files(file_path);
     let results: Vec<AuditResult> = files
         .into_iter()
-        .filter_map(|(path_buf, source_code)| {
-            match audit_file_with_content(path_buf.clone(), source_code) {
+        .filter_map(|file| {
+            debug!("Auditing file: {}", file.full_path());
+            match audit_file_with_content(file.file_path, file.zip_path, file.content) {
                 Ok(result) => Some(result),
                 Err(e) => {
-                    error!("Error auditing file {}: {}", path_buf.display(), e);
+                    error!("Error auditing file: {}", e);
                     None
                 }
             }
