@@ -51,6 +51,7 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     add_import!(m, "pyperclip", Some("pyperclip can be used to copy and paste data from the clipboard."), None);
     add_import!(m, "paramiko", Some("paramiko can be used to automate SSH sessions for unauthorized access."), None);
     add_import!(m, "win32com", Some("win32com can be used to exploit Windows systems."), None);
+    add_import!(m, "getpass", Some("getpass can be used to  capture user credentials."), None);
     m
 });
 
