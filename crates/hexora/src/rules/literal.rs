@@ -67,6 +67,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         ("/proc/", AuditConfidence::Low),
         ("/.aws/", AuditConfidence::Low),
         (".netrc", AuditConfidence::Low),
+        ("Start Menu/Programs", AuditConfidence::Low),
     ];
     let browser_path = [
         ("Opera Software", AuditConfidence::High),
