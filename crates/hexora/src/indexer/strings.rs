@@ -1,3 +1,4 @@
+use crate::indexer::encoding::{decode_bytes, unescape_to_bytes};
 use crate::indexer::node_transformer::NodeTransformer;
 use ruff_python_ast::str::raw_contents;
 use ruff_python_ast::visitor::transformer::Transformer;
@@ -344,10 +345,21 @@ impl<'a> NodeTransformer<'a> {
         if let ast::Expr::Attribute(attr) = call.func.as_ref() {
             // b"x".decode(...)
             if attr.attr.as_str() == "decode" {
-                if let Some(s) = self.extract_string(&attr.value) {
-                    return Some(self.make_string_expr(call.range, s));
+                let s = self.extract_string(&attr.value)?;
+                let mut encoding = "utf-8";
+                if !call.arguments.args.is_empty() {
+                    if let Some(enc) = self.extract_string(&call.arguments.args[0]) {
+                        encoding = enc.leak();
+                    }
                 }
-                return None;
+
+                if let Some(bytes) = unescape_to_bytes(&s) {
+                    if let Some(res) = decode_bytes(&bytes, encoding) {
+                        return Some(self.make_string_expr(call.range, res));
+                    }
+                }
+
+                return Some(self.make_string_expr(call.range, s));
             }
 
             // "".join(...)
@@ -815,9 +827,57 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_cp1026() {
+        let source = r#"a = b"\x85\xa5\x81\x93".decode("cp1026")"#;
+        let expected = vec![string_item!("eval", 4, 40)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
     fn test_bytes_decode() {
         let source = r#"a = bytes([98, 97, 115, 104]).decode()"#;
         let expected = vec![string_item!("bash", 4, 38)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_decode_latin1() {
+        let source = r#"a = b"\xff".decode("iso-8859-1")"#;
+        let expected = vec![string_item!("\u{ff}", 4, 32)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_decode_utf16() {
+        let source = r#"a = b"\x00A\x00B\x00C".decode("utf-16be")"#;
+        let expected = vec![string_item!("ABC", 4, 41)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_decode_mixed_escapes() {
+        let source = r#"a = b"A\x42C\n".decode("utf-8")"#;
+        let expected = vec![string_item!("ABC\n", 4, 31)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_decode_shift_jis() {
+        let source = r#"a = b"\x82\xa0\x82\xa2\x82\xa4\x82\xa6\x82\xa8".decode("shift_jis")"#;
+        let expected = vec![string_item!("あいうえお", 4, 67)];
+        let actual = get_strings(source);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_decode_utf8_multibyte() {
+        let source = r#"a = b"\xf0\x9f\x9a\x80".decode("utf-8")"#;
+        let expected = vec![string_item!("🚀", 4, 39)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
     }

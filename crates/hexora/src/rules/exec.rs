@@ -281,7 +281,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     // sys.modules["os"].<func>(...) or importlib.import_module("os").<func>(...)
     if let ast::Expr::Attribute(attr) = &*call.func
         && let Some((module, origin)) =
-        resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+            resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
     {
         let name = attr.attr.as_str();
         if is_shell_command(&[module.as_str(), name]) {
@@ -310,7 +310,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 
                     if let Some(name) = attr_name
                         && let Some((module, origin)) =
-                        resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
+                            resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
                         && is_shell_command(&[module.as_str(), name.as_str()])
                     {
                         let label = match origin {
