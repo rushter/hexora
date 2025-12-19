@@ -56,3 +56,5 @@ hexora_io = { path = "../hexora_io" }
 [dev-dependencies]
 unindent = "0.2.4"
 
+[lints]
+workspace = true

@@ -8,6 +8,7 @@ use log::{debug, error};
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Parse a Python file and perform an audit.
@@ -32,8 +33,11 @@ fn audit_file_with_content(
 }
 
 /// Audit multiple files in parallel
-pub fn audit_path(file_path: &Path) -> Result<impl Iterator<Item = AuditResult>, &str> {
-    let files = list_python_files(file_path);
+pub fn audit_path(
+    file_path: &Path,
+    exclude_names: Option<&HashSet<String>>,
+) -> Result<impl Iterator<Item = AuditResult>, &'static str> {
+    let files = list_python_files(file_path, exclude_names);
     let results: Vec<AuditResult> = files
         .into_iter()
         .filter_map(|file| {

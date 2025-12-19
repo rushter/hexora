@@ -108,6 +108,12 @@ struct BenchmarkOptions {
 
     #[arg(long, help = "Print zip paths with missing audits.")]
     print_missing: bool,
+
+    #[arg(
+        long,
+        help = "Path to a txt file containing file names that should be skipped when benchmarking."
+    )]
+    exclude_path: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -231,7 +237,7 @@ fn audit_python_files(opts: &AuditOptions) {
         None
     };
 
-    match audit_path(&opts.input_path) {
+    match audit_path(&opts.input_path, None) {
         Ok(results) => {
             for result in results {
                 let filtered: Vec<AuditItem> = result
@@ -273,14 +279,27 @@ pub fn run_cli(start_arg: usize) {
         Commands::Rules => {
             print_rules_markdown();
         }
-        Commands::Benchmark { opts } => match run_benchmark(&opts.input_path) {
-            Ok(result) => {
-                result.print_results(opts.print_missing);
+        Commands::Benchmark { opts } => {
+            let exclude_names = opts.exclude_path.as_ref().and_then(|path| {
+                hexora_io::read_exclude_names(path)
+                    .map_err(|e| {
+                        error!("Failed to read exclude file: {}", e);
+                    })
+                    .ok()
+            });
+            if exclude_names.is_none() && opts.exclude_path.is_some() {
+                return;
             }
-            Err(e) => {
-                error!("Benchmark failed: {}", e);
+
+            match run_benchmark(&opts.input_path, exclude_names.as_ref()) {
+                Ok(result) => {
+                    result.print_results(opts.print_missing);
+                }
+                Err(e) => {
+                    error!("Benchmark failed: {}", e);
+                }
             }
-        },
+        }
         Commands::DumpPackage { path } => {
             if let Err(e) = hexora_io::dump_package(&path) {
                 error!("Dump package failed: {}", e);

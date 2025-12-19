@@ -17,3 +17,7 @@ rust-version = "1.90"
 [profile.dev]
 opt-level = 1
 lto = "thin"
+
+[workspace.lints.clippy]
+collapsible_else_if = "allow"
+collapsible_if = "allow"

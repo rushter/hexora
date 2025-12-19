@@ -1,6 +1,6 @@
 use crate::audit::parse::audit_path;
 use crate::audit::result::{AuditConfidence, Rule};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -54,9 +54,12 @@ impl BenchmarkResult {
     }
 }
 
-pub fn run_benchmark(path: &Path) -> Result<BenchmarkResult, String> {
+pub fn run_benchmark(
+    path: &Path,
+    exclude_names: Option<&HashSet<String>>,
+) -> Result<BenchmarkResult, String> {
     let start = Instant::now();
-    let audit_results = audit_path(path).map_err(|e| e.to_string())?;
+    let audit_results = audit_path(path, exclude_names).map_err(|e| e.to_string())?;
     let duration = start.elapsed();
 
     let mut benchmark_result = BenchmarkResult {
@@ -104,7 +107,7 @@ mod tests {
     #[test]
     fn test_benchmark_counts() {
         let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/test");
-        let result = run_benchmark(&test_path).expect("Benchmark failed");
+        let result = run_benchmark(&test_path, None).expect("Benchmark failed");
 
         assert!(result.total_files > 0);
         assert!(result.total_matches > 0);

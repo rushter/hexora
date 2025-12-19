@@ -1,29 +1,47 @@
-use log::{debug, error};
+mod archive;
+
+use std::collections::HashSet;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const MAX_ZIP_SIZE: u64 = 10 * 1024 * 1024; // 10MB
-const MAX_FILES_IN_ZIP: usize = 1500;
+use archive::{TarGzIterator, ZipIterator};
 
-// When a zip is password-protected, we try "infected" as the password.
-// This is hardcoded for now, but works for testing purposes.
-// The majority of malicious datasets are protected by this password.
-// This is almost an industry standard in malware datasets.
-const PASSWORD: &[u8] = b"infected";
-
-fn is_python_file(path: &Path) -> bool {
+fn has_extension(path: &Path, ext: &str) -> bool {
     path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("py"))
-        .unwrap_or(false)
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+}
+
+pub(crate) fn is_python_file(path: &Path) -> bool {
+    has_extension(path, "py")
 }
 
 fn is_zip_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("zip"))
-        .unwrap_or(false)
+    has_extension(path, "zip")
+}
+
+fn is_tar_gz_file(path: &Path) -> bool {
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    filename.to_lowercase().ends_with(".tar.gz")
+}
+
+pub enum EntryIterator {
+    FileSystem(std::iter::Once<PythonFile>),
+    Zip(ZipIterator),
+    TarGz(TarGzIterator),
+    Empty,
+}
+
+impl Iterator for EntryIterator {
+    type Item = PythonFile;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            EntryIterator::FileSystem(it) => it.next(),
+            EntryIterator::Zip(it) => it.next(),
+            EntryIterator::TarGz(it) => it.next(),
+            EntryIterator::Empty => None,
+        }
+    }
 }
 
 pub struct PythonFile {
@@ -41,132 +59,61 @@ impl PythonFile {
     }
 }
 
-struct ZipIterator {
-    archive: zip::ZipArchive<fs::File>,
-    zip_path: PathBuf,
-    current_index: usize,
-    num_files: usize,
-    matched_count: usize,
+pub fn read_exclude_names(path: &Path) -> Result<HashSet<String>, std::io::Error> {
+    let content = fs::read_to_string(path)?;
+    Ok(content
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect())
 }
 
-impl ZipIterator {
-    fn new(path: &Path) -> Option<Self> {
-        let metadata = fs::metadata(path).ok()?;
-
-        if metadata.len() > MAX_ZIP_SIZE {
-            error!("Zip file {:?} exceeds maximum size of 10MB", path);
-            return None;
-        }
-
-        let file = fs::File::open(path).ok()?;
-        let archive = zip::ZipArchive::new(file).ok()?;
-        let num_files = archive.len();
-
-        if num_files > MAX_FILES_IN_ZIP {
-            error!(
-                "Zip file {:?} exceeds maximum number of files of {}",
-                path, MAX_FILES_IN_ZIP
-            );
-            return None;
-        }
-
-        Some(ZipIterator {
-            archive,
-            zip_path: path.to_owned(),
-            current_index: 0,
-            num_files,
-            matched_count: 0,
-        })
-    }
-}
-
-impl Iterator for ZipIterator {
-    type Item = PythonFile;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.current_index < self.num_files {
-            let i = self.current_index;
-            self.current_index += 1;
-
-            let mut file = match self.archive.by_index_decrypt(i, PASSWORD) {
-                Ok(f) => f,
-                Err(_) => continue,
-            };
-
-            if !file.is_file() {
-                continue;
-            }
-
-            let name = file.name().to_string();
-            let path_in_zip = PathBuf::from(&name);
-
-            if is_python_file(&path_in_zip) {
-                let mut content = String::new();
-                if file.read_to_string(&mut content).is_ok() {
-                    self.matched_count += 1;
-                    return Some(PythonFile {
-                        file_path: path_in_zip,
-                        content,
-                        zip_path: Some(self.zip_path.clone()),
-                    });
-                }
-            }
-        }
-
-        if self.matched_count == 0 {
-            debug!("No Python files in zip: {:?}", self.zip_path);
-            self.matched_count = 1;
-        }
-
-        None
-    }
-}
-
-enum EntryIterator {
-    FileSystem(std::iter::Once<PythonFile>),
-    Zip(ZipIterator),
-    Empty,
-}
-
-impl Iterator for EntryIterator {
-    type Item = PythonFile;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            EntryIterator::FileSystem(it) => it.next(),
-            EntryIterator::Zip(it) => it.next(),
-            EntryIterator::Empty => None,
-        }
-    }
-}
-
-pub fn list_python_files(path: &Path) -> impl Iterator<Item = PythonFile> {
+pub fn list_python_files(
+    path: &Path,
+    exclude_names: Option<&HashSet<String>>,
+) -> impl Iterator<Item = PythonFile> {
+    let exclude_names = exclude_names.cloned().unwrap_or_default();
     walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
-        .flat_map(|entry| {
-            let entry_path = entry.path();
-            if entry_path.is_file() {
-                if is_python_file(entry_path) {
-                    if let Ok(content) = fs::read_to_string(entry_path) {
-                        return EntryIterator::FileSystem(std::iter::once(PythonFile {
-                            file_path: entry_path.to_owned(),
-                            content,
-                            zip_path: None,
-                        }));
-                    }
-                } else if is_zip_file(entry_path)
-                    && let Some(it) = ZipIterator::new(entry_path)
-                {
+        .filter(|e| e.file_type().is_file())
+        .flat_map(move |entry| {
+            let path = entry.path();
+
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if exclude_names.contains(name) {
+                    return EntryIterator::Empty;
+                }
+            }
+
+            if is_python_file(path) {
+                if let Ok(content) = fs::read_to_string(path) {
+                    return EntryIterator::FileSystem(std::iter::once(PythonFile {
+                        file_path: path.to_owned(),
+                        content,
+                        zip_path: None,
+                    }));
+                }
+            }
+
+            if is_zip_file(path) {
+                if let Some(it) = ZipIterator::new(path) {
                     return EntryIterator::Zip(it);
                 }
             }
+
+            if is_tar_gz_file(path) {
+                if let Some(it) = TarGzIterator::new(path) {
+                    return EntryIterator::TarGz(it);
+                }
+            }
+
             EntryIterator::Empty
         })
 }
 
 pub fn dump_package(path: &Path) -> Result<(), std::io::Error> {
-    for file in list_python_files(path) {
+    for file in list_python_files(path, None) {
         if file.zip_path.is_some() {
             println!("--- File: {:?} ---", file.file_path);
             println!("{}", file.content);
@@ -178,8 +125,10 @@ pub fn dump_package(path: &Path) -> Result<(), std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::list_python_files;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::collections::HashSet;
     use std::fs;
     use std::io::Write;
     use tempfile::tempdir;
@@ -204,7 +153,7 @@ mod tests {
         let txt_path = dir.path().join("test.txt");
         fs::write(&txt_path, "ignore me").unwrap();
 
-        let results: Vec<_> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path(), None).collect();
 
         assert_eq!(results.len(), 2);
 
@@ -230,6 +179,67 @@ mod tests {
     }
 
     #[test]
+    fn test_list_python_files_with_exclude() {
+        let dir = tempdir().unwrap();
+
+        let py_path1 = dir.path().join("test1.py");
+        fs::write(&py_path1, "print('hello 1')").unwrap();
+
+        let py_path2 = dir.path().join("test2.py");
+        fs::write(&py_path2, "print('hello 2')").unwrap();
+
+        let zip_path = dir.path().join("test.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("inner.py", options).unwrap();
+        zip.write_all(b"print('zip')").unwrap();
+        zip.finish().unwrap();
+
+        let mut exclude = HashSet::new();
+        exclude.insert("test1.py".to_string());
+        exclude.insert("test.zip".to_string());
+
+        let results: Vec<_> = list_python_files(dir.path(), Some(&exclude)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_path.file_name().unwrap(), "test2.py");
+    }
+
+    #[test]
+    fn test_list_python_files_tar_gz() {
+        let dir = tempdir().unwrap();
+
+        let tar_gz_path = dir.path().join("test.tar.gz");
+        {
+            let file = fs::File::create(&tar_gz_path).unwrap();
+            let enc = GzEncoder::new(file, Compression::default());
+            let mut tar = tar::Builder::new(enc);
+
+            let mut header = tar::Header::new_gnu();
+            let content = b"print('tar.gz')";
+            header.set_size(content.len() as u64);
+            header.set_cksum();
+            tar.append_data(&mut header, "inner.py", &content[..])
+                .unwrap();
+            tar.finish().unwrap();
+        }
+
+        let results: Vec<_> = list_python_files(dir.path(), None).collect();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content, "print('tar.gz')");
+        assert!(
+            results[0]
+                .zip_path
+                .as_ref()
+                .unwrap()
+                .ends_with("test.tar.gz")
+        );
+        assert_eq!(results[0].file_path, std::path::Path::new("inner.py"));
+    }
+
+    #[test]
     fn test_no_python_files_in_zip() {
         let dir = tempdir().unwrap();
 
@@ -242,7 +252,7 @@ mod tests {
         zip.write_all(b"not a python file").unwrap();
         zip.finish().unwrap();
 
-        let results: Vec<_> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path(), None).collect();
         assert_eq!(results.len(), 0);
     }
 
@@ -260,7 +270,7 @@ mod tests {
         zip.write_all(b"print('infected')").unwrap();
         zip.finish().unwrap();
 
-        let results: Vec<_> = list_python_files(dir.path()).collect();
+        let results: Vec<_> = list_python_files(dir.path(), None).collect();
 
         assert_eq!(
             results.len(),
@@ -276,5 +286,23 @@ mod tests {
                 .ends_with("protected.zip")
         );
         assert_eq!(results[0].content, "print('infected')");
+    }
+
+    #[test]
+    fn test_read_exclude_names() {
+        let dir = tempdir().unwrap();
+        let exclude_path = dir.path().join("exclude.txt");
+        fs::write(
+            &exclude_path,
+            "file1.py\n  file2.py  \n\n# comment\n  # another comment\nfile3.py",
+        )
+        .unwrap();
+
+        let exclude = crate::read_exclude_names(&exclude_path).unwrap();
+        assert_eq!(exclude.len(), 3);
+        assert!(exclude.contains("file1.py"));
+        assert!(exclude.contains("file2.py"));
+        assert!(exclude.contains("file3.py"));
+        assert!(!exclude.contains("# comment"));
     }
 }

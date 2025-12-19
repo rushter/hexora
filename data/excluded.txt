@@ -1,0 +1,6 @@
+#
+# This file excluded malicious packages from benchmark
+# Some of them are just typosquatting without malicious files,
+# some contain broken releases.
+#
+2022-12-19-aiohtttp.zip
