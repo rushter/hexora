@@ -37,12 +37,13 @@ impl BenchmarkResult {
         }
 
         if print_missing {
-            let missing_audits: Vec<_> = self
+            let mut missing_audits: Vec<_> = self
                 .zip_path_counts
                 .iter()
                 .filter(|&(_, &count)| count == 0)
                 .map(|(path, _)| path)
                 .collect();
+            missing_audits.sort();
 
             if !missing_audits.is_empty() {
                 println!("\nZip paths with missing audits:");
