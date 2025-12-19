@@ -71,8 +71,8 @@ impl<'a> SymbolBinding<'a> {
     }
 }
 
-#[derive(PartialEq)]
-enum ScopeKind {
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ScopeKind {
     Module,
     Class,
     Function,
@@ -171,7 +171,7 @@ impl<'a> NodeIndexer<'a> {
         self.expr_mapping.get(&id).map(|v| &**v)
     }
 
-    fn push_scope(&mut self, kind: ScopeKind) {
+    pub fn push_scope(&mut self, kind: ScopeKind) {
         let parent = if self.scope_stack.is_empty() {
             None
         } else {
@@ -183,7 +183,7 @@ impl<'a> NodeIndexer<'a> {
             parent_scope: parent,
         });
     }
-    fn pop_scope(&mut self) {
+    pub fn pop_scope(&mut self) {
         self.scope_stack.pop();
     }
 
@@ -355,6 +355,16 @@ impl<'a> NodeIndexer<'a> {
         self.call_qualified_names.get(&node_id)
     }
 
+    pub fn get_qualified_name<T>(&self, node: &T) -> Option<&QualifiedName>
+    where
+        T: HasNodeIndex,
+    {
+        node.node_index()
+            .load()
+            .as_u32()
+            .and_then(|id| self.get_call_qualified_name(id))
+    }
+
     fn find_class_scope(&self) -> Option<usize> {
         self.scope_stack
             .iter()
@@ -452,10 +462,8 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
     #[inline]
     fn visit_expr(&mut self, expr: &'a Expr) {
         self.visit_node(expr);
-
-        self.handle_expr(expr);
-
         walk_expr(self, expr);
+        self.handle_expr(expr);
     }
 
     #[inline]

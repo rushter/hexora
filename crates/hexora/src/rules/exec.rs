@@ -269,7 +269,8 @@ fn resolve_import_origin(
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    let qualified_name = checker.indexer.resolve_qualified_name(&call.func);
+    let qualified_name = checker.indexer.get_qualified_name(call);
+
     if let Some(qualified_name) = qualified_name
         && is_shell_command(&qualified_name.segments())
     {
@@ -280,7 +281,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     // sys.modules["os"].<func>(...) or importlib.import_module("os").<func>(...)
     if let ast::Expr::Attribute(attr) = &*call.func
         && let Some((module, origin)) =
-            resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+        resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
     {
         let name = attr.attr.as_str();
         if is_shell_command(&[module.as_str(), name]) {
@@ -296,31 +297,33 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     }
 
     // getattr(importlib.import_module("os"), "<func>")(…) or getattr(sys.modules["os"], "<func>")(…)
-    if let ast::Expr::Call(inner_call) = &*call.func
-        && let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func)
-    {
-        let is_getattr = qn.last().map(|s| s == "getattr").unwrap_or(false);
-        if is_getattr {
-            let args = &inner_call.arguments.args;
-            if args.len() >= 2 {
-                let target = &args[0];
-                let attr_name = string_from_expr(&args[1], &checker.indexer);
+    if let ast::Expr::Call(inner_call) = &*call.func {
+        let qn = checker.indexer.get_qualified_name(inner_call);
 
-                if let Some(name) = attr_name
-                    && let Some((module, origin)) =
+        if let Some(qn) = qn {
+            let is_getattr = qn.last().map(|s| s == "getattr").unwrap_or(false);
+            if is_getattr {
+                let args = &inner_call.arguments.args;
+                if args.len() >= 2 {
+                    let target = &args[0];
+                    let attr_name = string_from_expr(&args[1], &checker.indexer);
+
+                    if let Some(name) = attr_name
+                        && let Some((module, origin)) =
                         resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
-                    && is_shell_command(&[module.as_str(), name.as_str()])
-                {
-                    let label = match origin {
-                        ImportOrigin::SysModules => {
-                            format!("getattr(sys.modules[\"{}\"], \"{}\")", module, name)
-                        }
-                        ImportOrigin::Importlib => format!(
-                            "getattr(importlib.import_module(\"{}\"), \"{}\")",
-                            module, name
-                        ),
-                    };
-                    push_shell_report(checker, call, label);
+                        && is_shell_command(&[module.as_str(), name.as_str()])
+                    {
+                        let label = match origin {
+                            ImportOrigin::SysModules => {
+                                format!("getattr(sys.modules[\"{}\"], \"{}\")", module, name)
+                            }
+                            ImportOrigin::Importlib => format!(
+                                "getattr(importlib.import_module(\"{}\"), \"{}\")",
+                                module, name
+                            ),
+                        };
+                        push_shell_report(checker, call, label);
+                    }
                 }
             }
         }
@@ -328,7 +331,9 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 }
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func)
+    let qn = checker.indexer.get_qualified_name(call);
+
+    if let Some(qn) = qn
         && is_code_exec(&qn.segments())
     {
         push_code_report(checker, call, qn.as_str());
@@ -364,6 +369,7 @@ mod tests {
         ]
     )]
     #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
+    #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

@@ -1,5 +1,5 @@
 use crate::audit::result::AuditItem;
-use crate::indexer::index::NodeIndexer;
+use crate::indexer::index::{NodeIndexer, ScopeKind};
 use crate::indexer::locator::Locator;
 use crate::rules::comments::check_comments;
 use crate::rules::{expression, statement};
@@ -36,8 +36,24 @@ impl<'a> Checker<'a> {
 
 impl<'a> Visitor<'a> for Checker<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        ast::visitor::walk_stmt(self, stmt);
-        statement::analyze(stmt, self);
+        match stmt {
+            Stmt::FunctionDef(_) => {
+                self.indexer.push_scope(ScopeKind::Function);
+                ast::visitor::walk_stmt(self, stmt);
+                statement::analyze(stmt, self);
+                self.indexer.pop_scope();
+            }
+            Stmt::ClassDef(_) => {
+                self.indexer.push_scope(ScopeKind::Class);
+                ast::visitor::walk_stmt(self, stmt);
+                statement::analyze(stmt, self);
+                self.indexer.pop_scope();
+            }
+            _ => {
+                ast::visitor::walk_stmt(self, stmt);
+                statement::analyze(stmt, self);
+            }
+        }
     }
     fn visit_expr(&mut self, expr: &'a Expr) {
         ast::visitor::walk_expr(self, expr);
