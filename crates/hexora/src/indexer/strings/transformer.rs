@@ -84,30 +84,40 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
-        let qualified = resolve_qualified_name(&call.func);
+        let qualified = self.indexer.borrow().resolve_qualified_name(&call.func);
 
         if let Some(name) = qualified.as_ref()
-            && (name == "getattr" || name == "__builtins__.getattr")
+            && (name.as_str() == "getattr"
+                || name.as_str() == "builtins.getattr"
+                || name.as_str() == "__builtins__.getattr")
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 2
         {
-            if let Some(arg_name) = resolve_qualified_name(&call.arguments.args[0])
-                && (arg_name == "__builtins__" || arg_name == "builtins")
+            let arg_name_res = self
+                .indexer
+                .borrow()
+                .resolve_qualified_name(&call.arguments.args[0]);
+            if let Some(arg_name) = arg_name_res
+                && (arg_name.as_str() == "builtins" || arg_name.as_str() == "__builtins__")
             {
                 if let Some(attr_name) = self.resolve_expr_to_string(&call.arguments.args[1]) {
-                    let mut indexer = self.indexer.borrow_mut();
-                    let name_id = indexer.get_atomic_index();
-                    let attr_id = indexer.get_atomic_index();
-                    let ident_id = indexer.get_atomic_index();
-                    drop(indexer);
+                    let (name_id, attr_id, ident_id) = {
+                        let mut indexer = self.indexer.borrow_mut();
+                        (
+                            indexer.get_atomic_index(),
+                            indexer.get_atomic_index(),
+                            indexer.get_atomic_index(),
+                        )
+                    };
 
+                    let arg_name_str = arg_name.as_str();
                     return Some(ast::Expr::Attribute(ast::ExprAttribute {
                         node_index: attr_id,
                         range: call.range,
                         value: Box::new(ast::Expr::Name(ast::ExprName {
                             node_index: name_id,
                             range: call.range,
-                            id: arg_name.into(),
+                            id: arg_name_str.into(),
                             ctx: ExprContext::Load,
                         })),
                         attr: ast::Identifier {
@@ -252,16 +262,6 @@ impl<'a> NodeTransformer<'a> {
 
             _ => {}
         }
-    }
-}
-
-pub(crate) fn resolve_qualified_name(expr: &ast::Expr) -> Option<String> {
-    match expr {
-        ast::Expr::Name(name) => Some(name.id.to_string()),
-        ast::Expr::Attribute(attr) => {
-            resolve_qualified_name(&attr.value).map(|base| format!("{}.{}", base, attr.attr))
-        }
-        _ => None,
     }
 }
 

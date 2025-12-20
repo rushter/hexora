@@ -145,11 +145,64 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
+    pub fn clear_state(&mut self) {
+        self.expr_mapping.clear();
+        self.call_qualified_names.clear();
+        self.scope_stack.clear();
+        self.push_scope(ScopeKind::Module);
+        self.bind_builtins();
+    }
+
+    pub fn handle_stmt_pre(&mut self, stmt: &'a Stmt) {
+        self.visit_node(stmt);
+
+        match stmt {
+            Stmt::ClassDef(_) => {
+                self.push_scope(ScopeKind::Class);
+            }
+            Stmt::FunctionDef(_) => {
+                self.push_scope(ScopeKind::Function);
+            }
+            Stmt::Import(import_stmt) => {
+                self.handle_import_stmt(import_stmt);
+            }
+            Stmt::ImportFrom(import_from_stmt) => {
+                self.handle_import_from_stmt(import_from_stmt);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn handle_stmt_post(&mut self, stmt: &'a Stmt) {
+        match stmt {
+            Stmt::ClassDef(_) | Stmt::FunctionDef(_) => {
+                self.pop_scope();
+            }
+            Stmt::Assign(assign) => {
+                self.handle_assign_stmt(assign);
+            }
+            Stmt::AugAssign(aug_assign) => {
+                self.handle_aug_assign_stmt(aug_assign);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn handle_expr_pre(&mut self, expr: &'a Expr) {
+        self.visit_node(expr);
+    }
+
+    pub fn handle_expr_post(&mut self, expr: &'a Expr) {
+        self.handle_expr(expr);
+    }
+
     pub fn visit_node<T>(&mut self, node: &T)
     where
         T: HasNodeIndex,
     {
-        node.node_index().set(self.get_index());
+        if node.node_index().load().as_u32().is_none() {
+            node.node_index().set(self.get_index());
+        }
     }
 
     pub fn current_index(&self) -> NodeId {
@@ -273,12 +326,12 @@ impl<'a> NodeIndexer<'a> {
         }
         match expr {
             Expr::Name(name) => {
-                if let Some(exprs) = self.expr_mapping.get(&node_id) {
-                    if let Some(last_expr) = exprs.last() {
-                        self.resolve_expr_import_path(last_expr, visited)
-                    } else {
-                        self.resolve_binding_import_path(name.id.as_str(), visited)
-                    }
+                let last_expr = self
+                    .expr_mapping
+                    .get(&node_id)
+                    .and_then(|exprs| exprs.last());
+                if let Some(last_expr) = last_expr {
+                    self.resolve_expr_import_path(last_expr, visited)
                 } else {
                     self.resolve_binding_import_path(name.id.as_str(), visited)
                 }
@@ -347,6 +400,23 @@ impl<'a> NodeIndexer<'a> {
             }
             Some(QualifiedName::from_segments(path))
         } else {
+            self.collect_attribute_segments(target)
+                .map(QualifiedName::from_segments)
+        }
+    }
+
+    fn collect_attribute_segments(&self, expr: &Expr) -> Option<Vec<String>> {
+        let mut segments = Vec::new();
+        let mut current = expr;
+        while let Expr::Attribute(attr) = current {
+            segments.push(attr.attr.to_string());
+            current = &attr.value;
+        }
+        if let Expr::Name(name) = current {
+            segments.push(name.id.to_string());
+            segments.reverse();
+            Some(segments)
+        } else {
             None
         }
     }
@@ -382,75 +452,9 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
 
     #[inline]
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        self.visit_node(stmt);
-
-        match stmt {
-            Stmt::ClassDef(_) => {
-                self.push_scope(ScopeKind::Class);
-                walk_stmt(self, stmt);
-                self.pop_scope();
-                return;
-            }
-            Stmt::FunctionDef(_) => {
-                self.push_scope(ScopeKind::Function);
-                walk_stmt(self, stmt);
-                self.pop_scope();
-                return;
-            }
-            Stmt::Import(import_stmt) => {
-                for alias in &import_stmt.names {
-                    let local = alias
-                        .asname
-                        .as_ref()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| alias.name.split('.').next().unwrap().to_string());
-                    let qualified: Vec<String> =
-                        alias.name.split('.').map(|s| s.to_string()).collect();
-                    self.add_import_binding(local, qualified);
-                }
-                walk_stmt(self, stmt);
-                return;
-            }
-            Stmt::ImportFrom(import_from_stmt) => {
-                let base = import_from_stmt.module.as_deref().unwrap_or("");
-                for alias in &import_from_stmt.names {
-                    if alias.name.as_str() == "*" {
-                        continue;
-                    }
-                    let local = alias
-                        .asname
-                        .as_ref()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| alias.name.to_string());
-                    let mut qualified: Vec<String> = Vec::new();
-                    if import_from_stmt.level > 0 {
-                        qualified.push(".".repeat(import_from_stmt.level as usize));
-                    }
-                    if !base.is_empty() {
-                        qualified.extend(base.split('.').map(|s| s.to_string()));
-                    }
-                    qualified.push(alias.name.to_string());
-                    self.add_import_binding(local, qualified);
-                }
-                walk_stmt(self, stmt);
-                return;
-            }
-            _ => {}
-        }
-
+        self.handle_stmt_pre(stmt);
         walk_stmt(self, stmt);
-
-        match stmt {
-            Stmt::Assign(StmtAssign { targets, value, .. }) => {
-                for target in targets {
-                    self.handle_assignment_target(target, value);
-                }
-            }
-            Stmt::AugAssign(StmtAugAssign { target, value, .. }) => {
-                self.handle_aug_assign(target, value);
-            }
-            _ => {}
-        }
+        self.handle_stmt_post(stmt);
     }
 
     #[inline]
@@ -461,9 +465,9 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
 
     #[inline]
     fn visit_expr(&mut self, expr: &'a Expr) {
-        self.visit_node(expr);
+        self.handle_expr_pre(expr);
         walk_expr(self, expr);
-        self.handle_expr(expr);
+        self.handle_expr_post(expr);
     }
 
     #[inline]
@@ -471,45 +475,55 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
         self.visit_node(decorator);
         walk_decorator(self, decorator);
     }
+
     #[inline]
     fn visit_comprehension(&mut self, comprehension: &'a Comprehension) {
         self.visit_node(comprehension);
         walk_comprehension(self, comprehension);
     }
+
     #[inline]
     fn visit_except_handler(&mut self, except_handler: &'a ExceptHandler) {
         self.visit_node(except_handler);
         walk_except_handler(self, except_handler);
     }
+
     #[inline]
     fn visit_arguments(&mut self, arguments: &'a Arguments) {
         self.visit_node(arguments);
         walk_arguments(self, arguments);
     }
+
     #[inline]
     fn visit_parameters(&mut self, parameters: &'a Parameters) {
         self.visit_node(parameters);
         walk_parameters(self, parameters);
     }
+
     #[inline]
     fn visit_parameter(&mut self, arg: &'a Parameter) {
         self.visit_node(arg);
         walk_parameter(self, arg);
     }
+
+    #[inline]
     fn visit_parameter_with_default(&mut self, parameter_with_default: &'a ParameterWithDefault) {
         self.visit_node(parameter_with_default);
         walk_parameter_with_default(self, parameter_with_default);
     }
+
     #[inline]
     fn visit_keyword(&mut self, keyword: &'a Keyword) {
         self.visit_node(keyword);
         walk_keyword(self, keyword);
     }
+
     #[inline]
     fn visit_alias(&mut self, alias: &'a Alias) {
         self.visit_node(alias);
         walk_alias(self, alias);
     }
+
     #[inline]
     fn visit_with_item(&mut self, with_item: &'a WithItem) {
         self.visit_node(with_item);
@@ -527,31 +541,37 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
         self.visit_node(match_case);
         walk_match_case(self, match_case);
     }
+
     #[inline]
     fn visit_pattern(&mut self, pattern: &'a Pattern) {
         self.visit_node(pattern);
         walk_pattern(self, pattern);
     }
+
     #[inline]
     fn visit_pattern_arguments(&mut self, pattern_arguments: &'a PatternArguments) {
         self.visit_node(pattern_arguments);
         walk_pattern_arguments(self, pattern_arguments);
     }
+
     #[inline]
     fn visit_pattern_keyword(&mut self, pattern_keyword: &'a PatternKeyword) {
         self.visit_node(pattern_keyword);
         walk_pattern_keyword(self, pattern_keyword);
     }
+
     #[inline]
     fn visit_elif_else_clause(&mut self, elif_else_clause: &'a ElifElseClause) {
         self.visit_node(elif_else_clause);
         walk_elif_else_clause(self, elif_else_clause);
     }
+
     #[inline]
     fn visit_f_string(&mut self, f_string: &'a FString) {
         self.visit_node(f_string);
         walk_f_string(self, f_string);
     }
+
     #[inline]
     fn visit_interpolated_string_element(
         &mut self,
@@ -560,21 +580,25 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
         self.visit_node(interpolated_string_element);
         walk_interpolated_string_element(self, interpolated_string_element);
     }
+
     #[inline]
     fn visit_t_string(&mut self, t_string: &'a TString) {
         self.visit_node(t_string);
         walk_t_string(self, t_string);
     }
+
     #[inline]
     fn visit_string_literal(&mut self, string_literal: &'a StringLiteral) {
         self.visit_node(string_literal);
         walk_string_literal(self, string_literal);
     }
+
     #[inline]
     fn visit_bytes_literal(&mut self, bytes_literal: &'a BytesLiteral) {
         self.visit_node(bytes_literal);
         walk_bytes_literal(self, bytes_literal);
     }
+
     #[inline]
     fn visit_identifier(&mut self, identifier: &'a Identifier) {
         self.visit_node(identifier);
@@ -583,9 +607,54 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
 }
 
 impl<'a> NodeIndexer<'a> {
+    fn handle_assign_stmt(&mut self, assign: &'a StmtAssign) {
+        for target in &assign.targets {
+            self.handle_assignment_target(target, &assign.value);
+        }
+    }
+
+    fn handle_aug_assign_stmt(&mut self, aug_assign: &'a StmtAugAssign) {
+        self.handle_aug_assign(&aug_assign.target, &aug_assign.value);
+    }
+
     fn add_import_binding(&mut self, local: String, qualified: Vec<String>) {
         let sym = SymbolBinding::import(qualified);
         self.current_scope_mut().symbols.insert(local, sym);
+    }
+
+    fn handle_import_stmt(&mut self, import_stmt: &StmtImport) {
+        for alias in &import_stmt.names {
+            let local = alias
+                .asname
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| alias.name.split('.').next().unwrap().to_string());
+            let qualified: Vec<String> = alias.name.split('.').map(|s| s.to_string()).collect();
+            self.add_import_binding(local, qualified);
+        }
+    }
+
+    fn handle_import_from_stmt(&mut self, import_from_stmt: &StmtImportFrom) {
+        let base = import_from_stmt.module.as_deref().unwrap_or("");
+        for alias in &import_from_stmt.names {
+            if alias.name.as_str() == "*" {
+                continue;
+            }
+            let local = alias
+                .asname
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| alias.name.to_string());
+            let mut qualified: Vec<String> = Vec::new();
+            if import_from_stmt.level > 0 {
+                qualified.push(".".repeat(import_from_stmt.level as usize));
+            }
+            if !base.is_empty() {
+                qualified.extend(base.split('.').map(|s| s.to_string()));
+            }
+            qualified.push(alias.name.to_string());
+            self.add_import_binding(local, qualified);
+        }
     }
 
     fn handle_aug_assign(&mut self, target: &'a Expr, value: &'a Expr) {
@@ -604,29 +673,30 @@ impl<'a> NodeIndexer<'a> {
 
     fn handle_expr(&mut self, expr: &'a Expr) {
         match expr {
-            Expr::Call(_) => {
-                if let Some(qn) = self.resolve_qualified_name(expr)
-                    && let Some(id) = expr.node_index().load().as_u32()
-                {
-                    self.call_qualified_names.insert(id, qn);
-                }
-            }
-            Expr::Name(ExprName { id, ctx, .. }) => {
-                if matches!(ctx, ExprContext::Load) {
-                    self.handle_name_load(id.as_str(), expr);
-                }
-            }
-            Expr::Attribute(ExprAttribute {
-                value: obj,
-                attr,
-                ctx,
-                ..
-            }) => {
-                if matches!(ctx, ExprContext::Load) {
-                    self.handle_attribute_load(obj, attr.as_str(), expr);
-                }
-            }
+            Expr::Call(call) => self.handle_call_expr(call, expr),
+            Expr::Name(name) => self.handle_name_expr(name, expr),
+            Expr::Attribute(attr) => self.handle_attribute_expr(attr, expr),
             _ => {}
+        }
+    }
+
+    fn handle_call_expr(&mut self, _call: &'a ExprCall, expr: &'a Expr) {
+        if let Some(qn) = self.resolve_qualified_name(expr)
+            && let Some(id) = expr.node_index().load().as_u32()
+        {
+            self.call_qualified_names.insert(id, qn);
+        }
+    }
+
+    fn handle_name_expr(&mut self, name: &'a ExprName, expr: &'a Expr) {
+        if matches!(name.ctx, ExprContext::Load) {
+            self.handle_name_load(name.id.as_str(), expr);
+        }
+    }
+
+    fn handle_attribute_expr(&mut self, attr: &'a ExprAttribute, expr: &'a Expr) {
+        if matches!(attr.ctx, ExprContext::Load) {
+            self.handle_attribute_load(&attr.value, attr.attr.as_str(), expr);
         }
     }
 
@@ -840,7 +910,7 @@ mod tests {
         );
         with_indexer(&source, |indexer, suite| {
             let resolved = resolve_call_at_index(indexer, suite, 0);
-            assert_eq!(resolved, None, "expected unknown name to resolve to None");
+            assert_eq!(resolved.as_deref(), Some("full_length"));
         });
     }
 
@@ -858,7 +928,7 @@ mod tests {
         );
         with_indexer(&source, |indexer, suite| {
             let resolved = resolve_call_at_index(indexer, suite, 2);
-            assert_eq!(resolved, None);
+            assert_eq!(resolved.as_deref(), Some("s"));
         });
     }
 
@@ -960,5 +1030,25 @@ mod tests {
         let expected = HashMap::from([(1016, vec!["2"])]);
         let actual = get_result(&source);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_clear_state() {
+        let source = "a = 1; b = a";
+        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
+        let mut indexer = NodeIndexer::new();
+        indexer.visit_body(parsed.suite());
+
+        assert!(!indexer.expr_mapping.is_empty());
+        let old_index = indexer.index;
+        assert!(old_index > 1000);
+
+        indexer.clear_state();
+        assert!(indexer.expr_mapping.is_empty());
+        assert!(indexer.call_qualified_names.is_empty());
+        assert!(indexer.comments.is_empty());
+        assert_eq!(indexer.index, 1000);
+        assert_eq!(indexer.scope_stack.len(), 1);
+        assert!(indexer.scope_stack[0].symbols.contains_key("print"));
     }
 }
