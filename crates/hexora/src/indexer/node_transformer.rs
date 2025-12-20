@@ -10,7 +10,7 @@ use std::collections::HashSet;
 /// We want to have string values unchanged.
 pub struct NodeTransformer<'a> {
     pub locator: &'a Locator<'a>,
-    pub indexer: RefCell<NodeIndexer<'a>>,
+    pub indexer: NodeIndexer<'a>,
     pub updated_strings: RefCell<HashSet<u32>>,
 }
 
@@ -18,7 +18,7 @@ impl<'a> NodeTransformer<'a> {
     pub fn new(locator: &'a Locator, indexer: NodeIndexer<'a>) -> Self {
         Self {
             locator,
-            indexer: RefCell::new(indexer),
+            indexer,
             updated_strings: RefCell::default(),
         }
     }

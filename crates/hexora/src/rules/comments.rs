@@ -38,10 +38,10 @@ static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
 });
 
 pub fn check_comments(checker: &mut Checker) {
-    for comment in checker.indexer.comments.iter() {
-        let comment_str = checker.locator.slice(comment);
+    for comment in checker.indexer.model.comments.iter() {
+        let text = checker.locator.slice(*comment);
         for comment_rule in COMMENTS.iter() {
-            if memmem::find(comment_str.as_bytes(), comment_rule.name.as_bytes()).is_some() {
+            if memmem::find(text.as_bytes(), comment_rule.name.as_bytes()).is_some() {
                 checker.audit_results.push(AuditItem {
                     label: comment_rule.name.to_string(),
                     rule: comment_rule.rule,

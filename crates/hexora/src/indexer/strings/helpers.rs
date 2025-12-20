@@ -89,12 +89,12 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub(crate) fn make_string_expr(&self, range: TextRange, value: String) -> ast::Expr {
-        let string_id = self.indexer.borrow_mut().get_atomic_index();
+        let string_id = self.indexer.get_atomic_index();
         self.updated_strings
             .borrow_mut()
-            .insert(self.indexer.borrow().current_index());
+            .insert(self.indexer.current_index());
 
-        let inner_id = self.indexer.borrow_mut().get_atomic_index();
+        let inner_id = self.indexer.get_atomic_index();
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
             node_index: string_id,
@@ -106,6 +106,38 @@ impl<'a> NodeTransformer<'a> {
                 node_index: inner_id,
             }),
         })
+    }
+
+    pub(crate) fn make_module_expr(
+        &self,
+        range: TextRange,
+        module_name: &str,
+    ) -> Option<ast::Expr> {
+        let mut parts = module_name.split('.');
+        let first = parts.next()?;
+        let mut expr = ast::Expr::Name(ast::ExprName {
+            node_index: self.indexer.get_atomic_index(),
+            range,
+            id: first.into(),
+            ctx: ast::ExprContext::Load,
+        });
+
+        for part in parts {
+            let node_index = self.indexer.get_atomic_index();
+            let attr_node_index = self.indexer.get_atomic_index();
+            expr = ast::Expr::Attribute(ast::ExprAttribute {
+                node_index,
+                range,
+                value: Box::new(expr),
+                attr: ast::Identifier {
+                    id: part.into(),
+                    range,
+                    node_index: attr_node_index,
+                },
+                ctx: ast::ExprContext::Load,
+            });
+        }
+        Some(expr)
     }
 
     pub(crate) fn extract_string(&self, expr: &ast::Expr) -> Option<String> {

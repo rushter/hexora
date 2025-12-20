@@ -230,42 +230,8 @@ fn sys_modules_contain_imports(
     imports.iter().any(|m| m == &key).then_some(key)
 }
 
-fn importlib_contains_imports(
-    checker: &Checker,
-    expr: &ast::Expr,
-    imports: &[&str],
-) -> Option<String> {
-    // importlib.import_module("<module>")
-    let ast::Expr::Call(call) = expr else {
-        return None;
-    };
-    let qn = checker.indexer.resolve_qualified_name(&call.func)?;
-    if qn.segments() != ["importlib", "import_module"] {
-        return None;
-    }
-    let first_arg = call.arguments.args.first()?;
-    let key = string_from_expr(first_arg, &checker.indexer)?;
-    imports.iter().any(|m| m == &key).then_some(key)
-}
-
-#[derive(Copy, Clone)]
-enum ImportOrigin {
-    SysModules,
-    Importlib,
-}
-
-fn resolve_import_origin(
-    checker: &Checker,
-    expr: &ast::Expr,
-    imports: &[&str],
-) -> Option<(String, ImportOrigin)> {
-    if let Some(module) = sys_modules_contain_imports(checker, expr, imports) {
-        return Some((module, ImportOrigin::SysModules));
-    }
-    if let Some(module) = importlib_contains_imports(checker, expr, imports) {
-        return Some((module, ImportOrigin::Importlib));
-    }
-    None
+fn resolve_import_origin(checker: &Checker, expr: &ast::Expr, imports: &[&str]) -> Option<String> {
+    sys_modules_contain_imports(checker, expr, imports)
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
@@ -278,25 +244,19 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
         return;
     }
 
-    // sys.modules["os"].<func>(...) or importlib.import_module("os").<func>(...)
+    // sys.modules["os"].<func>(...)
     if let ast::Expr::Attribute(attr) = &*call.func
-        && let Some((module, origin)) =
-            resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
+        && let Some(module) = resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
     {
         let name = attr.attr.as_str();
         if is_shell_command(&[module.as_str(), name]) {
-            let label = match origin {
-                ImportOrigin::SysModules => format!("sys.modules[\"{}\"].{}", module, name),
-                ImportOrigin::Importlib => {
-                    format!("importlib.import_module(\"{}\").{}", module, name)
-                }
-            };
+            let label = format!("sys.modules[\"{}\"].{}", module, name);
             push_shell_report(checker, call, label);
             return;
         }
     }
 
-    // getattr(importlib.import_module("os"), "<func>")(…) or getattr(sys.modules["os"], "<func>")(…)
+    // getattr(sys.modules["os"], "<func>")(…)
     if let ast::Expr::Call(inner_call) = &*call.func {
         let qn = checker.indexer.get_qualified_name(inner_call);
 
@@ -309,19 +269,11 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
                     let attr_name = string_from_expr(&args[1], &checker.indexer);
 
                     if let Some(name) = attr_name
-                        && let Some((module, origin)) =
+                        && let Some(module) =
                             resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
                         && is_shell_command(&[module.as_str(), name.as_str()])
                     {
-                        let label = match origin {
-                            ImportOrigin::SysModules => {
-                                format!("getattr(sys.modules[\"{}\"], \"{}\")", module, name)
-                            }
-                            ImportOrigin::Importlib => format!(
-                                "getattr(importlib.import_module(\"{}\"), \"{}\")",
-                                module, name
-                            ),
-                        };
+                        let label = format!("getattr(sys.modules[\"{}\"], \"{}\")", module, name);
                         push_shell_report(checker, call, label);
                     }
                 }
@@ -354,18 +306,18 @@ mod tests {
         "exec_04.py",
         Rule::ShellExec,
         vec![
-            "sys.modules[\"os\"].system",
-            "sys.modules[\"subprocess\"].Popen",
-            "importlib.import_module(\"subprocess\").check_output",
-            "importlib.import_module(\"commands\").getstatusoutput",
+            "os.system",
+            "subprocess.Popen",
+            "subprocess.check_output",
+            "commands.getstatusoutput",
         ]
     )]
     #[test_case(
         "exec_05.py",
         Rule::ShellExec,
         vec![
-            "getattr(importlib.import_module(\"commands\"), \"getstatusoutput\")",
-            "getattr(sys.modules[\"commands\"], \"getstatusoutput\")"
+            "commands.getstatusoutput",
+            "commands.getstatusoutput"
         ]
     )]
     #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]

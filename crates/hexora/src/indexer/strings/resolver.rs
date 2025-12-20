@@ -5,7 +5,7 @@ use ruff_python_ast::{self as ast, HasNodeIndex};
 impl<'a> NodeTransformer<'a> {
     pub(crate) fn get_resolved_exprs(&self, expr: &ast::Expr) -> Option<Vec<ast::Expr>> {
         let node_id = expr.node_index().load().as_u32()?;
-        let exprs = self.indexer.borrow().expr_mapping.get(&node_id).cloned()?;
+        let exprs = self.indexer.model.expr_mapping.get(&node_id).cloned()?;
         Some(
             exprs
                 .iter()

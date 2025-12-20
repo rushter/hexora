@@ -91,6 +91,10 @@ mod tests {
         "os.environ",
         "os.environ"
     ])]
+    #[test_case("fingerprinting_03.py", Rule::OSFingerprint, vec![
+        "os.getlogin",
+        "socket.gethostname"
+    ])]
     fn test_fingerprinting(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

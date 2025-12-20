@@ -218,8 +218,6 @@
 2024-05-01-crytic-compilers-v0.3.7.zip
 # empty package
 2025-10-14-musl-dev-v0.0.0.zip
-# valid
-2024-11-17-random-security-test-pkg-v1.1.3.zip
 # empty package
 2023-03-05-pycolorz-v0.0.1.zip
 # empty package

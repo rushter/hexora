@@ -8,7 +8,6 @@ use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
 pub struct Checker<'a> {
-    pub imports: Vec<&'a Stmt>,
     pub audit_results: Vec<AuditItem>,
     pub locator: &'a Locator<'a>,
     pub indexer: NodeIndexer<'a>,
@@ -17,7 +16,6 @@ pub struct Checker<'a> {
 impl<'a> Checker<'a> {
     pub fn new(locator: &'a Locator, indexer: NodeIndexer<'a>) -> Self {
         Self {
-            imports: Vec::new(),
             audit_results: Vec::new(),
             locator,
             indexer,

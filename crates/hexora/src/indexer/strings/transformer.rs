@@ -45,6 +45,16 @@ impl<'a> NodeTransformer<'a> {
             let rev: String = s.chars().rev().collect();
             return Some(self.make_string_expr(sub.range, rev));
         }
+
+        // Handle sys.modules["os"]
+        let qualified = self.indexer.resolve_qualified_name(&sub.value);
+        if let Some(name) = qualified
+            && name.as_str() == "sys.modules"
+        {
+            if let Some(module_name) = self.resolve_expr_to_string(&sub.slice) {
+                return self.make_module_expr(sub.range, &module_name);
+            }
+        }
         None
     }
 
@@ -84,7 +94,7 @@ impl<'a> NodeTransformer<'a> {
             }
         }
 
-        let qualified = self.indexer.borrow().resolve_qualified_name(&call.func);
+        let qualified = self.indexer.resolve_qualified_name(&call.func);
 
         if let Some(name) = qualified.as_ref()
             && (name.as_str() == "getattr"
@@ -93,41 +103,34 @@ impl<'a> NodeTransformer<'a> {
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 2
         {
-            let arg_name_res = self
-                .indexer
-                .borrow()
-                .resolve_qualified_name(&call.arguments.args[0]);
-            if let Some(arg_name) = arg_name_res
-                && (arg_name.as_str() == "builtins" || arg_name.as_str() == "__builtins__")
-            {
-                if let Some(attr_name) = self.resolve_expr_to_string(&call.arguments.args[1]) {
-                    let (name_id, attr_id, ident_id) = {
-                        let mut indexer = self.indexer.borrow_mut();
-                        (
-                            indexer.get_atomic_index(),
-                            indexer.get_atomic_index(),
-                            indexer.get_atomic_index(),
-                        )
-                    };
+            if let Some(attr_name) = self.resolve_expr_to_string(&call.arguments.args[1]) {
+                let (attr_id, ident_id) = (
+                    self.indexer.get_atomic_index(),
+                    self.indexer.get_atomic_index(),
+                );
 
-                    let arg_name_str = arg_name.as_str();
-                    return Some(ast::Expr::Attribute(ast::ExprAttribute {
-                        node_index: attr_id,
+                return Some(ast::Expr::Attribute(ast::ExprAttribute {
+                    node_index: attr_id,
+                    range: call.range,
+                    value: Box::new(call.arguments.args[0].clone()),
+                    attr: ast::Identifier {
+                        id: attr_name.into(),
                         range: call.range,
-                        value: Box::new(ast::Expr::Name(ast::ExprName {
-                            node_index: name_id,
-                            range: call.range,
-                            id: arg_name_str.into(),
-                            ctx: ExprContext::Load,
-                        })),
-                        attr: ast::Identifier {
-                            id: attr_name.into(),
-                            range: call.range,
-                            node_index: ident_id,
-                        },
-                        ctx: ExprContext::Load,
-                    }));
-                }
+                        node_index: ident_id,
+                    },
+                    ctx: ExprContext::Load,
+                }));
+            }
+        }
+
+        // Handle importlib.import_module("os")
+        if let Some(name) = qualified.as_ref()
+            && name.as_str() == "importlib.import_module"
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 1
+        {
+            if let Some(module_name) = self.resolve_expr_to_string(&call.arguments.args[0]) {
+                return self.make_module_expr(call.range, &module_name);
             }
         }
 
@@ -228,6 +231,7 @@ impl<'a> NodeTransformer<'a> {
                     flags: StringLiteralFlags::empty(),
                     node_index: index,
                 });
+                self.updated_strings.borrow_mut().insert(node_id);
             }
 
             ast::Expr::BytesLiteral(b) => {

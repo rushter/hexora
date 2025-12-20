@@ -72,37 +72,7 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
     BUILTINS_MODULE.contains(&key.as_str()).then_some(key)
 }
 
-fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Option<String> {
-    // importlib.import_module("builtins" or "__builtins__")
-    let Expr::Call(call) = expr else { return None };
-
-    let qn = checker.indexer.resolve_qualified_name(&call.func)?;
-    if qn.segments() != ["importlib", "import_module"] {
-        return None;
-    }
-
-    let first_arg = call.arguments.args.first()?;
-    let key = string_from_expr(first_arg, &checker.indexer)?;
-
-    BUILTINS_MODULE.contains(&key.as_str()).then_some(key)
-}
-
 pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
-    // importlib.import_module("__builtins__" or "builtins").eval/exec(...)
-    if let Expr::Attribute(attr) = &*call.func
-        && let Some(key) = contains_importlib_builtins_call(checker, &attr.value)
-    {
-        let name = attr.attr.as_str();
-        if is_eval_or_exec(name) {
-            push_exec_report(
-                checker,
-                call,
-                format!("importlib.import_module(\"{}\").{}", key, name),
-            );
-            return;
-        }
-    }
-
     // getattr(__builtins__, "eval"/"exec")(...)
     if let Expr::Call(getattr_call) = &*call.func {
         let is_getattr = matches_builtin_functions(checker, &getattr_call.func, &["getattr"]);
@@ -127,15 +97,6 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
                         checker,
                         call,
                         format!("sys.modules[\"{}\"].{}", key, attr_name),
-                    );
-                    return;
-                }
-                // getattr(importlib.import_module("__builtins__" or "builtins"), "eval"/"exec")(...)
-                if let Some(key) = contains_importlib_builtins_call(checker, base_obj) {
-                    push_exec_report(
-                        checker,
-                        call,
-                        format!("importlib.import_module(\"{}\").{}", key, attr_name),
                     );
                     return;
                 }
@@ -186,8 +147,8 @@ mod tests {
     #[test_case("builtins_01.py", Rule::CodeExec, vec!["globals[\"__builtins__\"].eval" ])]
     #[test_case("builtins_02.py", Rule::CodeExec, vec!["__builtins__.eval", "__builtins__.eval" ])]
     #[test_case("builtins_03.py", Rule::CodeExec, vec!["globals[\"builtins\"].eval" ])]
-    #[test_case("builtins_04.py", Rule::CodeExec, vec!["sys.modules[\"builtins\"].exec", "sys.modules[\"builtins\"].eval" ])]
-    #[test_case("builtins_05.py", Rule::CodeExec, vec!["importlib.import_module(\"builtins\").exec", "importlib.import_module(\"builtins\").eval" ])]
+    #[test_case("builtins_04.py", Rule::CodeExec, vec!["builtins.exec", "builtins.eval" ])]
+    #[test_case("builtins_05.py", Rule::CodeExec, vec!["builtins.exec", "builtins.eval" ])]
     fn test_builtins(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

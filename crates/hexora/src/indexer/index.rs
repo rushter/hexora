@@ -2,94 +2,24 @@ use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::Ranged;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use crate::indexer::model::{NodeId, SemanticModel};
 use crate::indexer::name::QualifiedName;
+use crate::indexer::scope::{BindingKind, Scope, ScopeKind, SymbolBinding};
 
-//
-// TODO:
-//  starred unpacking in assignments, e.g. a, *b = [1,2,3]
-//  comprehensions scopes?
-//  Exception handler scopes?
-//
-pub type NodeId = u32;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const PYTHON_MINOR_VERSION: u8 = 14;
 
-#[derive(Debug, Clone)]
-enum BindingKind {
-    Builtin,
-    Import,
-    Assignment,
-}
-
-#[derive(Debug, Clone)]
-struct SymbolBinding<'a> {
-    kind: BindingKind,
-    imported_path: Option<Vec<String>>,
-    value_expr: Option<&'a Expr>,
-    assigned_expressions: Vec<&'a Expr>,
-}
-
-impl<'a> SymbolBinding<'a> {
-    fn builtin() -> Self {
-        Self {
-            kind: BindingKind::Builtin,
-            imported_path: None,
-            value_expr: None,
-            assigned_expressions: Vec::new(),
-        }
-    }
-
-    fn import(path: Vec<String>) -> Self {
-        Self {
-            kind: BindingKind::Import,
-            imported_path: Some(path),
-            value_expr: None,
-            assigned_expressions: Vec::new(),
-        }
-    }
-
-    fn assignment(value_expr: Option<&'a Expr>) -> Self {
-        let assigned_expressions = if let Some(expr) = value_expr {
-            vec![expr]
-        } else {
-            Vec::new()
-        };
-        Self {
-            kind: BindingKind::Assignment,
-            imported_path: None,
-            value_expr,
-            assigned_expressions,
-        }
-    }
-
-    fn add_assigned_expression(&mut self, expr: &'a Expr) {
-        self.assigned_expressions.push(expr);
-        self.value_expr = Some(expr);
-    }
-}
-
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum ScopeKind {
-    Module,
-    Class,
-    Function,
-}
-
-struct Scope<'a> {
-    pub kind: ScopeKind,
-    symbols: HashMap<String, SymbolBinding<'a>>,
-    pub parent_scope: Option<usize>,
-}
-
 pub struct NodeIndexer<'a> {
-    pub expr_mapping: HashMap<NodeId, Vec<&'a Expr>>,
-    index: NodeId,
-    scope_stack: Vec<Scope<'a>>,
-    call_qualified_names: HashMap<NodeId, QualifiedName>,
-    pub comments: Vec<TextRange>,
+    pub model: SemanticModel<'a>,
+    pub(crate) index: AtomicU32,
+    pub(crate) scope_stack: Vec<Scope<'a>>,
+    pub(crate) resolve_cache: RefCell<HashMap<NodeId, Option<Vec<String>>>>,
+    pub(crate) currently_resolving: RefCell<HashSet<NodeId>>,
 }
 
 impl<'a> Default for NodeIndexer<'a> {
@@ -101,18 +31,18 @@ impl<'a> Default for NodeIndexer<'a> {
 impl<'a> NodeIndexer<'a> {
     pub fn new() -> Self {
         let mut this = Self {
-            index: 0,
-            expr_mapping: HashMap::with_capacity(256),
-            scope_stack: Vec::with_capacity(16),
-            call_qualified_names: HashMap::with_capacity(128),
-            comments: Vec::with_capacity(25),
+            index: AtomicU32::new(0),
+            model: SemanticModel::new(),
+            scope_stack: Vec::with_capacity(32),
+            resolve_cache: RefCell::new(HashMap::with_capacity(512)),
+            currently_resolving: RefCell::new(HashSet::with_capacity(16)),
         };
         this.push_scope(ScopeKind::Module);
         this.bind_builtins();
         this
     }
 
-    fn current_scope_mut(&mut self) -> &mut Scope<'a> {
+    pub(crate) fn current_scope_mut(&mut self) -> &mut Scope<'a> {
         self.scope_stack
             .last_mut()
             .expect("there is always at least one scope")
@@ -135,20 +65,22 @@ impl<'a> NodeIndexer<'a> {
         }
 
         // Reserve indices <1000 for builtins / special cases.
-        self.index = 1000;
+        self.index.store(1000, Ordering::Relaxed);
     }
+
     pub fn index_comments(&mut self, tokens: &Tokens) {
         for token in tokens {
             if token.kind() == TokenKind::Comment {
-                self.comments.push(token.range());
+                self.model.comments.push(token.range());
             }
         }
     }
 
     pub fn clear_state(&mut self) {
-        self.expr_mapping.clear();
-        self.call_qualified_names.clear();
+        self.model.clear();
         self.scope_stack.clear();
+        self.resolve_cache.get_mut().clear();
+        self.currently_resolving.get_mut().clear();
         self.push_scope(ScopeKind::Module);
         self.bind_builtins();
     }
@@ -175,8 +107,13 @@ impl<'a> NodeIndexer<'a> {
 
     pub fn handle_stmt_post(&mut self, stmt: &'a Stmt) {
         match stmt {
-            Stmt::ClassDef(_) | Stmt::FunctionDef(_) => {
+            Stmt::ClassDef(_) => {
                 self.pop_scope();
+            }
+            Stmt::FunctionDef(func) => {
+                self.pop_scope();
+                let symbols = &mut self.current_scope_mut().symbols;
+                symbols.insert(func.name.to_string(), SymbolBinding::function(func));
             }
             Stmt::Assign(assign) => {
                 self.handle_assign_stmt(assign);
@@ -196,7 +133,7 @@ impl<'a> NodeIndexer<'a> {
         self.handle_expr(expr);
     }
 
-    pub fn visit_node<T>(&mut self, node: &T)
+    pub fn visit_node<T>(&self, node: &T)
     where
         T: HasNodeIndex,
     {
@@ -206,14 +143,14 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn current_index(&self) -> NodeId {
-        self.index
+        self.index.load(Ordering::Relaxed)
     }
 
-    pub fn get_index(&mut self) -> NodeIndex {
-        self.index += 1;
-        NodeIndex::from(self.index)
+    pub fn get_index(&self) -> NodeIndex {
+        NodeIndex::from(self.index.fetch_add(1, Ordering::Relaxed) + 1)
     }
-    pub fn get_atomic_index(&mut self) -> AtomicNodeIndex {
+
+    pub fn get_atomic_index(&self) -> AtomicNodeIndex {
         let index = AtomicNodeIndex::NONE;
         index.set(self.get_index());
         index
@@ -221,7 +158,7 @@ impl<'a> NodeIndexer<'a> {
 
     pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&[&Expr]> {
         let id = index.load().as_u32()?;
-        self.expr_mapping.get(&id).map(|v| &**v)
+        self.model.expr_mapping.get(&id).map(|v| &**v)
     }
 
     pub fn push_scope(&mut self, kind: ScopeKind) {
@@ -236,11 +173,12 @@ impl<'a> NodeIndexer<'a> {
             parent_scope: parent,
         });
     }
+
     pub fn pop_scope(&mut self) {
         self.scope_stack.pop();
     }
 
-    fn lookup_binding(&self, name: &str) -> Option<&SymbolBinding<'a>> {
+    pub(crate) fn lookup_binding(&self, name: &str) -> Option<&SymbolBinding<'a>> {
         if !self.scope_stack.is_empty() {
             let mut index = self.scope_stack.len() - 1;
             loop {
@@ -315,35 +253,142 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn resolve_expr_import_path(
+    pub fn resolve_expr_import_path(&self, expr: &Expr) -> Option<Vec<String>> {
+        self.resolve_expr_import_path_internal(expr, None)
+    }
+
+    pub(crate) fn resolve_expr_import_path_internal(
         &self,
         expr: &Expr,
-        visited: &mut HashSet<NodeId>,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<String>> {
         let node_id = expr.node_index().load().as_u32()?;
-        if !visited.insert(node_id) {
+        if context.is_none() {
+            if let Some(res) = self.resolve_cache.borrow().get(&node_id) {
+                return res.clone();
+            }
+        }
+
+        if !self.currently_resolving.borrow_mut().insert(node_id) {
             return None;
         }
-        match expr {
-            Expr::Name(name) => {
-                let last_expr = self
-                    .expr_mapping
-                    .get(&node_id)
-                    .and_then(|exprs| exprs.last());
-                if let Some(last_expr) = last_expr {
-                    self.resolve_expr_import_path(last_expr, visited)
-                } else {
-                    self.resolve_binding_import_path(name.id.as_str(), visited)
+
+        let res = match expr {
+            Expr::Name(name) => self.resolve_name_path(name, context),
+            Expr::Attribute(attr) => self.resolve_attribute_path(attr, context),
+            Expr::BinOp(binop) if matches!(binop.op, Operator::Add) => {
+                self.resolve_binop_path(binop, context)
+            }
+            Expr::StringLiteral(s) => Some(vec![s.value.to_string()]),
+            Expr::Call(call) => self.resolve_call_path(call, context),
+            _ => None,
+        };
+
+        self.currently_resolving.borrow_mut().remove(&node_id);
+
+        if context.is_none() {
+            self.resolve_cache.borrow_mut().insert(node_id, res.clone());
+        }
+        res
+    }
+
+    fn resolve_name_path(
+        &self,
+        name: &ExprName,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        if let Some((call, func)) = context {
+            for (i, param) in func.parameters.args.iter().enumerate() {
+                if param.name() == name.id.as_str() && i < call.arguments.args.len() {
+                    return self.resolve_expr_import_path_internal(&call.arguments.args[i], None);
                 }
             }
-            Expr::Attribute(attr) => {
-                let base_path = self.resolve_expr_import_path(&attr.value, visited)?;
-                let mut path = base_path;
-                path.push(attr.attr.to_string());
+        }
+
+        let node_id = name.node_index().load().as_u32()?;
+        let last_expr = self
+            .model
+            .expr_mapping
+            .get(&node_id)
+            .and_then(|exprs| exprs.last());
+
+        if let Some(last_expr) = last_expr {
+            self.resolve_expr_import_path_internal(last_expr, context)
+        } else {
+            self.resolve_binding_import_path(name.id.as_str())
+        }
+    }
+
+    fn resolve_attribute_path(
+        &self,
+        attr: &ExprAttribute,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let mut base_path = self.resolve_expr_import_path_internal(&attr.value, context)?;
+        base_path.push(attr.attr.to_string());
+        Some(base_path)
+    }
+
+    fn resolve_binop_path(
+        &self,
+        binop: &ExprBinOp,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let l = self.resolve_expr_import_path_internal(&binop.left, context)?;
+        let r = self.resolve_expr_import_path_internal(&binop.right, context)?;
+        Some(vec![l.join("") + &r.join("")])
+    }
+
+    fn resolve_call_path(
+        &self,
+        call: &ExprCall,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let qn = self.resolve_qualified_name_internal(&call.func)?;
+        match qn.segments().as_slice() {
+            ["importlib", "import_module"] if !call.arguments.args.is_empty() => {
+                let arg_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                Some(
+                    arg_path
+                        .join("")
+                        .split('.')
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            }
+            ["getattr"] if call.arguments.args.len() >= 2 => {
+                let mut path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                let attr_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[1], context)?;
+                path.push(attr_path.join(""));
                 Some(path)
             }
-            _ => None,
+            _ => self.resolve_function_call_path(call),
         }
+    }
+
+    fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<String>> {
+        if let Expr::Name(func_name) = call.func.as_ref() {
+            if let Some(binding) = self.lookup_binding(func_name.id.as_str())
+                && let BindingKind::Function = binding.kind
+                && let Some(func) = binding.function_def
+            {
+                let return_expr: Option<&Expr> = func.body.iter().find_map(|s| {
+                    if let Stmt::Return(StmtReturn { value: Some(v), .. }) = s {
+                        Some(v.as_ref())
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(ret_expr) = return_expr {
+                    return self.resolve_expr_import_path_internal(ret_expr, Some((call, func)));
+                }
+            }
+        }
+        None
     }
 
     fn resolve_import_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
@@ -354,28 +399,21 @@ impl<'a> NodeIndexer<'a> {
         Some(vec![name.to_string()])
     }
 
-    fn resolve_assignment_binding(
-        &self,
-        binding: &SymbolBinding,
-        visited: &mut HashSet<NodeId>,
-    ) -> Option<Vec<String>> {
+    fn resolve_assignment_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
         if let Some(value_expr) = binding.value_expr {
-            self.resolve_expr_import_path(value_expr, visited)
+            self.resolve_expr_import_path(value_expr)
         } else {
             None
         }
     }
 
-    fn resolve_binding_import_path(
-        &self,
-        name: &str,
-        visited: &mut HashSet<NodeId>,
-    ) -> Option<Vec<String>> {
+    fn resolve_binding_import_path(&self, name: &str) -> Option<Vec<String>> {
         if let Some(binding) = self.lookup_binding(name) {
             match binding.kind {
                 BindingKind::Import => self.resolve_import_binding(binding),
                 BindingKind::Builtin => self.resolve_builtin_binding(name),
-                BindingKind::Assignment => self.resolve_assignment_binding(binding, visited),
+                BindingKind::Assignment => self.resolve_assignment_binding(binding),
+                BindingKind::Function => None,
             }
         } else {
             None
@@ -383,12 +421,28 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
+        self.resolve_qualified_name_internal(expr)
+    }
+
+    fn resolve_qualified_name_internal<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
+        if let Some(mut path) = self.resolve_expr_import_path(expr) {
+            if path.len() == 1 {
+                let name = path.remove(0);
+                if let Some(binding) = self.lookup_binding(&name)
+                    && matches!(binding.kind, BindingKind::Builtin)
+                {
+                    return Some(QualifiedName::from_segments(vec![name]));
+                }
+                path.push(name);
+            }
+            return Some(QualifiedName::from_segments(path));
+        }
+
         let target = match expr {
             Expr::Call(call) => &call.func,
             _ => expr,
         };
-        let mut visited = HashSet::new();
-        if let Some(mut path) = self.resolve_expr_import_path(target, &mut visited) {
+        if let Some(mut path) = self.resolve_expr_import_path(target) {
             if path.len() == 1 {
                 let name = path.remove(0);
                 if let Some(binding) = self.lookup_binding(&name)
@@ -405,7 +459,7 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn collect_attribute_segments(&self, expr: &Expr) -> Option<Vec<String>> {
+    pub fn collect_attribute_segments(&self, expr: &Expr) -> Option<Vec<String>> {
         let mut segments = Vec::new();
         let mut current = expr;
         while let Expr::Attribute(attr) = current {
@@ -422,7 +476,7 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&QualifiedName> {
-        self.call_qualified_names.get(&node_id)
+        self.model.call_qualified_names.get(&node_id)
     }
 
     pub fn get_qualified_name<T>(&self, node: &T) -> Option<&QualifiedName>
@@ -684,7 +738,7 @@ impl<'a> NodeIndexer<'a> {
         if let Some(qn) = self.resolve_qualified_name(expr)
             && let Some(id) = expr.node_index().load().as_u32()
         {
-            self.call_qualified_names.insert(id, qn);
+            self.model.call_qualified_names.insert(id, qn);
         }
     }
 
@@ -705,7 +759,11 @@ impl<'a> NodeIndexer<'a> {
             && let Some(node_id) = expr.node_index().load().as_u32()
         {
             let exprs = binding.assigned_expressions.clone();
-            self.expr_mapping.entry(node_id).or_default().extend(exprs);
+            self.model
+                .expr_mapping
+                .entry(node_id)
+                .or_default()
+                .extend(exprs);
         }
     }
 
@@ -717,7 +775,11 @@ impl<'a> NodeIndexer<'a> {
             && let Some(node_id) = expr.node_index().load().as_u32()
         {
             let exprs = binding.assigned_expressions.clone();
-            self.expr_mapping.entry(node_id).or_default().extend(exprs);
+            self.model
+                .expr_mapping
+                .entry(node_id)
+                .or_default()
+                .extend(exprs);
         }
     }
 }
@@ -736,7 +798,7 @@ mod tests {
         locator: &Locator<'a>,
         mappings: &HashMap<u32, Vec<&Expr>>,
     ) -> HashMap<u32, Vec<&'a str>> {
-        let mut result: HashMap<u32, Vec<&str>> = HashMap::new();
+        let mut result: HashMap<u32, Vec<&'a str>> = HashMap::new();
 
         for (node_id, exprs) in mappings.iter() {
             let res: Vec<&str> = exprs
@@ -754,7 +816,7 @@ mod tests {
         let python_ast = parsed.suite();
         let mut indexer = NodeIndexer::new();
         indexer.visit_body(python_ast);
-        convert_to_strings(&locator, &indexer.expr_mapping)
+        convert_to_strings(&locator, &indexer.model.expr_mapping)
     }
 
     fn with_indexer<F, R>(source: &str, f: F) -> R
@@ -1039,15 +1101,15 @@ mod tests {
         let mut indexer = NodeIndexer::new();
         indexer.visit_body(parsed.suite());
 
-        assert!(!indexer.expr_mapping.is_empty());
-        let old_index = indexer.index;
+        assert!(!indexer.model.expr_mapping.is_empty());
+        let old_index = indexer.index.load(Ordering::Relaxed);
         assert!(old_index > 1000);
 
         indexer.clear_state();
-        assert!(indexer.expr_mapping.is_empty());
-        assert!(indexer.call_qualified_names.is_empty());
-        assert!(indexer.comments.is_empty());
-        assert_eq!(indexer.index, 1000);
+        assert!(indexer.model.expr_mapping.is_empty());
+        assert!(indexer.model.call_qualified_names.is_empty());
+        assert!(indexer.model.comments.is_empty());
+        assert_eq!(indexer.index.load(Ordering::Relaxed), 1000);
         assert_eq!(indexer.scope_stack.len(), 1);
         assert!(indexer.scope_stack[0].symbols.contains_key("print"));
     }

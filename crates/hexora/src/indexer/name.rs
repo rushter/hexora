@@ -1,21 +1,27 @@
+use std::sync::Arc;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QualifiedName {
-    segments: Vec<String>,
+    segments: Arc<[String]>,
 }
 
 impl QualifiedName {
     pub fn new<S: Into<String>>(qualified_name: S) -> Self {
         let s = qualified_name.into();
-        let segments = if s.is_empty() {
+        let segments: Vec<String> = if s.is_empty() {
             Vec::new()
         } else {
             s.split('.').map(|s| s.to_string()).collect()
         };
-        Self { segments }
+        Self {
+            segments: Arc::from(segments),
+        }
     }
 
     pub fn from_segments(segments: Vec<String>) -> Self {
-        Self { segments }
+        Self {
+            segments: Arc::from(segments),
+        }
     }
 
     pub fn segments(&self) -> Vec<&str> {
