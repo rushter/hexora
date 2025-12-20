@@ -4,6 +4,7 @@ mod download;
 mod dunder;
 mod env;
 mod exec;
+mod fingerprinting;
 mod identifier;
 mod imports;
 mod literal;

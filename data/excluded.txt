@@ -9,7 +9,7 @@
 2024-03-12-herewalletbot-v0.1.0.zip
 # typosquatting
 2022-12-19-selenim.zip
-# xmrig (valid)
+# xmrig (valid, postinstall)
 2024-09-21-bo3to-v0.1.zip
 # empty package
 2025-02-05-pxz-v1.1.9.zip
@@ -17,7 +17,7 @@
 2022-11-13-roblox-com.zip
 # empty package
 2023-05-12-dfdfdfdfhhh-v1.0.2.zip
-# telegram exfil (valid)
+# telegram exfil (valid, images)
 2024-12-30-requetses-v0.1.zip
 # empty package
 2024-06-25-spl-types-v1.0.4.zip
@@ -43,8 +43,6 @@
 2025-02-05-pxz-v1.1.11.zip
 2025-02-05-pxz-v1.1.12.zip
 2025-02-05-pxz-v1.1.13.zip
-# valid
-2025-02-05-pxz-v1.1.14.zip
 # empty package
 2024-09-28-cryptograohy-v0.5.6.zip
 2024-09-28-cryptograohy-v0.6.1.zip
@@ -83,8 +81,6 @@
 2023-04-14-test23414234234-v0.5.zip
 # empty package
 2023-05-29-pytabtrust-v9999999.0.0.zip
-# valid
-2022-11-21-randrange.zip
 # empty package
 2023-03-14-pycrypterexe-v1.0.9.zip
 # empty package
@@ -178,15 +174,6 @@
 2024-05-01-crytic-compilers-v0.3.9.zip
 # empty package
 2023-06-18-http3-client-v1.0.7.zip
-# exfil (valid)
-2024-11-09-artifact-lab-3-package-b1ec2b9f-v0.2.1.zip
-2024-09-19-artifact-lab-3-package-4c04b1a2-v0.5.zip
-2024-11-09-artifact-lab-3-package-b1ec2b9f-v0.1.1.zip
-2024-11-09-artifact-lab-3-package-b1ec2b9f-v0.2.0.zip
-2024-09-19-artifact-lab-3-package-4c04b1a2-v0.1.1.zip
-2024-09-19-artifact-lab-3-package-4c04b1a2-v1.0.3.zip
-# exfil valid
-2022-11-17-azure-sdk-tools.zip
 # empty package
 2022-12-19-libssl.zip
 # basic exfil
@@ -225,7 +212,7 @@
 2025-09-29-gradio-videotimeline-v0.0.0.zip
 # empty package
 2024-07-31-mlc-ai-nightly-v0.0.1.zip
-# valid
+# valid (postinstall, chr)
 2024-09-21-botoceor-v0.1.zip
 # empty package
 2024-05-01-crytic-compilers-v0.3.7.zip
@@ -244,7 +231,7 @@
 2024-03-12-herewalletbot-v1.0.zip
 # empty package
 2023-03-14-pycrypterexe-v1.1.0.zip
-# valid (?)
+# not malicious
 2024-07-13-sol-structs-v1.0.2.zip
 # empty package
 2025-09-17-hackerone-app-sdk-v0.17.0.zip

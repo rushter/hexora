@@ -43,6 +43,7 @@ pub enum Rule {
     AppEnumeration,
     BrowserEnumeration,
     PathEnumeration,
+    OSFingerprint,
 
     // Access
     ClipboardRead,
@@ -113,6 +114,7 @@ impl Rule {
             Rule::AppEnumeration => "HX1000",
             Rule::BrowserEnumeration => "HX1010",
             Rule::PathEnumeration => "HX1020",
+            Rule::OSFingerprint => "HX1030",
 
             // Access: HX2000
             Rule::ClipboardRead => "HX2000",
@@ -172,6 +174,7 @@ impl Rule {
                 "Suspicious browser enumeration (apps, cookies, history, etc.)."
             }
             Rule::PathEnumeration => "Suspicious path enumeration.",
+            Rule::OSFingerprint => "Suspicious OS fingerprinting.",
 
             // Access
             Rule::ClipboardRead => "Reading from the clipboard.",
@@ -235,6 +238,11 @@ impl Rule {
             Rule::EnvAccess => {
                 Some("Access to sensitive environment variables can be used to exfiltrate data.")
             }
+
+            // Enumeration
+            Rule::OSFingerprint => Some(
+                "OS fingerprinting can be used to identify the target system and its vulnerabilities.",
+            ),
 
             // Obfuscation/Execution
             Rule::ObfuscateShellExec => {

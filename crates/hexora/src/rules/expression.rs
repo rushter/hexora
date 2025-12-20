@@ -6,6 +6,7 @@ use crate::rules::download::binary_download;
 use crate::rules::dunder::dunder_import;
 use crate::rules::env::env_access;
 use crate::rules::exec::{code_exec, shell_exec};
+use crate::rules::fingerprinting::fingerprinting;
 use crate::rules::identifier::suspicious_call_name;
 use crate::rules::literal::{check_int_literals, check_literal};
 use ruff_python_ast::{self as ast, Expr};
@@ -18,6 +19,7 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
             dll_injection(checker, call);
             dunder_import(checker, call);
             env_access(checker, call);
+            fingerprinting(checker, call);
             clipboard_read(checker, call);
             binary_download(checker, call);
             check_builtins(checker, call);

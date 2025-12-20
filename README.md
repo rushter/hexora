@@ -129,6 +129,7 @@ Right now, the following rules are available:
 | HX1000 | AppEnumeration | Suspicious application enumeration. |
 | HX1010 | BrowserEnumeration | Suspicious browser enumeration (apps, cookies, history, etc.). |
 | HX1020 | PathEnumeration | Suspicious path enumeration. |
+| HX1030 | OSFingerprint | Suspicious OS fingerprinting. |
 | HX2000 | ClipboardRead | Reading from the clipboard. |
 | HX2010 | EnvAccess | Access to a sensitive environment variable. |
 | HX3000 | CodeExec | Possible code execution. |
