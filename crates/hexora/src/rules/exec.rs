@@ -72,7 +72,7 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
     match *segments {
         [only] => matches!(only, "exec" | "eval"),
         [module, submodule] => match module {
-            "builtins" => matches!(submodule, "exec" | "eval"),
+            "builtins" | "__builtins__" => matches!(submodule, "exec" | "eval"),
             "" => matches!(submodule, "exec" | "eval"),
             _ => false,
         },
@@ -370,6 +370,7 @@ mod tests {
     )]
     #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
     #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
+    #[test_case("exec_09.py", Rule::CodeExec, vec!["__builtins__.eval"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

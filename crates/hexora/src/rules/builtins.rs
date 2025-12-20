@@ -42,11 +42,14 @@ fn contains_builtins_name(checker: &Checker, expr: &ast::Expr) -> Option<(String
     let Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
         return None;
     };
-    let Expr::Call(call) = value.as_ref() else {
-        return None;
-    };
 
-    let var_name = matches_builtin_functions(checker, &call.func, &VARS_FUNCTIONS)?;
+    let qn = checker.indexer.resolve_qualified_name(value)?;
+    let segments = qn.segments();
+    if segments.len() != 1 || !VARS_FUNCTIONS.contains(&segments[0]) {
+        return None;
+    }
+    let var_name = segments[0].to_string();
+
     let key = string_from_expr(slice, &checker.indexer)?;
 
     BUILTINS_MODULE
@@ -85,18 +88,6 @@ fn contains_importlib_builtins_call(checker: &Checker, expr: &ast::Expr) -> Opti
 }
 
 pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
-    // __builtins__.eval/exec(...)
-    if let Expr::Attribute(attr) = &*call.func
-        && let Expr::Name(name_expr) = &*attr.value
-        && name_expr.id.as_str() == "__builtins__"
-    {
-        let name = attr.attr.as_str();
-        if is_eval_or_exec(name) {
-            push_exec_report(checker, call, format!("__builtins__.{}", name));
-            return;
-        }
-    }
-
     // importlib.import_module("__builtins__" or "builtins").eval/exec(...)
     if let Expr::Attribute(attr) = &*call.func
         && let Some(key) = contains_importlib_builtins_call(checker, &attr.value)
@@ -118,12 +109,13 @@ pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
         if is_getattr.is_some() && getattr_call.arguments.args.len() >= 2 {
             let base_obj = &getattr_call.arguments.args[0];
             let attr_name_expr = &getattr_call.arguments.args[1];
-            if let Expr::Name(base_name) = base_obj
-                && base_name.id.as_str() == "__builtins__"
+            if let Some(qn) = checker.indexer.resolve_qualified_name(base_obj)
+                && qn.segments().len() == 1
+                && BUILTINS_MODULE.contains(&qn.segments()[0])
                 && let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
                 && is_eval_or_exec(&attr_name)
             {
-                push_exec_report(checker, call, format!("__builtins__.{}", attr_name));
+                push_exec_report(checker, call, format!("{}.{}", qn.as_str(), attr_name));
                 return;
             }
             // getattr(sys.modules["__builtins__" or "builtins"], "eval"/"exec")(...)

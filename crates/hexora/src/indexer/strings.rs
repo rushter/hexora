@@ -3,7 +3,8 @@ use crate::indexer::node_transformer::NodeTransformer;
 use ruff_python_ast::str::raw_contents;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{
-    self as ast, AtomicNodeIndex, HasNodeIndex, NodeIndex, Operator, StringLiteralFlags,
+    self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
+    StringLiteralFlags,
 };
 use ruff_text_size::{Ranged, TextRange};
 
@@ -377,6 +378,41 @@ impl<'a> NodeTransformer<'a> {
 
         let qualified = resolve_qualified_name(&call.func);
 
+        if let Some(name) = qualified.as_ref()
+            && (name == "getattr" || name == "__builtins__.getattr")
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 2
+        {
+            if let Some(arg_name) = resolve_qualified_name(&call.arguments.args[0])
+                && (arg_name == "__builtins__" || arg_name == "builtins")
+            {
+                if let Some(attr_name) = self.resolve_expr_to_string(&call.arguments.args[1]) {
+                    let mut indexer = self.indexer.borrow_mut();
+                    let name_id = indexer.get_atomic_index();
+                    let attr_id = indexer.get_atomic_index();
+                    let ident_id = indexer.get_atomic_index();
+                    drop(indexer);
+
+                    return Some(ast::Expr::Attribute(ast::ExprAttribute {
+                        node_index: attr_id,
+                        range: call.range,
+                        value: Box::new(ast::Expr::Name(ast::ExprName {
+                            node_index: name_id,
+                            range: call.range,
+                            id: arg_name.into(),
+                            ctx: ExprContext::Load,
+                        })),
+                        attr: ast::Identifier {
+                            id: attr_name.into(),
+                            range: call.range,
+                            node_index: ident_id,
+                        },
+                        ctx: ExprContext::Load,
+                    }));
+                }
+            }
+        }
+
         // binascii.unhexlify(..) or bytes.fromhex(..)
         // Just extract them for now
         // TODO: handle it in a better way
@@ -433,6 +469,19 @@ impl<'a> NodeTransformer<'a> {
                 .filter_map(std::char::from_u32)
                 .collect();
             return Some(self.make_string_expr(call.range, s));
+        }
+
+        // Handle chr(100)
+        if let ast::Expr::Name(name) = &*call.func
+            && name.id.as_str() == "chr"
+            && call.arguments.keywords.is_empty()
+            && call.arguments.args.len() == 1
+        {
+            if let Some(cp) = self.extract_int_literal_u32(&call.arguments.args[0]) {
+                if let Some(ch) = std::char::from_u32(cp) {
+                    return Some(self.make_string_expr(call.range, ch.to_string()));
+                }
+            }
         }
 
         None
@@ -824,6 +873,62 @@ mod tests {
         let expected = vec![string_item!("AB", 4, 37)];
         let actual = get_strings(source);
         assert_eq!(expected, actual);
+    }
+
+    pub struct NameVisitor {
+        pub names: Vec<String>,
+    }
+    impl NameVisitor {
+        pub fn new() -> Self {
+            Self { names: vec![] }
+        }
+    }
+    impl<'a> SourceOrderVisitor<'a> for NameVisitor {
+        fn visit_expr(&mut self, expr: &'a Expr) {
+            match expr {
+                Expr::Name(name) => self.names.push(name.id.to_string()),
+                Expr::Attribute(attr) => self.names.push(attr.attr.to_string()),
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    #[test]
+    fn test_builtins_getattr_to_name() {
+        let source =
+            r#"cc = __builtins__.getattr(__builtins__, b"\x85\xa5\x81\x93".decode("cp1026"))"#;
+        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
+        let locator = Locator::new(source);
+        let python_ast = parsed.suite();
+
+        let mut indexer = NodeIndexer::new();
+        indexer.visit_body(python_ast);
+        let mut transformed_ast = python_ast.to_vec();
+        let transformer = NodeTransformer::new(&locator, indexer);
+        transformer.visit_body(&mut transformed_ast);
+
+        let mut visitor = NameVisitor::new();
+        visitor.visit_body(&transformed_ast);
+        assert!(visitor.names.contains(&"eval".to_string()));
+    }
+
+    #[test]
+    fn test_getattr_builtins_to_name() {
+        let source = r#"getattr(builtins, "eval")"#;
+        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
+        let locator = Locator::new(source);
+        let python_ast = parsed.suite();
+
+        let mut indexer = NodeIndexer::new();
+        indexer.visit_body(python_ast);
+        let mut transformed_ast = python_ast.to_vec();
+        let transformer = NodeTransformer::new(&locator, indexer);
+        transformer.visit_body(&mut transformed_ast);
+
+        let mut visitor = NameVisitor::new();
+        visitor.visit_body(&transformed_ast);
+        assert!(visitor.names.contains(&"eval".to_string()));
     }
 
     #[test]

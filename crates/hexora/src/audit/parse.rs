@@ -71,7 +71,12 @@ fn audit_source(source: String) -> Result<Vec<AuditItem>, String> {
     let transformer = NodeTransformer::new(&locator, indexer);
     transformer.visit_body(&mut transformed_ast);
 
-    let mut checker = Checker::new(&locator, transformer.indexer.into_inner());
+    let old_indexer = transformer.indexer.into_inner();
+    let mut final_indexer = NodeIndexer::new();
+    final_indexer.comments = old_indexer.comments;
+    final_indexer.visit_body(&transformed_ast);
+
+    let mut checker = Checker::new(&locator, final_indexer);
     checker.check_comments();
     checker.visit_body(&transformed_ast);
     Ok(checker.audit_results)
