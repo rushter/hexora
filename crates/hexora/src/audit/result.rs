@@ -56,6 +56,7 @@ pub enum Rule {
     DunderCodeExec,
     DLLInjection,
     CurlWgetExec,
+    SuspiciousCall,
 
     // Obfuscation/Execution
     ObfuscateShellExec,
@@ -127,6 +128,7 @@ impl Rule {
             Rule::DunderCodeExec => "HX3030",
             Rule::DLLInjection => "HX3040",
             Rule::CurlWgetExec => "HX3050",
+            Rule::SuspiciousCall => "HX3060",
 
             // Obfuscation/Execution: HX4000
             Rule::ObfuscateShellExec => "HX4000",
@@ -187,6 +189,7 @@ impl Rule {
             Rule::DunderCodeExec => "Execution of code via `__import__`.",
             Rule::DLLInjection => "Possible DLL injection.",
             Rule::CurlWgetExec => "Execution of curl or wget in shell command.",
+            Rule::SuspiciousCall => "Suspicious function call.",
 
             // Obfuscation/Execution
             Rule::ObfuscateShellExec => "Execution of an obfuscated shell command.",
@@ -280,6 +283,7 @@ impl Rule {
             Rule::CurlWgetExec => {
                 Some("Curl and wget can be used to download and execute malicious scripts.")
             }
+            Rule::SuspiciousCall => Some("Suspicious function call detected."),
 
             // Literals and data blobs
             Rule::Base64String => {
