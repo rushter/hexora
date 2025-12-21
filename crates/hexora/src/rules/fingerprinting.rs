@@ -25,6 +25,7 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
                 | ["platform", "architecture"]
                 | ["platform", "uname"]
                 | ["os", "environ", "copy"]
+                | ["socket", "getfqdn"]
         );
 
         let arg_qn = call
@@ -46,9 +47,9 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
                 ["os", "environ", "copy"] => (name, AuditConfidence::Medium),
                 _ if name == "dict" || name == "str" => {
                     let label = arg_qn.map(|qn| qn.to_string()).unwrap_or(name);
-                    (label, AuditConfidence::Medium)
+                    (label, AuditConfidence::VeryHigh)
                 }
-                _ => (name, AuditConfidence::Low),
+                _ => (name, AuditConfidence::Medium),
             };
 
             checker.audit_results.push(AuditItem {

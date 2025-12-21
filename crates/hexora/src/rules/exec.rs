@@ -169,7 +169,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
         confidence: if is_obf {
             AuditConfidence::High
         } else {
-            AuditConfidence::Low
+            AuditConfidence::Medium
         },
         location: Some(call.range),
     });
@@ -207,7 +207,7 @@ fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
         confidence: if is_obf {
             AuditConfidence::High
         } else {
-            AuditConfidence::Low
+            AuditConfidence::Medium
         },
         location: Some(call.range),
     });

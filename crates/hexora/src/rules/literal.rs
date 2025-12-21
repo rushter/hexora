@@ -57,17 +57,17 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         ("TREZOR", AuditConfidence::Low),
     ];
     let paths = [
-        ("/etc/passwd", AuditConfidence::Low),
-        ("/etc/shadow", AuditConfidence::Low),
-        ("/etc/group", AuditConfidence::Low),
-        ("/.ssh/id_rsa", AuditConfidence::Low),
-        ("/.ssh/authorized_keys", AuditConfidence::Low),
-        (".bitcoin/", AuditConfidence::Low),
-        (".ethereum", AuditConfidence::Low),
-        ("/proc/", AuditConfidence::Low),
-        ("/.aws/", AuditConfidence::Low),
-        (".netrc", AuditConfidence::Low),
-        ("Start Menu/Programs", AuditConfidence::Low),
+        ("/etc/passwd", AuditConfidence::High),
+        ("/etc/shadow", AuditConfidence::High),
+        ("/etc/group", AuditConfidence::High),
+        ("/.ssh/id_rsa", AuditConfidence::High),
+        ("/.ssh/authorized_keys", AuditConfidence::High),
+        (".bitcoin/", AuditConfidence::High),
+        (".ethereum", AuditConfidence::High),
+        ("/proc/", AuditConfidence::High),
+        ("/.aws/", AuditConfidence::High),
+        (".netrc", AuditConfidence::High),
+        ("Start Menu/Programs", AuditConfidence::High),
     ];
     let browser_path = [
         ("Opera Software", AuditConfidence::High),
@@ -255,6 +255,12 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             pattern:"/dev/tcp".to_string(),
             description: "Suspicious TCP connection attempt. Potential exploitation.".to_string(),
             confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
+        },
+        SuspiciousLiteral{
+            pattern:"canarytokens.com".to_string(),
+            description: "Canarytokens URL detected. Possible data exfiltration.".to_string(),
+            confidence: AuditConfidence::High,
             rule: Rule::SuspiciousLiteral,
         },
 
