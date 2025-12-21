@@ -58,6 +58,7 @@ impl BenchmarkResult {
 pub fn run_benchmark(
     path: &Path,
     exclude_names: Option<&HashSet<String>>,
+    min_confidence: AuditConfidence,
 ) -> Result<BenchmarkResult, String> {
     let start = Instant::now();
     let audit_results = audit_path(path, exclude_names).map_err(|e| e.to_string())?;
@@ -79,6 +80,9 @@ pub fn run_benchmark(
         }
 
         for item in result.items {
+            if item.confidence < min_confidence {
+                continue;
+            }
             benchmark_result.total_matches += 1;
 
             *benchmark_result
@@ -108,7 +112,8 @@ mod tests {
     #[test]
     fn test_benchmark_counts() {
         let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/test");
-        let result = run_benchmark(&test_path, None).expect("Benchmark failed");
+        let result =
+            run_benchmark(&test_path, None, AuditConfidence::VeryLow).expect("Benchmark failed");
 
         assert!(result.total_files > 0);
         assert!(result.total_matches > 0);
@@ -120,5 +125,23 @@ mod tests {
         assert_eq!(sum_rules, result.total_matches);
 
         assert!(result.rule_counts.keys().any(|r| r.code() == "HX3000"));
+    }
+
+    #[test]
+    fn test_benchmark_confidence_filter() {
+        let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/test");
+
+        let result_all =
+            run_benchmark(&test_path, None, AuditConfidence::VeryLow).expect("Benchmark failed");
+
+        let result_high =
+            run_benchmark(&test_path, None, AuditConfidence::High).expect("Benchmark failed");
+
+        assert!(result_all.total_matches >= result_high.total_matches);
+
+        for (&confidence, &count) in &result_high.confidence_counts {
+            assert!(confidence >= AuditConfidence::High);
+            assert!(count > 0);
+        }
     }
 }

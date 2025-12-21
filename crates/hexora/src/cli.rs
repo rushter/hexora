@@ -114,6 +114,14 @@ struct BenchmarkOptions {
         help = "Path to a txt file containing file names that should be skipped when benchmarking."
     )]
     exclude_path: Option<PathBuf>,
+
+    #[arg(
+        long,
+        default_value = "very_low",
+        help = "Minimum confidence level for detections to be included in the results. Supported values: very_low, low, \
+            medium, high, very_high."
+    )]
+    min_confidence: AuditConfidence,
 }
 
 #[derive(Subcommand)]
@@ -291,7 +299,11 @@ pub fn run_cli(start_arg: usize) {
                 return;
             }
 
-            match run_benchmark(&opts.input_path, exclude_names.as_ref()) {
+            match run_benchmark(
+                &opts.input_path,
+                exclude_names.as_ref(),
+                opts.min_confidence,
+            ) {
                 Ok(result) => {
                     result.print_results(opts.print_missing);
                 }
