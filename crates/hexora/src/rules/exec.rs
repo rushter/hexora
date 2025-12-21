@@ -297,6 +297,21 @@ pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
         && is_code_exec(&qn.segments())
     {
         push_code_report(checker, call, qn.as_str());
+        return;
+    }
+
+    // Handle globals()["eval"](...) or g["eval"](...)
+    if let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = &*call.func {
+        if let Some(qn) = checker.indexer.resolve_qualified_name(value) {
+            let segments = qn.segments();
+            if segments.len() == 1 && matches!(segments[0], "globals" | "locals" | "vars") {
+                if let Some(attr_name) = string_from_expr(slice, &checker.indexer) {
+                    if is_code_exec(&[attr_name.as_str()]) {
+                        push_code_report(checker, call, format!("{}.{}", segments[0], attr_name));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -331,6 +346,7 @@ mod tests {
     #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
     #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
     #[test_case("exec_09.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval"])]
+    #[test_case("exec_10.py", Rule::CodeExec, vec!["globals.eval"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
