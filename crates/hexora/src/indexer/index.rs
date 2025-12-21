@@ -121,7 +121,29 @@ impl<'a> NodeIndexer<'a> {
             Stmt::AugAssign(aug_assign) => {
                 self.handle_aug_assign_stmt(aug_assign);
             }
+            Stmt::Expr(expr_stmt) => {
+                self.handle_expr_stmt(expr_stmt);
+            }
             _ => {}
+        }
+    }
+
+    fn handle_expr_stmt(&mut self, expr_stmt: &'a StmtExpr) {
+        if let Expr::Call(call) = expr_stmt.value.as_ref() {
+            self.handle_method_call_mutation(&expr_stmt.value, call);
+        }
+    }
+
+    fn handle_method_call_mutation(&mut self, expr: &'a Expr, call: &ExprCall) {
+        if let Expr::Attribute(attr) = call.func.as_ref() {
+            if let Expr::Name(name) = attr.value.as_ref() {
+                let method = attr.attr.as_str();
+                if matches!(method, "append" | "extend" | "insert" | "reverse") {
+                    if let Some(symbol) = self.current_scope_mut().symbols.get_mut(name.id.as_str()) {
+                        symbol.add_assigned_expression(expr);
+                    }
+                }
+            }
         }
     }
 

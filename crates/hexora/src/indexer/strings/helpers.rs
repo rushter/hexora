@@ -173,11 +173,52 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub(crate) fn extract_int_literal_u32(&self, expr: &ast::Expr) -> Option<u32> {
-        let ast::Expr::NumberLiteral(num) = expr else {
-            return None;
-        };
-        let int_ref = num.value.as_int()?;
-        int_ref.as_u32()
+        self.evaluate_int_expr(expr)
+    }
+
+    pub(crate) fn evaluate_int_expr(&self, expr: &ast::Expr) -> Option<u32> {
+        self.evaluate_int_expr_with_var(expr, None, 0).map(|v| v as u32)
+    }
+
+    pub(crate) fn evaluate_int_expr_with_var(
+        &self,
+        expr: &ast::Expr,
+        var_name: Option<&str>,
+        var_val: i32,
+    ) -> Option<i32> {
+        match expr {
+            ast::Expr::NumberLiteral(num) => Some(num.value.as_int()?.as_u32()? as i32),
+            ast::Expr::Name(name) if var_name == Some(name.id.as_str()) => Some(var_val),
+            ast::Expr::Call(call) => {
+                let name = matches!(call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "ord");
+                if name && call.arguments.args.len() == 1 {
+                    return self.evaluate_int_expr_with_var(&call.arguments.args[0], var_name, var_val);
+                }
+                None
+            }
+            ast::Expr::BinOp(bin) => {
+                let left = self.evaluate_int_expr_with_var(&bin.left, var_name, var_val)?;
+                let right = self.evaluate_int_expr_with_var(&bin.right, var_name, var_val)?;
+                match bin.op {
+                    ast::Operator::Add => left.checked_add(right),
+                    ast::Operator::Sub => left.checked_sub(right),
+                    ast::Operator::Mult => left.checked_mul(right),
+                    ast::Operator::Div => if right == 0 { None } else { left.checked_div(right) },
+                    ast::Operator::Mod => if right == 0 { None } else { Some(left.rem_euclid(right)) },
+                    _ => None,
+                }
+            }
+            _ => {
+                if let Some(resolved_exprs) = self.get_resolved_exprs(expr) {
+                    for e in resolved_exprs {
+                        if let Some(val) = self.evaluate_int_expr_with_var(&e, var_name, var_val) {
+                            return Some(val);
+                        }
+                    }
+                }
+                None
+            }
+        }
     }
 
     #[inline]

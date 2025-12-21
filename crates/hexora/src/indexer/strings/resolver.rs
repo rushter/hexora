@@ -55,6 +55,10 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub(crate) fn sequence_to_parts(&self, expr: &ast::Expr, reverse: bool) -> Option<Vec<String>> {
+        if matches!(expr, ast::Expr::Name(_)) {
+            return self.resolve_variable_to_parts(expr, reverse);
+        }
+
         if let Some(codepoints) = self.collect_u32s_from_iterable(expr, reverse) {
             return codepoints
                 .into_iter()
@@ -100,6 +104,14 @@ impl<'a> NodeTransformer<'a> {
             return self.collect_u32s_from_elts(elts, reverse);
         }
 
+        if let Some(s) = self.extract_string(expr) {
+            let mut out: Vec<u32> = s.chars().map(|c| c as u32).collect();
+            if reverse {
+                out.reverse();
+            }
+            return Some(out);
+        }
+
         match expr {
             ast::Expr::Subscript(sub) if self.is_reverse_slice(&sub.slice) => {
                 self.collect_u32s_from_iterable(&sub.value, !reverse)
@@ -123,27 +135,13 @@ impl<'a> NodeTransformer<'a> {
                 None
             }
 
-            // Handle (chr(x) for x in data)
+            // Handle (chr(x + 1) for x in data)
             // Only supports single generator without ifs for now
             ast::Expr::Generator(generator) => {
-                if generator.generators.len() != 1 {
-                    return None;
-                }
-                let ast::Expr::Call(elt_call) = generator.elt.as_ref() else {
-                    return None;
-                };
-                let is_chr_call = matches!(
-                    elt_call.func.as_ref(),
-                    ast::Expr::Name(name) if name.id.as_str() == "chr"
-                );
-                if !is_chr_call || elt_call.arguments.len() != 1 {
-                    return None;
-                }
-                let comp = &generator.generators[0];
-                if !comp.ifs.is_empty() || comp.is_async {
-                    return None;
-                }
-                self.collect_u32s_from_iterable(&comp.iter, reverse)
+                self.handle_comprehension_u32s(generator.elt.as_ref(), &generator.generators, reverse)
+            }
+            ast::Expr::ListComp(list_comp) => {
+                self.handle_comprehension_u32s(list_comp.elt.as_ref(), &list_comp.generators, reverse)
             }
             _ => {
                 if let Some(resolved_exprs) = self.get_resolved_exprs(expr) {
@@ -158,17 +156,114 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    pub(crate) fn handle_comprehension_u32s(
+        &self,
+        elt: &ast::Expr,
+        generators: &[ast::Comprehension],
+        reverse: bool,
+    ) -> Option<Vec<u32>> {
+        if generators.len() != 1 {
+            return None;
+        }
+
+        let comp = &generators[0];
+        if !comp.ifs.is_empty() || comp.is_async {
+            return None;
+        }
+
+        let target_name = if let ast::Expr::Name(name) = &comp.target {
+            Some(name.id.as_str())
+        } else {
+            return None;
+        };
+
+        let base_values = self.collect_u32s_from_iterable(&comp.iter, reverse)?;
+        let name = target_name.unwrap();
+
+        let ast::Expr::Call(elt_call) = elt else {
+            return None;
+        };
+
+        let is_chr_call = matches!(
+            elt_call.func.as_ref(),
+            ast::Expr::Name(name) if name.id.as_str() == "chr"
+        );
+        if !is_chr_call || elt_call.arguments.args.len() != 1 {
+            return None;
+        }
+
+        let arg = &elt_call.arguments.args[0];
+        base_values
+            .into_iter()
+            .map(|v| self.evaluate_int_expr_with_var(arg, Some(name), v as i32).map(|v| v as u32))
+            .collect()
+    }
+
     pub(crate) fn resolve_variable_to_parts(
         &self,
         expr: &ast::Expr,
         reverse: bool,
     ) -> Option<Vec<String>> {
         let resolved_exprs = self.get_resolved_exprs(expr)?;
+        let mut final_parts: Option<Vec<String>> = None;
+
         for resolved in resolved_exprs {
-            if let Some(parts) = self.sequence_to_parts(&resolved, reverse) {
-                return Some(parts);
+            if let ast::Expr::Call(call) = &resolved {
+                let Some(attr) = call.func.as_attribute_expr() else {
+                    continue;
+                };
+
+                let method = attr.attr.as_str();
+                match method {
+                    "append" if !call.arguments.args.is_empty() => {
+                        if let Some(parts) = final_parts.as_mut() {
+                            if let Some(s) = self.resolve_expr_to_string(&call.arguments.args[0]) { 
+                                parts.push(s);
+                            }
+                        }
+                    }
+                    "extend" if !call.arguments.args.is_empty() => {
+                        if let Some(parts) = final_parts.as_mut() {
+                            if let Some(elts) = self.sequence_to_parts(&call.arguments.args[0], false)
+                            {
+                                parts.extend(elts);
+                            }
+                        }
+                    }
+                    "insert" if call.arguments.args.len() >= 2 => {
+                        if let Some(parts) = final_parts.as_mut() {
+                            let idx = self.extract_int_literal_u32(&call.arguments.args[0]);
+                            let val = self.resolve_expr_to_string(&call.arguments.args[1]);
+                            if let (Some(idx), Some(val)) = (idx, val) {
+                                let idx = (idx as usize).min(parts.len());
+                                parts.insert(idx, val);
+                            }
+                        }
+                    }
+                    "reverse" => {
+                        if let Some(parts) = final_parts.as_mut() {
+                            parts.reverse();
+                        }
+                    }
+                    _ => {}
+                }
+            } else if let Some(parts) = self.sequence_to_parts(&resolved, false) {
+                if final_parts.is_none() {
+                    final_parts = Some(parts);
+                }
+            } else if let ast::Expr::List(list) = resolved {
+                if final_parts.is_none() && list.elts.is_empty() {
+                    final_parts = Some(Vec::new());
+                }
             }
         }
-        None
+
+        if reverse {
+            if let Some(parts) = final_parts.as_mut() {
+                parts.reverse();
+            }
+        }
+
+        final_parts
     }
 }
