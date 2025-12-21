@@ -345,6 +345,19 @@ fn test_getattr_builtins_to_name() {
 }
 
 #[test]
+fn test_base64_decode() {
+    let source = r#"
+import base64
+import binascii
+a = base64.b64decode("ZXZhbA==").decode()
+b = base64.urlsafe_b64decode("ZXZhbA==").decode()
+c = binascii.a2b_base64("ZXZhbA==").decode()
+"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
 fn test_decode_cp1026() {
     let source = r#"a = b"\x85\xa5\x81\x93".decode("cp1026")"#;
     let expected = vec![string_item!("eval", 4, 40)];

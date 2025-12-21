@@ -1,6 +1,7 @@
+use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
 use ruff_python_ast::str::raw_contents;
-use ruff_python_ast::{self as ast, StringLiteralFlags};
+use ruff_python_ast::{self as ast, HasNodeIndex, StringLiteralFlags};
 use ruff_text_size::{Ranged, TextRange};
 
 impl<'a> NodeTransformer<'a> {
@@ -88,13 +89,31 @@ impl<'a> NodeTransformer<'a> {
             .collect()
     }
 
-    pub(crate) fn make_string_expr(&self, range: TextRange, value: String) -> ast::Expr {
+    pub(crate) fn get_transformation(&self, expr: &ast::Expr) -> Option<Transformation> {
+        if let Some(id) = expr.node_index().load().as_u32() {
+            return self.indexer.model.decoded_nodes.borrow().get(&id).copied();
+        }
+        None
+    }
+
+    pub(crate) fn make_string_expr(
+        &self,
+        range: TextRange,
+        value: String,
+        transformation: Option<Transformation>,
+    ) -> ast::Expr {
         let string_id = self.indexer.get_atomic_index();
         self.updated_strings
             .borrow_mut()
             .insert(self.indexer.current_index());
 
         let inner_id = self.indexer.get_atomic_index();
+
+        if let Some(t) = transformation {
+            if let Some(id) = string_id.load().as_u32() {
+                self.indexer.model.decoded_nodes.borrow_mut().insert(id, t);
+            }
+        }
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
             node_index: string_id,

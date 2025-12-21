@@ -1,5 +1,7 @@
 use crate::indexer::encoding::{decode_bytes, unescape_to_bytes};
+use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
+use base64::{engine::general_purpose, Engine as _};
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
     StringLiteralFlags,
@@ -15,22 +17,30 @@ impl<'a> NodeTransformer<'a> {
         seq_expr: &ast::Expr,
         call_range: TextRange,
     ) -> Option<ast::Expr> {
+        let transformation = self.get_transformation(seq_expr).or_else(|| {
+            self.iterable_elts(seq_expr)
+                .and_then(|elts| elts.iter().find_map(|e| self.get_transformation(e)))
+        });
+
         self.sequence_to_parts(seq_expr, false)
             .map(|parts| parts.join(sep))
-            .map(|joined| self.make_string_expr(call_range, joined))
+            .map(|joined| self.make_string_expr(call_range, joined, transformation))
     }
 
     /// "a"+"b"+"c"
     #[inline]
     pub(crate) fn transform_binop(&self, binop: &mut ast::ExprBinOp) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
-        if let Operator::Add = binop.op
-            && let (Some(l), Some(r)) = (
+        if let Operator::Add = binop.op {
+            let transformation = self
+                .get_transformation(&binop.left)
+                .or_else(|| self.get_transformation(&binop.right));
+            if let (Some(l), Some(r)) = (
                 self.extract_string(&binop.left),
                 self.extract_string(&binop.right),
-            )
-        {
-            return Some(self.make_string_expr(binop.range, l + &r));
+            ) {
+                return Some(self.make_string_expr(binop.range, l + &r, transformation));
+            }
         }
         None
     }
@@ -42,8 +52,9 @@ impl<'a> NodeTransformer<'a> {
         if self.is_reverse_slice(&sub.slice)
             && let Some(s) = self.extract_string(&sub.value)
         {
+            let transformation = self.get_transformation(&sub.value);
             let rev: String = s.chars().rev().collect();
-            return Some(self.make_string_expr(sub.range, rev));
+            return Some(self.make_string_expr(sub.range, rev, transformation));
         }
 
         // Handle sys.modules["os"]
@@ -74,11 +85,11 @@ impl<'a> NodeTransformer<'a> {
 
                 if let Some(bytes) = unescape_to_bytes(&s) {
                     if let Some(res) = decode_bytes(&bytes, encoding) {
-                        return Some(self.make_string_expr(call.range, res));
+                        return Some(self.make_string_expr(call.range, res, Some(Transformation::Other)));
                     }
                 }
 
-                return Some(self.make_string_expr(call.range, s));
+                return Some(self.make_string_expr(call.range, s, None));
             }
 
             // "".join(...)
@@ -140,12 +151,18 @@ impl<'a> NodeTransformer<'a> {
         if let Some(name) = qualified.as_ref()
             && call.arguments.keywords.is_empty()
             && call.arguments.args.len() == 1
-            && (name.as_str() == "binascii.unhexlify" || name.as_str() == "bytes.fromhex")
+            && (name.as_str() == "binascii.unhexlify"
+                || name.as_str() == "bytes.fromhex"
+                || name.as_str() == "binascii.a2b_base64")
         {
-            if let Some(arg_str) = self.extract_string(&call.arguments.args[0])
-                && let Some(escaped) = hex_to_escaped(&arg_str)
-            {
-                return Some(self.make_string_expr(call.range, escaped));
+            if let Some(arg_str) = self.extract_string(&call.arguments.args[0]) {
+                if name.as_str() == "binascii.a2b_base64" {
+                    if let Ok(bytes) = general_purpose::STANDARD.decode(arg_str.trim().as_bytes()) {
+                        return Some(self.make_string_expr(call.range, bytes_to_escaped(&bytes), Some(Transformation::Base64)));
+                    }
+                } else if let Some(escaped) = hex_to_escaped(&arg_str) {
+                    return Some(self.make_string_expr(call.range, escaped, Some(Transformation::Hex)));
+                }
             }
             return None;
         }
@@ -159,7 +176,7 @@ impl<'a> NodeTransformer<'a> {
             if let Some(s) = self.extract_string(&call.arguments.args[0])
                 && s == "~"
             {
-                return Some(self.make_string_expr(call.range, "~".to_string()));
+                return Some(self.make_string_expr(call.range, "~".to_string(), None));
             }
             return None;
         }
@@ -171,10 +188,32 @@ impl<'a> NodeTransformer<'a> {
             && !call.arguments.args.is_empty()
         {
             if let Some(parts) = self.collect_string_elements(&call.arguments.args, false) {
+                let transformation = call.arguments.args.iter().find_map(|e| self.get_transformation(e));
                 let joined = parts.join("/");
-                return Some(self.make_string_expr(call.range, joined));
+                return Some(self.make_string_expr(call.range, joined, transformation));
             }
             return None;
+        }
+
+        // Handle base64.b64decode and urlsafe_b64decode
+        if let Some(name) = qualified.as_ref()
+            && (name.as_str() == "base64.b64decode" || name.as_str() == "base64.urlsafe_b64decode")
+            && call.arguments.keywords.is_empty()
+            && !call.arguments.args.is_empty()
+        {
+            if let Some(arg_str) = self.extract_string(&call.arguments.args[0]) {
+                let bytes_arg = arg_str.trim().as_bytes();
+                let decoded = if name.as_str() == "base64.urlsafe_b64decode" {
+                    general_purpose::URL_SAFE.decode(bytes_arg).ok()
+                } else {
+                    general_purpose::STANDARD.decode(bytes_arg).ok()
+                };
+
+                if let Some(bytes) = decoded {
+                    let escaped = bytes_to_escaped(&bytes);
+                    return Some(self.make_string_expr(call.range, escaped, Some(Transformation::Base64)));
+                }
+            }
         }
 
         // Handle bytes([10,20, ..])
@@ -189,7 +228,7 @@ impl<'a> NodeTransformer<'a> {
                 .into_iter()
                 .filter_map(std::char::from_u32)
                 .collect();
-            return Some(self.make_string_expr(call.range, s));
+            return Some(self.make_string_expr(call.range, s, Some(Transformation::Other)));
         }
 
         // Handle chr(100)
@@ -200,7 +239,7 @@ impl<'a> NodeTransformer<'a> {
         {
             if let Some(cp) = self.extract_int_literal_u32(&call.arguments.args[0]) {
                 if let Some(ch) = std::char::from_u32(cp) {
-                    return Some(self.make_string_expr(call.range, ch.to_string()));
+                    return Some(self.make_string_expr(call.range, ch.to_string(), Some(Transformation::Other)));
                 }
             }
         }
@@ -236,14 +275,14 @@ impl<'a> NodeTransformer<'a> {
 
             ast::Expr::BytesLiteral(b) => {
                 let content = self.collect_raw(b.value.iter().map(|r| r.range));
-                *expr = self.make_string_expr(b.range, content);
+                *expr = self.make_string_expr(b.range, content, None);
             }
 
             ast::Expr::FString(f) => {
                 // Render f-string by resolving simple interpolations and preserving {name}
                 // placeholders when resolution isn't possible.
                 let rendered = self.render_fstring_value(&f.value);
-                *expr = self.make_string_expr(f.range, rendered);
+                *expr = self.make_string_expr(f.range, rendered, None);
             }
 
             ast::Expr::BinOp(binop) => {
@@ -267,6 +306,11 @@ impl<'a> NodeTransformer<'a> {
             _ => {}
         }
     }
+}
+
+#[inline]
+pub(crate) fn bytes_to_escaped(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("\\x{:02x}", b)).collect()
 }
 
 #[inline]

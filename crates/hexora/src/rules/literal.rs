@@ -1,12 +1,14 @@
 use crate::audit::helpers::{ListLike, string_from_expr};
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::model::Transformation;
 use crate::macros::es;
 
 use memchr::memmem;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use ruff_python_ast as ast;
+use ruff_python_ast::HasNodeIndex;
 use ruff_text_size::Ranged;
 use serde::Serialize;
 
@@ -341,6 +343,37 @@ fn literal_preview(value: &str, max_length: usize) -> String {
 
 pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
     if let Some(literal) = string_from_expr(expr, &checker.indexer) {
+        if let Some(id) = expr.node_index().load().as_u32() {
+            let transformation = checker.indexer.model.decoded_nodes.borrow().get(&id).copied();
+            if let Some(t) = transformation {
+                match t {
+                    Transformation::Base64 => {
+                        checker.audit_results.push(AuditItem {
+                            label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
+                            rule: Rule::Base64String,
+                            description: "Base64 encoded string found, potentially obfuscated code."
+                                .to_string(),
+                            confidence: AuditConfidence::Medium,
+                            location: Some(expr.range()),
+                        });
+                        return;
+                    }
+                    Transformation::Hex => {
+                        checker.audit_results.push(AuditItem {
+                            label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
+                            rule: Rule::HexedString,
+                            description:
+                                "Hexed string found, potentially dangerous payload/shellcode."
+                                    .to_string(),
+                            confidence: AuditConfidence::Medium,
+                            location: Some(expr.range()),
+                        });
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
         if is_hexed_string(&literal) {
             checker.audit_results.push(AuditItem {
                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
@@ -462,7 +495,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("literal_01.py", Rule::HexedString, vec!["\\x31\\xc0...\\x80\\x00", "\\xeb\\x0d...\\xd4\\x99"])]
-    #[test_case("literal_02.py", Rule::Base64String, vec!["dHJ5Ogog...NTMiKSk="])]
+    #[test_case("literal_02.py", Rule::Base64String, vec!["\\x74\\x72...\\x29\\x29"])]
     #[test_case("literal_03.py", Rule::HexedLiterals, vec!["[0x00, 0x00, 0x00, 0x18, 0x66, ... ]", "[0x00, 0x1A, 0x63, 0x6C, 0x69, ... ]"])]
     #[test_case("literal_03.py", Rule::IntLiterals, vec!["[40, 65, 122, 63, 77, ... ]"])]
     #[test_case("literal_04.py", Rule::BrowserEnumeration, vec!["BraveSoftware/Brave-Browser", "Opera Software"])]

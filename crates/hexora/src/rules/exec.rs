@@ -83,6 +83,14 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
 pub fn is_chained_with_decoder_call(checker: &Checker, call: &ast::ExprCall) -> bool {
     fn contains_decoder(checker: &Checker, expr: &ast::Expr) -> bool {
         match expr {
+            ast::Expr::StringLiteral(s) => {
+                if let Some(id) = s.node_index.load().as_u32() {
+                    if checker.indexer.model.decoded_nodes.borrow().contains_key(&id) {
+                        return true;
+                    }
+                }
+                false
+            }
             ast::Expr::Call(inner_call) => {
                 if let Some(qn) = checker.indexer.resolve_qualified_name(&inner_call.func) {
                     for (module, funcs) in *SUSPICIOUS_DECODERS {
@@ -322,7 +330,7 @@ mod tests {
     )]
     #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
     #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
-    #[test_case("exec_09.py", Rule::CodeExec, vec!["__builtins__.eval"])]
+    #[test_case("exec_09.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
