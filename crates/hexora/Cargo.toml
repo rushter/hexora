@@ -35,18 +35,18 @@ ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b
 ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
-log = "0.4.28"
+log = "0.4.17"
 env_logger = "0.11.8"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.197", features = ["derive"] }
 once_cell = "1.21.3"
-regex = "1.11.2"
+regex = "1.10.2"
 test-case = "3.3.1"
-memchr = "2.7.6"
-clap = { version = "4.5.48", features = ["derive"] }
+memchr = "2.7.1"
+clap = { version = "4.5.3", features = ["derive"] }
 codespan-reporting = "0.12.0"
-strum = "0.27.2"
-strum_macros = "0.27.2"
-serde_json = "1.0.145"
+strum = "0.27.0"
+strum_macros = "0.27.0"
+serde_json = "1.0.113"
 pythonize = "0.26.0"
 sha2 = "0.11.0-rc.2"
 encoding_rs = "0.8.35"
