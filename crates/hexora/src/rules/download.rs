@@ -1,5 +1,6 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::rules::exec::get_call_suspicious_taint;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
@@ -7,22 +8,24 @@ use ruff_python_ast::Expr;
 static EXTENSIONS: Lazy<Vec<&'static str>> =
     Lazy::new(|| vec![".exe", ".dll", ".so", ".dylib", ".bin"]);
 
-fn contains_download_extension(call: &ast::ExprCall) -> Option<&str> {
-    if let Some(Expr::StringLiteral(val)) = &call.arguments.args.first() {
-        let text = val.value.to_str();
-        for ext in EXTENSIONS.iter() {
-            if text.ends_with(ext) {
-                return Some(text);
+fn contains_download_extension(call: &ast::ExprCall) -> Option<String> {
+    for arg in &call.arguments.args {
+        if let Expr::StringLiteral(val) = arg {
+            let text = val.value.to_string();
+            for ext in EXTENSIONS.iter() {
+                if text.ends_with(ext) {
+                    return Some(text);
+                }
             }
         }
     }
-    if let Some(kw) = &call.arguments.keywords.first()
-        && let Expr::StringLiteral(val) = &kw.value
-    {
-        let text = val.value.to_str();
-        for ext in EXTENSIONS.iter() {
-            if text.ends_with(ext) {
-                return Some(text);
+    for kw in &call.arguments.keywords {
+        if let Expr::StringLiteral(val) = &kw.value {
+            let text = val.value.to_string();
+            for ext in EXTENSIONS.iter() {
+                if text.ends_with(ext) {
+                    return Some(text);
+                }
             }
         }
     }
@@ -31,26 +34,38 @@ fn contains_download_extension(call: &ast::ExprCall) -> Option<&str> {
 fn is_download_request(segments: &[&str]) -> bool {
     match segments {
         &[module, submodule] => match module {
-            "requests" => matches!(submodule, "get"),
-            "urllib2" => matches!(submodule, "urlopen"),
+            "requests" => matches!(submodule, "get" | "post" | "request"),
+            "urllib" | "urllib2" => matches!(submodule, "urlopen"),
+            "urllib.request" => matches!(submodule, "urlopen"),
             _ => false,
         },
         _ => false,
     }
 }
 pub fn binary_download(checker: &mut Checker, call: &ast::ExprCall) {
-    let qualified_name = checker.indexer.resolve_qualified_name(&call.func);
+    let qualified_name = checker.indexer.get_qualified_name(call);
     if let Some(qualified_name) = qualified_name
         && is_download_request(&qualified_name.segments())
-        && let Some(text) = contains_download_extension(call)
     {
-        checker.audit_results.push(AuditItem {
-            label: text.to_string(),
-            rule: Rule::BinaryDownload,
-            description: "Suspicious binary download.".to_string(),
-            confidence: AuditConfidence::Medium,
-            location: Some(call.range),
-        });
+        let extension_match = contains_download_extension(call);
+        let suspicious_taint = get_call_suspicious_taint(checker, call);
+
+        if extension_match.is_some() || suspicious_taint.is_some() {
+            let label = extension_match.unwrap_or_else(|| "suspicious_url".to_string());
+            let (rule, confidence) = if suspicious_taint.is_some() {
+                (Rule::BinaryDownload, AuditConfidence::High)
+            } else {
+                (Rule::BinaryDownload, AuditConfidence::Medium)
+            };
+
+            checker.audit_results.push(AuditItem {
+                label,
+                rule,
+                description: "Suspicious binary download.".to_string(),
+                confidence,
+                location: Some(call.range),
+            });
+        }
     }
 }
 

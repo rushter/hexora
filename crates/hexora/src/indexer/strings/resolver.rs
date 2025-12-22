@@ -137,12 +137,16 @@ impl<'a> NodeTransformer<'a> {
 
             // Handle (chr(x + 1) for x in data)
             // Only supports single generator without ifs for now
-            ast::Expr::Generator(generator) => {
-                self.handle_comprehension_u32s(generator.elt.as_ref(), &generator.generators, reverse)
-            }
-            ast::Expr::ListComp(list_comp) => {
-                self.handle_comprehension_u32s(list_comp.elt.as_ref(), &list_comp.generators, reverse)
-            }
+            ast::Expr::Generator(generator) => self.handle_comprehension_u32s(
+                generator.elt.as_ref(),
+                &generator.generators,
+                reverse,
+            ),
+            ast::Expr::ListComp(list_comp) => self.handle_comprehension_u32s(
+                list_comp.elt.as_ref(),
+                &list_comp.generators,
+                reverse,
+            ),
             _ => {
                 if let Some(resolved_exprs) = self.get_resolved_exprs(expr) {
                     for e in resolved_exprs {
@@ -195,7 +199,10 @@ impl<'a> NodeTransformer<'a> {
         let arg = &elt_call.arguments.args[0];
         base_values
             .into_iter()
-            .map(|v| self.evaluate_int_expr_with_var(arg, Some(name), v as i32).map(|v| v as u32))
+            .map(|v| {
+                self.evaluate_int_expr_with_var(arg, Some(name), v as i32)
+                    .map(|v| v as u32)
+            })
             .collect()
     }
 
@@ -217,14 +224,15 @@ impl<'a> NodeTransformer<'a> {
                 match method {
                     "append" if !call.arguments.args.is_empty() => {
                         if let Some(parts) = final_parts.as_mut() {
-                            if let Some(s) = self.resolve_expr_to_string(&call.arguments.args[0]) { 
+                            if let Some(s) = self.resolve_expr_to_string(&call.arguments.args[0]) {
                                 parts.push(s);
                             }
                         }
                     }
                     "extend" if !call.arguments.args.is_empty() => {
                         if let Some(parts) = final_parts.as_mut() {
-                            if let Some(elts) = self.sequence_to_parts(&call.arguments.args[0], false)
+                            if let Some(elts) =
+                                self.sequence_to_parts(&call.arguments.args[0], false)
                             {
                                 parts.extend(elts);
                             }

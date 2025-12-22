@@ -1,7 +1,8 @@
 use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
+use crate::indexer::taint::TaintKind;
 use ruff_python_ast::str::raw_contents;
-use ruff_python_ast::{self as ast, HasNodeIndex, StringLiteralFlags};
+use ruff_python_ast::{self as ast, AtomicNodeIndex, HasNodeIndex, StringLiteralFlags};
 use ruff_text_size::{Ranged, TextRange};
 
 impl<'a> NodeTransformer<'a> {
@@ -96,6 +97,12 @@ impl<'a> NodeTransformer<'a> {
         None
     }
 
+    pub(crate) fn add_deobfuscated_taint(&self, node_index: &AtomicNodeIndex) {
+        if let Some(id) = node_index.load().as_u32() {
+            self.indexer.add_taint(id, TaintKind::Deobfuscated);
+        }
+    }
+
     pub(crate) fn make_string_expr(
         &self,
         range: TextRange,
@@ -103,6 +110,8 @@ impl<'a> NodeTransformer<'a> {
         transformation: Option<Transformation>,
     ) -> ast::Expr {
         let string_id = self.indexer.get_atomic_index();
+        let sid_u32 = string_id.load().as_u32();
+
         self.updated_strings
             .borrow_mut()
             .insert(self.indexer.current_index());
@@ -110,9 +119,14 @@ impl<'a> NodeTransformer<'a> {
         let inner_id = self.indexer.get_atomic_index();
 
         if let Some(t) = transformation {
-            if let Some(id) = string_id.load().as_u32() {
+            if let Some(id) = sid_u32 {
                 self.indexer.model.decoded_nodes.borrow_mut().insert(id, t);
+                self.indexer.add_taint(id, TaintKind::Decoded);
             }
+        }
+
+        if let Some(id) = sid_u32 {
+            self.indexer.add_taint(id, TaintKind::Deobfuscated);
         }
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {
@@ -177,7 +191,8 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub(crate) fn evaluate_int_expr(&self, expr: &ast::Expr) -> Option<u32> {
-        self.evaluate_int_expr_with_var(expr, None, 0).map(|v| v as u32)
+        self.evaluate_int_expr_with_var(expr, None, 0)
+            .map(|v| v as u32)
     }
 
     pub(crate) fn evaluate_int_expr_with_var(
@@ -192,7 +207,11 @@ impl<'a> NodeTransformer<'a> {
             ast::Expr::Call(call) => {
                 let name = matches!(call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "ord");
                 if name && call.arguments.args.len() == 1 {
-                    return self.evaluate_int_expr_with_var(&call.arguments.args[0], var_name, var_val);
+                    return self.evaluate_int_expr_with_var(
+                        &call.arguments.args[0],
+                        var_name,
+                        var_val,
+                    );
                 }
                 None
             }
@@ -203,8 +222,20 @@ impl<'a> NodeTransformer<'a> {
                     ast::Operator::Add => left.checked_add(right),
                     ast::Operator::Sub => left.checked_sub(right),
                     ast::Operator::Mult => left.checked_mul(right),
-                    ast::Operator::Div => if right == 0 { None } else { left.checked_div(right) },
-                    ast::Operator::Mod => if right == 0 { None } else { Some(left.rem_euclid(right)) },
+                    ast::Operator::Div => {
+                        if right == 0 {
+                            None
+                        } else {
+                            left.checked_div(right)
+                        }
+                    }
+                    ast::Operator::Mod => {
+                        if right == 0 {
+                            None
+                        } else {
+                            Some(left.rem_euclid(right))
+                        }
+                    }
                     _ => None,
                 }
             }

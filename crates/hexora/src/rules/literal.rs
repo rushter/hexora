@@ -4,6 +4,7 @@ use crate::indexer::checker::Checker;
 use crate::indexer::model::Transformation;
 use crate::macros::es;
 
+use crate::indexer::taint::TaintKind;
 use memchr::memmem;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -343,34 +344,43 @@ fn literal_preview(value: &str, max_length: usize) -> String {
 
 pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
     if let Some(literal) = string_from_expr(expr, &checker.indexer) {
-        if let Some(id) = expr.node_index().load().as_u32() {
-            let transformation = checker.indexer.model.decoded_nodes.borrow().get(&id).copied();
-            if let Some(t) = transformation {
-                match t {
-                    Transformation::Base64 => {
-                        checker.audit_results.push(AuditItem {
-                            label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
-                            rule: Rule::Base64String,
-                            description: "Base64 encoded string found, potentially obfuscated code."
-                                .to_string(),
-                            confidence: AuditConfidence::Medium,
-                            location: Some(expr.range()),
-                        });
-                        return;
+        if checker.indexer.has_taint(expr, TaintKind::Decoded) {
+            if let Some(id) = expr.node_index().load().as_u32() {
+                let transformation = checker
+                    .indexer
+                    .model
+                    .decoded_nodes
+                    .borrow()
+                    .get(&id)
+                    .copied();
+                if let Some(t) = transformation {
+                    match t {
+                        Transformation::Base64 => {
+                            checker.audit_results.push(AuditItem {
+                                label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
+                                rule: Rule::Base64String,
+                                description:
+                                    "Base64 encoded string found, potentially obfuscated code."
+                                        .to_string(),
+                                confidence: AuditConfidence::Medium,
+                                location: Some(expr.range()),
+                            });
+                            return;
+                        }
+                        Transformation::Hex => {
+                            checker.audit_results.push(AuditItem {
+                                label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
+                                rule: Rule::HexedString,
+                                description:
+                                    "Hexed string found, potentially dangerous payload/shellcode."
+                                        .to_string(),
+                                confidence: AuditConfidence::Medium,
+                                location: Some(expr.range()),
+                            });
+                            return;
+                        }
+                        _ => {}
                     }
-                    Transformation::Hex => {
-                        checker.audit_results.push(AuditItem {
-                            label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
-                            rule: Rule::HexedString,
-                            description:
-                                "Hexed string found, potentially dangerous payload/shellcode."
-                                    .to_string(),
-                            confidence: AuditConfidence::Medium,
-                            location: Some(expr.range()),
-                        });
-                        return;
-                    }
-                    _ => {}
                 }
             }
         }

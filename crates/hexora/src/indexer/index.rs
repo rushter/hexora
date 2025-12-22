@@ -3,13 +3,13 @@ use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::Ranged;
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::indexer::model::{NodeId, SemanticModel};
 use crate::indexer::name::QualifiedName;
 use crate::indexer::scope::{BindingKind, Scope, ScopeKind, SymbolBinding};
 
+use crate::indexer::taint::{TaintKind, TaintState};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const PYTHON_MINOR_VERSION: u8 = 14;
@@ -18,8 +18,6 @@ pub struct NodeIndexer<'a> {
     pub model: SemanticModel<'a>,
     pub(crate) index: AtomicU32,
     pub(crate) scope_stack: Vec<Scope<'a>>,
-    pub(crate) resolve_cache: RefCell<HashMap<NodeId, Option<Vec<String>>>>,
-    pub(crate) currently_resolving: RefCell<HashSet<NodeId>>,
 }
 
 impl<'a> Default for NodeIndexer<'a> {
@@ -34,8 +32,6 @@ impl<'a> NodeIndexer<'a> {
             index: AtomicU32::new(0),
             model: SemanticModel::new(),
             scope_stack: Vec::with_capacity(32),
-            resolve_cache: RefCell::new(HashMap::with_capacity(512)),
-            currently_resolving: RefCell::new(HashSet::with_capacity(16)),
         };
         this.push_scope(ScopeKind::Module);
         this.bind_builtins();
@@ -79,8 +75,6 @@ impl<'a> NodeIndexer<'a> {
     pub fn clear_state(&mut self) {
         self.model.clear();
         self.scope_stack.clear();
-        self.resolve_cache.get_mut().clear();
-        self.currently_resolving.get_mut().clear();
         self.push_scope(ScopeKind::Module);
         self.bind_builtins();
     }
@@ -128,21 +122,35 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn handle_expr_stmt(&mut self, expr_stmt: &'a StmtExpr) {
-        if let Expr::Call(call) = expr_stmt.value.as_ref() {
-            self.handle_method_call_mutation(&expr_stmt.value, call);
-        }
-    }
+    fn handle_expr_stmt(&mut self, _expr_stmt: &'a StmtExpr) {}
 
     fn handle_method_call_mutation(&mut self, expr: &'a Expr, call: &ExprCall) {
-        if let Expr::Attribute(attr) = call.func.as_ref() {
-            if let Expr::Name(name) = attr.value.as_ref() {
-                let method = attr.attr.as_str();
-                if matches!(method, "append" | "extend" | "insert" | "reverse") {
-                    if let Some(symbol) = self.current_scope_mut().symbols.get_mut(name.id.as_str()) {
+        if let Some((receiver, taint)) =
+            crate::indexer::taint::get_method_mutation_taint(call, |e| self.get_taint(e))
+        {
+            match receiver {
+                Expr::Name(name) => {
+                    if let Some(symbol) = self.current_scope_mut().symbols.get_mut(name.id.as_str())
+                    {
                         symbol.add_assigned_expression(expr);
+                        symbol.taint.extend(taint);
                     }
                 }
+                Expr::Attribute(base_attr) => {
+                    if let Expr::Name(ExprName { id: base_name, .. }) = base_attr.value.as_ref()
+                        && base_name.as_str() == "self"
+                        && let Some(idx) = self.find_class_scope()
+                    {
+                        if let Some(symbol) = self.scope_stack[idx]
+                            .symbols
+                            .get_mut(base_attr.attr.as_str())
+                        {
+                            symbol.add_assigned_expression(expr);
+                            symbol.taint.extend(taint);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -152,7 +160,60 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn handle_expr_post(&mut self, expr: &'a Expr) {
+        self.compute_taint(expr);
         self.handle_expr(expr);
+    }
+
+    pub fn add_taint(&self, node_id: NodeId, taint: TaintKind) {
+        self.model
+            .taint_map
+            .borrow_mut()
+            .entry(node_id)
+            .or_default()
+            .insert(taint);
+    }
+
+    pub fn get_taint(&self, expr: &Expr) -> TaintState {
+        expr.node_index()
+            .load()
+            .as_u32()
+            .and_then(|id| self.model.taint_map.borrow().get(&id).cloned())
+            .unwrap_or_default()
+    }
+
+    pub fn has_taint(&self, expr: &Expr, taint: TaintKind) -> bool {
+        expr.node_index()
+            .load()
+            .as_u32()
+            .and_then(|id| {
+                self.model
+                    .taint_map
+                    .borrow()
+                    .get(&id)
+                    .map(|t| t.contains(&taint))
+            })
+            .unwrap_or(false)
+    }
+
+    fn compute_taint(&mut self, expr: &'a Expr) {
+        let Some(node_id) = expr.node_index().load().as_u32() else {
+            return;
+        };
+
+        let taints = crate::indexer::taint::compute_expr_taint(
+            expr,
+            |e| self.get_taint(e),
+            |e| self.resolve_qualified_name(e),
+        );
+
+        if !taints.is_empty() {
+            self.model
+                .taint_map
+                .borrow_mut()
+                .entry(node_id)
+                .or_default()
+                .extend(taints);
+        }
     }
 
     pub fn visit_node<T>(&self, node: &T)
@@ -218,11 +279,14 @@ impl<'a> NodeIndexer<'a> {
     }
 
     fn handle_name_assignment(&mut self, name: &ExprName, value: &'a Expr) {
+        let taint = self.get_taint(value);
         let symbols = &mut self.current_scope_mut().symbols;
         if let Some(symbol) = symbols.get_mut(name.id.as_str()) {
             symbol.add_assigned_expression(value);
+            symbol.taint.extend(taint);
         } else {
-            let symbol = SymbolBinding::assignment(Some(value));
+            let mut symbol = SymbolBinding::assignment(Some(value));
+            symbol.taint = taint;
             symbols.insert(name.id.to_string(), symbol);
         }
     }
@@ -232,11 +296,14 @@ impl<'a> NodeIndexer<'a> {
             && base_name.as_str() == "self"
             && let Some(idx) = self.find_class_scope()
         {
+            let taint = self.get_taint(value);
             let symbols = &mut self.scope_stack[idx].symbols;
             if let Some(symbol) = symbols.get_mut(attr.attr.as_str()) {
                 symbol.add_assigned_expression(value);
+                symbol.taint.extend(taint);
             } else {
-                let symbol = SymbolBinding::assignment(Some(value));
+                let mut symbol = SymbolBinding::assignment(Some(value));
+                symbol.taint = taint;
                 symbols.insert(attr.attr.to_string(), symbol);
             }
         }
@@ -286,12 +353,12 @@ impl<'a> NodeIndexer<'a> {
     ) -> Option<Vec<String>> {
         let node_id = expr.node_index().load().as_u32()?;
         if context.is_none() {
-            if let Some(res) = self.resolve_cache.borrow().get(&node_id) {
+            if let Some(res) = self.model.resolve_cache.borrow().get(&node_id) {
                 return res.clone();
             }
         }
 
-        if !self.currently_resolving.borrow_mut().insert(node_id) {
+        if !self.model.currently_resolving.borrow_mut().insert(node_id) {
             return None;
         }
 
@@ -306,10 +373,13 @@ impl<'a> NodeIndexer<'a> {
             _ => None,
         };
 
-        self.currently_resolving.borrow_mut().remove(&node_id);
+        self.model.currently_resolving.borrow_mut().remove(&node_id);
 
         if context.is_none() {
-            self.resolve_cache.borrow_mut().insert(node_id, res.clone());
+            self.model
+                .resolve_cache
+                .borrow_mut()
+                .insert(node_id, res.clone());
         }
         res
     }
@@ -737,8 +807,10 @@ impl<'a> NodeIndexer<'a> {
     fn handle_aug_assign(&mut self, target: &'a Expr, value: &'a Expr) {
         match target {
             Expr::Name(ExprName { id, .. }) => {
+                let taint = self.get_taint(value);
                 if let Some(symbol) = self.current_scope_mut().symbols.get_mut(id.as_str()) {
                     symbol.add_assigned_expression(value);
+                    symbol.taint.extend(taint);
                 }
             }
             Expr::Attribute(attr) => {
@@ -757,7 +829,8 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn handle_call_expr(&mut self, _call: &'a ExprCall, expr: &'a Expr) {
+    fn handle_call_expr(&mut self, call: &'a ExprCall, expr: &'a Expr) {
+        self.handle_method_call_mutation(expr, call);
         if let Some(qn) = self.resolve_qualified_name(expr)
             && let Some(id) = expr.node_index().load().as_u32()
         {
@@ -782,11 +855,17 @@ impl<'a> NodeIndexer<'a> {
             && let Some(node_id) = expr.node_index().load().as_u32()
         {
             let exprs = binding.assigned_expressions.clone();
+            let taint = binding.taint.clone();
+
             self.model
                 .expr_mapping
                 .entry(node_id)
                 .or_default()
                 .extend(exprs);
+
+            if !taint.is_empty() {
+                self.model.taint_map.borrow_mut().insert(node_id, taint);
+            }
         }
     }
 
@@ -798,11 +877,17 @@ impl<'a> NodeIndexer<'a> {
             && let Some(node_id) = expr.node_index().load().as_u32()
         {
             let exprs = binding.assigned_expressions.clone();
+            let taint = binding.taint.clone();
+
             self.model
                 .expr_mapping
                 .entry(node_id)
                 .or_default()
                 .extend(exprs);
+
+            if !taint.is_empty() {
+                self.model.taint_map.borrow_mut().insert(node_id, taint);
+            }
         }
     }
 }

@@ -3,7 +3,8 @@ use crate::audit::resolver::matches_builtin_functions;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 
-use crate::rules::exec::is_chained_with_decoder_call;
+use crate::indexer::taint::TaintKind;
+use crate::rules::exec::get_call_suspicious_taint;
 use ruff_python_ast as ast;
 use ruff_python_ast::Expr;
 
@@ -17,16 +18,20 @@ fn is_eval_or_exec(name: &str) -> bool {
 }
 
 fn push_exec_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
-    let is_obf = is_chained_with_decoder_call(checker, call);
-    let (rule, description) = if is_obf {
-        (
-            Rule::ObfuscatedCodeExec,
-            "Execution of obfuscated code".to_string(),
-        )
+    let suspicious_taint = get_call_suspicious_taint(checker, call);
+
+    let (rule, description) = if let Some(taint) = suspicious_taint {
+        let desc = match taint {
+            TaintKind::Decoded | TaintKind::Deobfuscated => "Execution of obfuscated code.",
+            TaintKind::NetworkSourced => "Execution of code from network-sourced data.",
+            TaintKind::FileSourced => "Execution of code from file-sourced data.",
+            _ => "Execution of obfuscated code.",
+        };
+        (Rule::ObfuscatedCodeExec, desc.to_string())
     } else {
         (
             Rule::CodeExec,
-            "Possible execution of unwanted code".to_string(),
+            "Possible execution of unwanted code.".to_string(),
         )
     };
     checker.audit_results.push(AuditItem {
@@ -72,62 +77,57 @@ fn contains_sys_modules_builtins(checker: &Checker, expr: &ast::Expr) -> Option<
     BUILTINS_MODULE.contains(&key.as_str()).then_some(key)
 }
 
+fn resolve_builtins_subscript(checker: &Checker, expr: &Expr) -> Option<String> {
+    if let Some(key) = contains_sys_modules_builtins(checker, expr) {
+        return Some(format!("sys.modules[\"{}\"]", key));
+    }
+    if let Some((var_name, key)) = contains_builtins_name(checker, expr) {
+        return Some(format!("{}[\"{}\"]", var_name, key));
+    }
+    None
+}
+
 pub fn check_builtins(checker: &mut Checker, call: &ast::ExprCall) {
-    // getattr(__builtins__, "eval"/"exec")(...)
-    if let Expr::Call(getattr_call) = &*call.func {
-        let is_getattr = matches_builtin_functions(checker, &getattr_call.func, &["getattr"]);
-        if is_getattr.is_some() && getattr_call.arguments.args.len() >= 2 {
-            let base_obj = &getattr_call.arguments.args[0];
-            let attr_name_expr = &getattr_call.arguments.args[1];
-            if let Some(qn) = checker.indexer.resolve_qualified_name(base_obj)
+    let func = &*call.func;
+
+    // getattr(builtins_module, "eval"/"exec")(...)
+    if let Expr::Call(getattr_call) = func
+        && matches_builtin_functions(checker, &getattr_call.func, &["getattr"]).is_some()
+        && getattr_call.arguments.args.len() >= 2
+    {
+        let base_obj = &getattr_call.arguments.args[0];
+        let attr_expr = &getattr_call.arguments.args[1];
+
+        if let Some(attr_name) = string_from_expr(attr_expr, &checker.indexer)
+            && is_eval_or_exec(&attr_name)
+        {
+            let label = if let Some(qn) = checker.indexer.resolve_qualified_name(base_obj)
                 && qn.segments().len() == 1
                 && BUILTINS_MODULE.contains(&qn.segments()[0])
-                && let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
-                && is_eval_or_exec(&attr_name)
             {
-                push_exec_report(checker, call, format!("{}.{}", qn.as_str(), attr_name));
+                Some(qn.as_str().to_string())
+            } else {
+                resolve_builtins_subscript(checker, base_obj)
+            };
+
+            if let Some(label) = label {
+                push_exec_report(checker, call, format!("{}.{}", label, attr_name));
                 return;
             }
-            // getattr(sys.modules["__builtins__" or "builtins"], "eval"/"exec")(...)
-            if let Some(attr_name) = string_from_expr(attr_name_expr, &checker.indexer)
-                && is_eval_or_exec(&attr_name)
-            {
-                if let Some(key) = contains_sys_modules_builtins(checker, base_obj) {
-                    push_exec_report(
-                        checker,
-                        call,
-                        format!("sys.modules[\"{}\"].{}", key, attr_name),
-                    );
-                    return;
-                }
-            }
         }
     }
 
-    // sys.modules["__builtins__" or "builtins"].eval/exec(...)
-    if let Expr::Attribute(attr) = &*call.func
-        && let Some(key) = contains_sys_modules_builtins(checker, &attr.value)
+    //  builtins_module.eval/exec(...)
+    if let Expr::Attribute(attr) = func
+        && is_eval_or_exec(attr.attr.as_str())
+        && let Some(label) = resolve_builtins_subscript(checker, &attr.value)
     {
-        let name = attr.attr.as_str();
-        if is_eval_or_exec(name) {
-            push_exec_report(checker, call, format!("sys.modules[\"{}\"].{}", key, name));
-            return;
-        }
+        push_exec_report(checker, call, format!("{}.{}", label, attr.attr.as_str()));
+        return;
     }
 
-    // globals()["__builtins__" or "builtins"].eval/exec(...)
-    if let Expr::Attribute(attr) = &*call.func
-        && let Some((var_name, key)) = contains_builtins_name(checker, &attr.value)
-    {
-        let name = attr.attr.as_str();
-        if is_eval_or_exec(name) {
-            push_exec_report(checker, call, format!("{}[\"{}\"].{}", var_name, key, name));
-            return;
-        }
-    }
-
-    // globals()['__builtins__' or 'builtins'](...)
-    if let Some((var_name, key)) = contains_builtins_name(checker, &call.func) {
+    // globals()["builtins"](...)
+    if let Some((var_name, key)) = contains_builtins_name(checker, func) {
         checker.audit_results.push(AuditItem {
             label: format!("{}()[\"{}\"]", var_name, key),
             rule: Rule::BuiltinsVariable,
@@ -147,7 +147,7 @@ mod tests {
     #[test_case("builtins_01.py", Rule::CodeExec, vec!["globals[\"__builtins__\"].eval" ])]
     #[test_case("builtins_02.py", Rule::CodeExec, vec!["__builtins__.eval", "__builtins__.eval" ])]
     #[test_case("builtins_03.py", Rule::CodeExec, vec!["globals[\"builtins\"].eval" ])]
-    #[test_case("builtins_04.py", Rule::CodeExec, vec!["builtins.exec", "builtins.eval" ])]
+    #[test_case("builtins_04.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.eval" ])]
     #[test_case("builtins_05.py", Rule::CodeExec, vec!["builtins.exec", "builtins.eval" ])]
     fn test_builtins(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);

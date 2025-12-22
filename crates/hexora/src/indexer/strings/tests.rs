@@ -282,6 +282,42 @@ fn test_os_path_join() {
 }
 
 #[test]
+fn test_os_path_expanduser_bytes() {
+    let source = r#"a = os.path.expanduser(b"~")"#;
+    let expected = vec![string_item!("~", 4, 28)];
+    let actual = get_strings(source);
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_os_path_expanduser_keyword() {
+    let source = r#"a = os.path.expanduser(path="~")"#;
+    let expected = vec![string_item!("~", 4, 32)];
+    let actual = get_strings(source);
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_os_path_expanduser_variable() {
+    let source = unindent(
+        r#"
+        p = "~"
+        a = os.path.expanduser(p)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "~"));
+}
+
+#[test]
+fn test_os_path_expanduser_with_path() {
+    let source = r#"a = os.path.expanduser("~/foo")"#;
+    let expected = vec![string_item!("~/foo", 4, 31)];
+    let actual = get_strings(source);
+    assert_eq!(expected, actual);
+}
+
+#[test]
 fn test_os_path_expanduser() {
     let source = r#"a = os.path.expanduser("~")"#;
     let expected = vec![string_item!("~", 4, 27)];

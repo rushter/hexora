@@ -1,5 +1,6 @@
+use crate::indexer::taint::TaintState;
 use ruff_python_ast::{Expr, StmtFunctionDef};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub enum BindingKind {
@@ -16,6 +17,7 @@ pub struct SymbolBinding<'a> {
     pub value_expr: Option<&'a Expr>,
     pub assigned_expressions: Vec<&'a Expr>,
     pub function_def: Option<&'a StmtFunctionDef>,
+    pub taint: TaintState,
 }
 
 impl<'a> SymbolBinding<'a> {
@@ -26,6 +28,7 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: None,
+            taint: HashSet::new(),
         }
     }
 
@@ -36,6 +39,7 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: None,
+            taint: HashSet::new(),
         }
     }
 
@@ -51,6 +55,7 @@ impl<'a> SymbolBinding<'a> {
             value_expr,
             assigned_expressions,
             function_def: None,
+            taint: HashSet::new(),
         }
     }
 
@@ -61,6 +66,7 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: Some(func),
+            taint: HashSet::new(),
         }
     }
 

@@ -24,6 +24,10 @@ impl QualifiedName {
         }
     }
 
+    pub fn segments_slice(&self) -> &[String] {
+        &self.segments
+    }
+
     pub fn segments(&self) -> Vec<&str> {
         self.segments.iter().map(|s| s.as_str()).collect()
     }

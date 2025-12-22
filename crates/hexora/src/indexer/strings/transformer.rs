@@ -1,7 +1,7 @@
 use crate::indexer::encoding::{decode_bytes, unescape_to_bytes};
 use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
     StringLiteralFlags,
@@ -31,18 +31,18 @@ impl<'a> NodeTransformer<'a> {
     #[inline]
     pub(crate) fn transform_binop(&self, binop: &mut ast::ExprBinOp) -> Option<ast::Expr> {
         // Children are already visited by the outer traversal.
-        if let Operator::Add = binop.op {
-            let transformation = self
-                .get_transformation(&binop.left)
-                .or_else(|| self.get_transformation(&binop.right));
-            if let (Some(l), Some(r)) = (
-                self.extract_string(&binop.left),
-                self.extract_string(&binop.right),
-            ) {
-                return Some(self.make_string_expr(binop.range, l + &r, transformation));
-            }
+        if !matches!(binop.op, Operator::Add) {
+            return None;
         }
-        None
+
+        let transformation = self
+            .get_transformation(&binop.left)
+            .or_else(|| self.get_transformation(&binop.right));
+
+        let l = self.extract_string(&binop.left)?;
+        let r = self.extract_string(&binop.right)?;
+
+        Some(self.make_string_expr(binop.range, l + &r, transformation))
     }
 
     // "x"[::-1]
@@ -62,189 +62,229 @@ impl<'a> NodeTransformer<'a> {
         if let Some(name) = qualified
             && name.as_str() == "sys.modules"
         {
-            if let Some(module_name) = self.resolve_expr_to_string(&sub.slice) {
-                return self.make_module_expr(sub.range, &module_name);
-            }
+            let module_name = self.resolve_expr_to_string(&sub.slice)?;
+            return self.make_module_expr(sub.range, &module_name);
         }
         None
     }
 
     #[inline]
     pub(crate) fn transform_call(&self, call: &mut ast::ExprCall) -> Option<ast::Expr> {
-        // Children are already visited by the outer traversal.
-        if let ast::Expr::Attribute(attr) = call.func.as_ref() {
-            // b"x".decode(...)
-            if attr.attr.as_str() == "decode" {
-                let s = self.extract_string(&attr.value)?;
-                let mut encoding = "utf-8";
-                if !call.arguments.args.is_empty() {
-                    if let Some(enc) = self.extract_string(&call.arguments.args[0]) {
-                        encoding = enc.leak();
-                    }
-                }
-
-                if let Some(bytes) = unescape_to_bytes(&s) {
-                    if let Some(res) = decode_bytes(&bytes, encoding) {
-                        return Some(self.make_string_expr(call.range, res, Some(Transformation::Other)));
-                    }
-                }
-
-                return Some(self.make_string_expr(call.range, s, None));
-            }
-
-            // "".join(...)
-            if attr.attr.as_str() == "join"
-                && call.arguments.keywords.is_empty()
-                && call.arguments.args.len() == 1
-            {
-                if let Some(sep) = self.extract_string(&attr.value) {
-                    let seq_expr = &call.arguments.args[0];
-                    return self.handle_join_operation(&sep, seq_expr, call.range);
-                }
-                return None;
-            }
-        }
-
         let qualified = self.indexer.resolve_qualified_name(&call.func);
+        let segments = qualified.as_ref().map(|q| q.segments_slice());
 
-        if let Some(name) = qualified.as_ref()
-            && (name.as_str() == "getattr"
-                || name.as_str() == "builtins.getattr"
-                || name.as_str() == "__builtins__.getattr")
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 2
-        {
-            if let Some(attr_name) = self.resolve_expr_to_string(&call.arguments.args[1]) {
-                let (attr_id, ident_id) = (
-                    self.indexer.get_atomic_index(),
-                    self.indexer.get_atomic_index(),
-                );
-
-                return Some(ast::Expr::Attribute(ast::ExprAttribute {
-                    node_index: attr_id,
-                    range: call.range,
-                    value: Box::new(call.arguments.args[0].clone()),
-                    attr: ast::Identifier {
-                        id: attr_name.into(),
-                        range: call.range,
-                        node_index: ident_id,
-                    },
-                    ctx: ExprContext::Load,
-                }));
-            }
-        }
-
-        // Handle importlib.import_module("os")
-        if let Some(name) = qualified.as_ref()
-            && name.as_str() == "importlib.import_module"
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 1
-        {
-            if let Some(module_name) = self.resolve_expr_to_string(&call.arguments.args[0]) {
-                return self.make_module_expr(call.range, &module_name);
-            }
-        }
-
-        // binascii.unhexlify(..) or bytes.fromhex(..)
-        // Just extract them for now
-        // TODO: handle it in a better way
-        if let Some(name) = qualified.as_ref()
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 1
-            && (name.as_str() == "binascii.unhexlify"
-                || name.as_str() == "bytes.fromhex"
-                || name.as_str() == "binascii.a2b_base64")
-        {
-            if let Some(arg_str) = self.extract_string(&call.arguments.args[0]) {
-                if name.as_str() == "binascii.a2b_base64" {
-                    if let Ok(bytes) = general_purpose::STANDARD.decode(arg_str.trim().as_bytes()) {
-                        return Some(self.make_string_expr(call.range, bytes_to_escaped(&bytes), Some(Transformation::Base64)));
-                    }
-                } else if let Some(escaped) = hex_to_escaped(&arg_str) {
-                    return Some(self.make_string_expr(call.range, escaped, Some(Transformation::Hex)));
+        if let Some(res) = match segments {
+            Some([name]) => match name.as_str() {
+                "getattr" => self.handle_getattr_call(call),
+                "bytes" => self.handle_bytes_constructor(call),
+                "chr" => self.handle_chr_constructor(call),
+                _ => None,
+            },
+            Some([m, name]) => match (m.as_str(), name.as_str()) {
+                ("builtins" | "__builtins__", "getattr") => self.handle_getattr_call(call),
+                ("importlib", "import_module") => self.handle_import_module_call(call),
+                ("binascii", "unhexlify" | "a2b_base64") => self.handle_encoding_call(call, name),
+                ("bytes", "fromhex") => self.handle_encoding_call(call, name),
+                ("base64", "b64decode" | "urlsafe_b64decode") => {
+                    self.handle_base64_call(call, name)
                 }
-            }
+                _ => None,
+            },
+            Some([m, p, name]) => match (m.as_str(), p.as_str(), name.as_str()) {
+                ("os", "path", "expanduser") => self.handle_os_path_expanduser(call),
+                ("os", "path", "join") => self.handle_os_path_join(call),
+                _ => None,
+            },
+            _ => None,
+        } {
+            return Some(res);
+        }
+
+        // Handle method calls (e.g., "".join(), b"".decode())
+        let attr = call.func.as_attribute_expr()?;
+        match attr.attr.as_str() {
+            "decode" => self.handle_decode_call(attr, call),
+            "join" => self.handle_join_call(attr, call),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn handle_decode_call(
+        &self,
+        attr: &ast::ExprAttribute,
+        call: &ast::ExprCall,
+    ) -> Option<ast::Expr> {
+        let s = self.extract_string(&attr.value)?;
+        let encoding = call
+            .arguments
+            .args
+            .first()
+            .and_then(|arg| self.extract_string(arg))
+            .unwrap_or_else(|| "utf-8".to_string());
+
+        if let Some(bytes) = unescape_to_bytes(&s)
+            && let Some(res) = decode_bytes(&bytes, &encoding)
+        {
+            return Some(self.make_string_expr(call.range, res, Some(Transformation::Other)));
+        }
+
+        Some(self.make_string_expr(call.range, s, None))
+    }
+
+    #[inline]
+    fn handle_join_call(
+        &self,
+        attr: &ast::ExprAttribute,
+        call: &ast::ExprCall,
+    ) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
+            return None;
+        }
+        let sep = self.extract_string(&attr.value)?;
+        let seq_expr = &call.arguments.args[0];
+        self.handle_join_operation(&sep, seq_expr, call.range)
+    }
+
+    #[inline]
+    fn handle_getattr_call(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
             return None;
         }
 
-        // Handle os.path.expanduser
-        if let Some(name) = qualified.as_ref()
-            && name.as_str() == "os.path.expanduser"
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 1
-        {
-            if let Some(s) = self.extract_string(&call.arguments.args[0])
-                && s == "~"
-            {
-                return Some(self.make_string_expr(call.range, "~".to_string(), None));
-            }
+        let attr_name = self.resolve_expr_to_string(&call.arguments.args[1])?;
+        let (attr_id, ident_id) = (
+            self.indexer.get_atomic_index(),
+            self.indexer.get_atomic_index(),
+        );
+
+        self.add_deobfuscated_taint(&attr_id);
+
+        Some(ast::Expr::Attribute(ast::ExprAttribute {
+            node_index: attr_id,
+            range: call.range,
+            value: Box::new(call.arguments.args[0].clone()),
+            attr: ast::Identifier {
+                id: attr_name.into(),
+                range: call.range,
+                node_index: ident_id,
+            },
+            ctx: ExprContext::Load,
+        }))
+    }
+
+    #[inline]
+    fn handle_import_module_call(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
             return None;
         }
 
-        // Handle os.path.join
-        if let Some(name) = qualified.as_ref()
-            && name.as_str() == "os.path.join"
-            && call.arguments.keywords.is_empty()
-            && !call.arguments.args.is_empty()
-        {
-            if let Some(parts) = self.collect_string_elements(&call.arguments.args, false) {
-                let transformation = call.arguments.args.iter().find_map(|e| self.get_transformation(e));
-                let joined = parts.join("/");
-                return Some(self.make_string_expr(call.range, joined, transformation));
-            }
+        let module_name = self.resolve_expr_to_string(&call.arguments.args[0])?;
+        let res = self.make_module_expr(call.range, &module_name);
+        if let Some(expr) = &res {
+            self.add_deobfuscated_taint(expr.node_index());
+        }
+        res
+    }
+
+    #[inline]
+    fn handle_encoding_call(&self, call: &ast::ExprCall, name: &str) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
             return None;
         }
 
-        // Handle base64.b64decode and urlsafe_b64decode
-        if let Some(name) = qualified.as_ref()
-            && (name.as_str() == "base64.b64decode" || name.as_str() == "base64.urlsafe_b64decode")
-            && call.arguments.keywords.is_empty()
-            && !call.arguments.args.is_empty()
-        {
-            if let Some(arg_str) = self.extract_string(&call.arguments.args[0]) {
-                let bytes_arg = arg_str.trim().as_bytes();
-                let decoded = if name.as_str() == "base64.urlsafe_b64decode" {
-                    general_purpose::URL_SAFE.decode(bytes_arg).ok()
-                } else {
-                    general_purpose::STANDARD.decode(bytes_arg).ok()
-                };
-
-                if let Some(bytes) = decoded {
-                    let escaped = bytes_to_escaped(&bytes);
-                    return Some(self.make_string_expr(call.range, escaped, Some(Transformation::Base64)));
-                }
-            }
+        let arg_str = self.extract_string(&call.arguments.args[0])?;
+        if name == "a2b_base64" {
+            let bytes = general_purpose::STANDARD
+                .decode(arg_str.trim().as_bytes())
+                .ok()?;
+            return Some(self.make_string_expr(
+                call.range,
+                bytes_to_escaped(&bytes),
+                Some(Transformation::Base64),
+            ));
         }
 
-        // Handle bytes([10,20, ..])
-        if let ast::Expr::Name(name) = &*call.func
-            && name.id.as_str() == "bytes"
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 1
-            && let Some(codepoints) =
-                self.collect_u32s_from_iterable(&call.arguments.args[0], false)
-        {
-            let s: String = codepoints
-                .into_iter()
-                .filter_map(std::char::from_u32)
-                .collect();
-            return Some(self.make_string_expr(call.range, s, Some(Transformation::Other)));
+        let escaped = hex_to_escaped(&arg_str)?;
+        Some(self.make_string_expr(call.range, escaped, Some(Transformation::Hex)))
+    }
+
+    #[inline]
+    fn handle_os_path_expanduser(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        let arg = if call.arguments.args.len() == 1 {
+            &call.arguments.args[0]
+        } else if call.arguments.args.is_empty() {
+            call.arguments
+                .keywords
+                .iter()
+                .find(|kw| kw.arg.as_ref().is_some_and(|arg| arg.as_str() == "path"))
+                .map(|kw| &kw.value)?
+        } else {
+            return None;
+        };
+
+        let s = self.resolve_expr_to_string(arg)?;
+        let transformation = self.get_transformation(arg);
+        Some(self.make_string_expr(call.range, s, transformation))
+    }
+
+    #[inline]
+    fn handle_os_path_join(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.is_empty() {
+            return None;
         }
 
-        // Handle chr(100)
-        if let ast::Expr::Name(name) = &*call.func
-            && name.id.as_str() == "chr"
-            && call.arguments.keywords.is_empty()
-            && call.arguments.args.len() == 1
-        {
-            if let Some(cp) = self.extract_int_literal_u32(&call.arguments.args[0]) {
-                if let Some(ch) = std::char::from_u32(cp) {
-                    return Some(self.make_string_expr(call.range, ch.to_string(), Some(Transformation::Other)));
-                }
-            }
+        let parts = self.collect_string_elements(&call.arguments.args, false)?;
+        let transformation = call
+            .arguments
+            .args
+            .iter()
+            .find_map(|e| self.get_transformation(e));
+        let joined = parts.join("/");
+        Some(self.make_string_expr(call.range, joined, transformation))
+    }
+
+    #[inline]
+    fn handle_base64_call(&self, call: &ast::ExprCall, name: &str) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.is_empty() {
+            return None;
         }
 
-        None
+        let arg_str = self.extract_string(&call.arguments.args[0])?;
+        let bytes_arg = arg_str.trim().as_bytes();
+        let bytes = if name == "urlsafe_b64decode" {
+            general_purpose::URL_SAFE.decode(bytes_arg).ok()?
+        } else {
+            general_purpose::STANDARD.decode(bytes_arg).ok()?
+        };
+
+        let escaped = bytes_to_escaped(&bytes);
+        Some(self.make_string_expr(call.range, escaped, Some(Transformation::Base64)))
+    }
+
+    #[inline]
+    fn handle_bytes_constructor(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
+            return None;
+        }
+
+        let codepoints = self.collect_u32s_from_iterable(&call.arguments.args[0], false)?;
+        let s: String = codepoints
+            .into_iter()
+            .filter_map(std::char::from_u32)
+            .collect();
+        Some(self.make_string_expr(call.range, s, Some(Transformation::Other)))
+    }
+
+    #[inline]
+    fn handle_chr_constructor(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
+            return None;
+        }
+
+        let cp = self.extract_int_literal_u32(&call.arguments.args[0])?;
+        let ch = std::char::from_u32(cp)?;
+        Some(self.make_string_expr(call.range, ch.to_string(), Some(Transformation::Other)))
     }
 
     pub fn transform_strings(&self, expr: &mut ast::Expr) {
