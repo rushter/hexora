@@ -30,8 +30,6 @@ import argparse
 import concurrent.futures
 import logging
 import os
-import tarfile
-import tempfile
 
 import clickhouse_connect
 import clickhouse_connect.driver.client
@@ -78,58 +76,26 @@ def download_file(url: str, output_path: str):
     logging.info(f"Downloaded {url} to {output_path}")
 
 
-def extract_package(temp_path: str, target_dir: str):
-    with tarfile.open(temp_path, "r:gz") as tar:
-        safe_extract(tar, target_dir)
-
-def _is_within_directory(directory: str, target: str) -> bool:
-    directory = os.path.abspath(directory)
-    target = os.path.abspath(target)
-    try:
-        common = os.path.commonpath([directory, target])
-    except Exception:
-        return False
-    return common == directory
-
-
-def safe_extract(tar: tarfile.TarFile, path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-    for member in tar.getmembers():
-        member_path = os.path.join(path, member.name)
-        if not _is_within_directory(path, member_path):
-            raise RuntimeError(f"Unsafe tar member path: {member.name}")
-        if member.issym() or member.islnk():
-            logging.debug(f"Skipping link in archive: {member.name}")
-            continue
-        tar.extract(member, path)
-
 def process_package(row: tuple[str, str], output_path_base: str):
     download_path = f"{PYPI_PREFIX}/{row[1]}"
     file_name = os.path.basename(row[1])
-    package_name = file_name[:-7]  # remove .tar.gz
-    target_dir = os.path.join(output_path_base, package_name)
+    target_path = os.path.join(output_path_base, file_name)
 
-    if os.path.exists(target_dir):
-        logging.info(f"Package {package_name} already exists, skipping")
+    if os.path.exists(target_path):
+        logging.info(f"Package {file_name} already exists, skipping")
         return
 
-    temp_path = None
     try:
-        temp_fd, temp_path = tempfile.mkstemp(suffix=".tar.gz")
-        os.close(temp_fd)
-        download_file(download_path, temp_path)
-        extract_package(temp_path, target_dir)
-        os.remove(temp_path)
-        logging.info(f"Unpacked {file_name} to {target_dir}")
+        download_file(download_path, target_path)
     except Exception as e:
         logging.error(f"Failed to process {file_name}: {str(e)}")
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+        if os.path.exists(target_path):
+            os.remove(target_path)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download and extract recent PyPI packages."
+        description="Download recent PyPI packages."
     )
     parser.add_argument(
         "--days",
@@ -140,7 +106,7 @@ def main():
     parser.add_argument(
         "--output-path",
         default="pypi_packages",
-        help="Output directory path for extracted packages (default: pypi_packages)",
+        help="Output directory path for downloaded packages (default: pypi_packages)",
     )
     parser.add_argument(
         "--dry",
