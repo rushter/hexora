@@ -25,6 +25,8 @@ fn push_exec_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
             TaintKind::Decoded | TaintKind::Deobfuscated => "Execution of obfuscated code.",
             TaintKind::NetworkSourced => "Execution of code from network-sourced data.",
             TaintKind::FileSourced => "Execution of code from file-sourced data.",
+            TaintKind::Fingerprinting => "Execution of code with system fingerprinting data.",
+            TaintKind::EnvVariables => "Execution of code with environment variables.",
             _ => "Execution of obfuscated code.",
         };
         (Rule::ObfuscatedCodeExec, desc.to_string())
@@ -145,10 +147,10 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("builtins_01.py", Rule::CodeExec, vec!["globals[\"__builtins__\"].eval" ])]
-    #[test_case("builtins_02.py", Rule::CodeExec, vec!["__builtins__.eval", "__builtins__.eval" ])]
+    #[test_case("builtins_02.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval", "__builtins__.eval" ])]
     #[test_case("builtins_03.py", Rule::CodeExec, vec!["globals[\"builtins\"].eval" ])]
     #[test_case("builtins_04.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.eval" ])]
-    #[test_case("builtins_05.py", Rule::CodeExec, vec!["builtins.exec", "builtins.eval" ])]
+    #[test_case("builtins_05.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.eval" ])]
     fn test_builtins(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

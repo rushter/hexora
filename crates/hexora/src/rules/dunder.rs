@@ -75,7 +75,13 @@ fn push_dunder_report(
             }
             TaintKind::Fingerprinting => {
                 format!(
-                    "Execution of {} from system fingerprinting data {}.",
+                    "Execution of {} with system fingerprinting data {}.",
+                    execution_type, via
+                )
+            }
+            TaintKind::EnvVariables => {
+                format!(
+                    "Execution of {} with environment variables {}.",
                     execution_type, via
                 )
             }
@@ -180,10 +186,9 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("dunder_01.py", Rule::DunderImport, vec!["__import__(\"builtins\")", "__import__(\"builtins\")", "__import__(\"subprocess\")", "__import__(\"os\")"])]
-    #[test_case("dunder_01.py", Rule::DunderCodeExec, vec!["builtins.exec", "builtins.eval"])]
-    #[test_case("dunder_01.py", Rule::DunderShellExec, vec!["subprocess.call", "os.system"])]
-    #[test_case("dunder_02.py", Rule::DunderCodeExec, vec!["builtins.exec", "builtins.eval", "builtins.eval", "builtins.eval", "builtins.eval"])]
-    #[test_case("dunder_02.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]
+    #[test_case("dunder_01.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec", "builtins.eval"])]
+    #[test_case("dunder_01.py", Rule::ObfuscatedDunderShellExec, vec!["subprocess.call", "os.system"])]
+    #[test_case("dunder_02.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec", "builtins.exec", "builtins.eval", "builtins.eval", "builtins.eval", "builtins.eval"])]
     #[test_case("dunder_03.py", Rule::DunderImport, vec!["__import__(\"sys\")"])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderShellExec, vec!["os.system",])]
     #[test_case("exec_03.py", Rule::ObfuscatedDunderCodeExec, vec!["builtins.exec"])]

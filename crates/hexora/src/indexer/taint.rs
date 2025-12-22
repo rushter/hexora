@@ -11,11 +11,42 @@ pub enum TaintKind {
     FileSourced,
     NetworkSourced,
     Fingerprinting,
+    EnvVariables,
 }
 
 pub type TaintState = HashSet<TaintKind>;
 
-pub fn get_call_taint(segments: &[&str]) -> Option<TaintKind> {
+fn is_open_for_reading(call: &ExprCall) -> bool {
+    let mut mode = "r".to_string();
+
+    // Check second positional argument: open(file, mode)
+    if call.arguments.args.len() >= 2 {
+        if let Expr::StringLiteral(s) = &call.arguments.args[1] {
+            mode = s.value.to_str().to_string();
+        }
+    }
+
+    // Check keyword argument 'mode'
+    for kw in &call.arguments.keywords {
+        if let Some(arg) = &kw.arg {
+            if arg.as_str() == "mode" {
+                if let Expr::StringLiteral(s) = &kw.value {
+                    mode = s.value.to_str().to_string();
+                }
+            }
+        }
+    }
+
+    if mode.is_empty() {
+        return true;
+    }
+
+    mode.contains('r')
+        || mode.contains('+')
+        || (!mode.contains('w') && !mode.contains('a') && !mode.contains('x'))
+}
+
+pub fn get_call_taint(segments: &[&str], call: &ExprCall) -> Option<TaintKind> {
     match segments {
         // Decoding / Deobfuscation
         ["base64", "b64decode" | "urlsafe_b64decode"]
@@ -26,13 +57,25 @@ pub fn get_call_taint(segments: &[&str]) -> Option<TaintKind> {
         | ["marshal", "loads"]
         | ["pickle", "loads"] => Some(TaintKind::Decoded),
 
+        ["__import__"] | ["getattr"] | ["builtins" | "__builtins__", "__import__" | "getattr"] => {
+            Some(TaintKind::Deobfuscated)
+        }
+
         // File Sourced Data
-        ["open"] | ["pathlib", "Path", "read_text" | "read_bytes"] => Some(TaintKind::FileSourced),
+        ["open"] => {
+            if is_open_for_reading(call) {
+                Some(TaintKind::FileSourced)
+            } else {
+                None
+            }
+        }
+        ["pathlib", "Path", "read_text" | "read_bytes"] => Some(TaintKind::FileSourced),
 
         // Network Sourced Data
         ["requests", "get" | "post" | "request"]
         | ["urllib", "request", "urlopen"]
         | ["http", "client", "HTTPConnection", "request"]
+        | ["socket", "socket"]
         | ["socket", "socket", "recv" | "recvfrom"] => Some(TaintKind::NetworkSourced),
 
         // OS / Environment Fingerprinting
@@ -46,15 +89,19 @@ pub fn get_call_taint(segments: &[&str]) -> Option<TaintKind> {
         | ["socket", "gethostname" | "getfqdn" | "gethostbyname"]
         | ["uuid", "getnode"] => Some(TaintKind::Fingerprinting),
 
+        ["os", "getenv"] => Some(TaintKind::EnvVariables),
+
         _ => None,
     }
 }
 
 pub fn get_attribute_taint(segments: &[&str]) -> Vec<TaintKind> {
     match segments {
-        ["os", "environ"] | ["sys", "argv"] | ["sys", "platform"] => {
+        ["os", "environ"] => vec![TaintKind::EnvVariables],
+        ["sys", "argv"] | ["sys", "platform"] => {
             vec![TaintKind::Fingerprinting]
         }
+        ["sys", "modules"] => vec![TaintKind::Deobfuscated],
         _ => vec![],
     }
 }
@@ -113,7 +160,7 @@ pub fn compute_expr_taint(
         Expr::Call(call) => {
             let qn = resolve_qualified_name(expr);
             if let Some(qn) = &qn {
-                if let Some(taint) = get_call_taint(&qn.segments()) {
+                if let Some(taint) = get_call_taint(&qn.segments(), call) {
                     taints.insert(taint);
                 }
             }
@@ -140,7 +187,14 @@ pub fn compute_expr_taint(
                     let method = attr.attr.as_str();
                     if matches!(
                         method,
-                        "pop" | "get" | "copy" | "union" | "intersection" | "values" | "items"
+                        "pop"
+                            | "get"
+                            | "copy"
+                            | "union"
+                            | "intersection"
+                            | "values"
+                            | "items"
+                            | "fileno"
                     ) {
                         taints.extend(get_taint(&attr.value));
                     }
@@ -219,8 +273,10 @@ pub fn compute_expr_taint(
         Expr::Starred(s) => {
             taints.extend(get_taint(&s.value));
         }
-        Expr::Named(n) => {
-            taints.extend(get_taint(&n.value));
+        Expr::Name(name) => {
+            if name.id.as_str() == "__builtins__" {
+                taints.insert(TaintKind::Deobfuscated);
+            }
         }
         _ => {}
     }

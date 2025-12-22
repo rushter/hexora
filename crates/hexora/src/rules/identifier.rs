@@ -14,6 +14,8 @@ static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<(&str, AuditConfidence)>> = Lazy::new(|| 
         ("webshell", AuditConfidence::Medium),
         ("_obfuscator_", AuditConfidence::VeryHigh),
         ("__pyarmor__", AuditConfidence::VeryHigh),
+        ("pyobfuscate", AuditConfidence::VeryHigh),
+        ("reverse_shell", AuditConfidence::High),
     ]
 });
 

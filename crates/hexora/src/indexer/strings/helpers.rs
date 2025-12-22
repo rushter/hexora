@@ -121,12 +121,16 @@ impl<'a> NodeTransformer<'a> {
         if let Some(t) = transformation {
             if let Some(id) = sid_u32 {
                 self.indexer.model.decoded_nodes.borrow_mut().insert(id, t);
-                self.indexer.add_taint(id, TaintKind::Decoded);
+                // N.B. We should not treat simple string modifications as deobfuscation,
+                // this results in many false positives.
+                if matches!(
+                    t,
+                    Transformation::Base64 | Transformation::Hex | Transformation::Other
+                ) {
+                    self.indexer.add_taint(id, TaintKind::Decoded);
+                    self.indexer.add_taint(id, TaintKind::Deobfuscated);
+                }
             }
-        }
-
-        if let Some(id) = sid_u32 {
-            self.indexer.add_taint(id, TaintKind::Deobfuscated);
         }
 
         ast::Expr::StringLiteral(ast::ExprStringLiteral {

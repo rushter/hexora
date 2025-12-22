@@ -55,11 +55,11 @@ pub enum Rule {
     DunderShellExec,
     DunderCodeExec,
     DLLInjection,
-    CurlWgetExec,
+    DangerousExec,
     SuspiciousCall,
 
     // Obfuscation/Execution
-    ObfuscateShellExec,
+    ObfuscatedShellExec,
     ObfuscatedCodeExec,
     ObfuscatedDunderShellExec,
     ObfuscatedDunderCodeExec,
@@ -127,11 +127,11 @@ impl Rule {
             Rule::DunderShellExec => "HX3020",
             Rule::DunderCodeExec => "HX3030",
             Rule::DLLInjection => "HX3040",
-            Rule::CurlWgetExec => "HX3050",
+            Rule::DangerousExec => "HX3050",
             Rule::SuspiciousCall => "HX3060",
 
             // Obfuscation/Execution: HX4000
-            Rule::ObfuscateShellExec => "HX4000",
+            Rule::ObfuscatedShellExec => "HX4000",
             Rule::ObfuscatedCodeExec => "HX4010",
             Rule::ObfuscatedDunderShellExec => "HX4020",
             Rule::ObfuscatedDunderCodeExec => "HX4030",
@@ -188,11 +188,13 @@ impl Rule {
             Rule::DunderShellExec => "Execution of a shell command via `__import__`.",
             Rule::DunderCodeExec => "Execution of code via `__import__`.",
             Rule::DLLInjection => "Possible DLL injection.",
-            Rule::CurlWgetExec => "Execution of curl or wget in shell command.",
+            Rule::DangerousExec => {
+                "Execution of potentially dangerous command inside a shell command."
+            }
             Rule::SuspiciousCall => "Suspicious function call.",
 
             // Obfuscation/Execution
-            Rule::ObfuscateShellExec => "Execution of an obfuscated shell command.",
+            Rule::ObfuscatedShellExec => "Execution of an obfuscated shell command.",
             Rule::ObfuscatedCodeExec => "Execution of obfuscated code.",
             Rule::ObfuscatedDunderShellExec => {
                 "Execution of an obfuscated shell command via `__import__`."
@@ -248,7 +250,7 @@ impl Rule {
             ),
 
             // Obfuscation/Execution
-            Rule::ObfuscateShellExec => {
+            Rule::ObfuscatedShellExec => {
                 Some("Obfuscated shell commands can be used to bypass detection.")
             }
             Rule::ObfuscatedCodeExec => {
@@ -280,8 +282,8 @@ impl Rule {
             Rule::DunderImport => Some(
                 "``__import__`` can be used to used to avoid detection of imports and code execution.",
             ),
-            Rule::CurlWgetExec => {
-                Some("Curl and wget can be used to download and execute malicious scripts.")
+            Rule::DangerousExec => {
+                Some("Dangerous commands can be used to download and execute malicious scripts.")
             }
             Rule::SuspiciousCall => Some("Suspicious function call detected."),
 

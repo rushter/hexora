@@ -20,6 +20,7 @@ impl<'a> NodeTransformer<'a> {
         let transformation = self.get_transformation(seq_expr).or_else(|| {
             self.iterable_elts(seq_expr)
                 .and_then(|elts| elts.iter().find_map(|e| self.get_transformation(e)))
+                .or(Some(Transformation::Join))
         });
 
         self.sequence_to_parts(seq_expr, false)
@@ -37,7 +38,8 @@ impl<'a> NodeTransformer<'a> {
 
         let transformation = self
             .get_transformation(&binop.left)
-            .or_else(|| self.get_transformation(&binop.right));
+            .or_else(|| self.get_transformation(&binop.right))
+            .or(Some(Transformation::Concat));
 
         let l = self.extract_string(&binop.left)?;
         let r = self.extract_string(&binop.right)?;
@@ -52,7 +54,9 @@ impl<'a> NodeTransformer<'a> {
         if self.is_reverse_slice(&sub.slice)
             && let Some(s) = self.extract_string(&sub.value)
         {
-            let transformation = self.get_transformation(&sub.value);
+            let transformation = self
+                .get_transformation(&sub.value)
+                .or(Some(Transformation::Subscript));
             let rev: String = s.chars().rev().collect();
             return Some(self.make_string_expr(sub.range, rev, transformation));
         }
@@ -63,7 +67,11 @@ impl<'a> NodeTransformer<'a> {
             && name.as_str() == "sys.modules"
         {
             let module_name = self.resolve_expr_to_string(&sub.slice)?;
-            return self.make_module_expr(sub.range, &module_name);
+            let res = self.make_module_expr(sub.range, &module_name);
+            if let Some(expr) = &res {
+                self.add_deobfuscated_taint(expr.node_index());
+            }
+            return res;
         }
         None
     }
@@ -322,7 +330,7 @@ impl<'a> NodeTransformer<'a> {
                 // Render f-string by resolving simple interpolations and preserving {name}
                 // placeholders when resolution isn't possible.
                 let rendered = self.render_fstring_value(&f.value);
-                *expr = self.make_string_expr(f.range, rendered, None);
+                *expr = self.make_string_expr(f.range, rendered, Some(Transformation::FString));
             }
 
             ast::Expr::BinOp(binop) => {

@@ -11,6 +11,10 @@ pub type NodeId = u32;
 pub enum Transformation {
     Base64,
     Hex,
+    Concat,
+    Join,
+    Subscript,
+    FString,
     Other,
 }
 

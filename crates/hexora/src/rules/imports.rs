@@ -17,6 +17,18 @@ macro_rules! add_import {
                 name: $name,
                 description: $desc,
                 rule: $rule,
+                confidence: None,
+            },
+        );
+    };
+    ($map:expr, $name:expr, $desc:expr, $rule:expr, $confidence:expr) => {
+        $map.insert(
+            $name,
+            SuspiciousImport {
+                name: $name,
+                description: $desc,
+                rule: $rule,
+                confidence: Some($confidence),
             },
         );
     };
@@ -27,6 +39,7 @@ pub struct SuspiciousImport {
     pub name: &'static str,
     pub description: Option<&'static str>,
     pub rule: Option<Rule>,
+    pub confidence: Option<AuditConfidence>,
 }
 
 #[rustfmt::skip]
@@ -48,10 +61,11 @@ static IMPORTS: Lazy<HashMap<&str, SuspiciousImport>> = Lazy::new(|| {
     add_import!(m, "pickle", None, Some(Rule::PickleImport));
     add_import!(m, "marshal", None, Some(Rule::MarshalImport));
     add_import!(m, "socket", None, Some(Rule::SocketImport));
-    add_import!(m, "pyperclip", Some("pyperclip can be used to copy and paste data from the clipboard."), None);
+    add_import!(m, "pyperclip", Some("pyperclip can be used to copy and paste data from the clipboard."), None, AuditConfidence::High);
     add_import!(m, "paramiko", Some("paramiko can be used to automate SSH sessions for unauthorized access."), None);
     add_import!(m, "win32com", Some("win32com can be used to exploit Windows systems."), None);
     add_import!(m, "getpass", Some("getpass can be used to  capture user credentials."), None);
+    add_import!(m, "browser_cookie3", Some("browser-cookie3 can be used to steal browser cookies."), None, AuditConfidence::High);
     m
 });
 
@@ -74,11 +88,12 @@ fn add_suspicious_import(
         Some(rule) => *rule,
         None => Rule::SuspiciousImport,
     };
+    let confidence = suspicious_import.confidence.unwrap_or(AuditConfidence::Low);
     checker.audit_results.push(AuditItem {
         label,
         rule,
         description,
-        confidence: AuditConfidence::Low,
+        confidence,
         location: Some(location),
     });
 }
@@ -131,7 +146,7 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use crate::audit::result::Rule;
+    use crate::audit::result::{AuditConfidence, Rule};
     use crate::rules::test::*;
     use test_case::test_case;
 
@@ -140,5 +155,18 @@ mod tests {
     #[test_case("imports_01.py", Rule::StructImport, vec!["struct"])]
     fn test_imports(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_import_confidence_default() {
+        let result = test_path("imports_01.py").unwrap();
+        for item in result.items {
+            if item.rule == Rule::SuspiciousImport
+                || item.rule == Rule::CtypesImport
+                || item.rule == Rule::StructImport
+            {
+                assert_eq!(item.confidence, AuditConfidence::Low);
+            }
+        }
     }
 }

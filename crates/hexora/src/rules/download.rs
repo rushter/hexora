@@ -1,17 +1,16 @@
+use crate::audit::helpers::string_from_expr;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::rules::exec::get_call_suspicious_taint;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
-use ruff_python_ast::Expr;
 
 static EXTENSIONS: Lazy<Vec<&'static str>> =
     Lazy::new(|| vec![".exe", ".dll", ".so", ".dylib", ".bin"]);
 
-fn contains_download_extension(call: &ast::ExprCall) -> Option<String> {
+fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Option<String> {
     for arg in &call.arguments.args {
-        if let Expr::StringLiteral(val) = arg {
-            let text = val.value.to_string();
+        if let Some(text) = string_from_expr(arg, &checker.indexer) {
             for ext in EXTENSIONS.iter() {
                 if text.ends_with(ext) {
                     return Some(text);
@@ -20,8 +19,7 @@ fn contains_download_extension(call: &ast::ExprCall) -> Option<String> {
         }
     }
     for kw in &call.arguments.keywords {
-        if let Expr::StringLiteral(val) = &kw.value {
-            let text = val.value.to_string();
+        if let Some(text) = string_from_expr(&kw.value, &checker.indexer) {
             for ext in EXTENSIONS.iter() {
                 if text.ends_with(ext) {
                     return Some(text);
@@ -47,20 +45,17 @@ pub fn binary_download(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qualified_name) = qualified_name
         && is_download_request(&qualified_name.segments())
     {
-        let extension_match = contains_download_extension(call);
-        let suspicious_taint = get_call_suspicious_taint(checker, call);
-
-        if extension_match.is_some() || suspicious_taint.is_some() {
-            let label = extension_match.unwrap_or_else(|| "suspicious_url".to_string());
-            let (rule, confidence) = if suspicious_taint.is_some() {
-                (Rule::BinaryDownload, AuditConfidence::High)
+        if let Some(label) = contains_download_extension(checker, call) {
+            let suspicious_taint = get_call_suspicious_taint(checker, call);
+            let confidence = if suspicious_taint.is_some() {
+                AuditConfidence::High
             } else {
-                (Rule::BinaryDownload, AuditConfidence::Medium)
+                AuditConfidence::Medium
             };
 
             checker.audit_results.push(AuditItem {
                 label,
-                rule,
+                rule: Rule::BinaryDownload,
                 description: "Suspicious binary download.".to_string(),
                 confidence,
                 location: Some(call.range),
@@ -76,6 +71,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("download_01.py", Rule::BinaryDownload, vec!["https://www.example.com/beacon.exe",])]
+    #[test_case("download_02.py", Rule::BinaryDownload, vec![])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

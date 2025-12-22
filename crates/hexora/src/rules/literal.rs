@@ -60,14 +60,14 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         ("TREZOR", AuditConfidence::Low),
     ];
     let paths = [
-        ("/etc/passwd", AuditConfidence::High),
-        ("/etc/shadow", AuditConfidence::High),
-        ("/etc/group", AuditConfidence::High),
+        ("/etc/passwd", AuditConfidence::Medium),
+        ("/etc/shadow", AuditConfidence::Medium),
+        ("/etc/group", AuditConfidence::Medium),
         ("/.ssh/id_rsa", AuditConfidence::High),
         ("/.ssh/authorized_keys", AuditConfidence::High),
         (".bitcoin/", AuditConfidence::High),
-        (".ethereum", AuditConfidence::High),
-        ("/proc/", AuditConfidence::High),
+        (".ethereum/", AuditConfidence::High),
+        ("/proc/", AuditConfidence::Medium),
         ("/.aws/", AuditConfidence::High),
         (".netrc", AuditConfidence::High),
         ("Start Menu/Programs", AuditConfidence::High),
@@ -264,6 +264,12 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             pattern:"canarytokens.com".to_string(),
             description: "Canarytokens URL detected. Possible data exfiltration.".to_string(),
             confidence: AuditConfidence::High,
+            rule: Rule::SuspiciousLiteral,
+        },
+        SuspiciousLiteral{
+            pattern:"pyobfuscate".to_string(),
+            description: "pyobfuscate detected in a literal. Potential code obfuscation.".to_string(),
+            confidence: AuditConfidence::VeryHigh,
             rule: Rule::SuspiciousLiteral,
         },
 

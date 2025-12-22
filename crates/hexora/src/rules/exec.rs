@@ -9,6 +9,16 @@ use ruff_python_ast as ast;
 static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
 
+static DANGEROUS_COMMANDS: &[&str] = &[
+    "curl",
+    "wget",
+    "powershell",
+    "bash",
+    "ifconfig",
+    "netcat",
+    "/bin/sh",
+];
+
 pub fn is_shell_command(segments: &[&str]) -> bool {
     match segments {
         &[module, submodule] => match module {
@@ -73,75 +83,135 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
 
 pub fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<TaintKind> {
     let taints = checker.indexer.get_taint(expr);
+
     [
         TaintKind::Decoded,
         TaintKind::Deobfuscated,
         TaintKind::NetworkSourced,
         TaintKind::FileSourced,
         TaintKind::Fingerprinting,
+        TaintKind::EnvVariables,
     ]
     .into_iter()
     .find(|kind| taints.contains(kind))
 }
 
 pub fn get_call_suspicious_taint(checker: &Checker, call: &ast::ExprCall) -> Option<TaintKind> {
-    call.arguments
-        .args
-        .iter()
-        .find_map(|arg| get_suspicious_taint(checker, arg))
+    get_suspicious_taint(checker, &call.func)
         .or_else(|| {
+            // Primarily check the first positional argument (the command/code)
+            call.arguments
+                .args
+                .first()
+                .and_then(|arg| get_suspicious_taint(checker, arg))
+        })
+        .or_else(|| {
+            // Relevant keyword arguments that can carry malicious/obfuscated input
             call.arguments
                 .keywords
                 .iter()
-                .find_map(|kw| get_suspicious_taint(checker, &kw.value))
+                .find(|kw| {
+                    kw.arg
+                        .as_ref()
+                        .map(|a| matches!(a.as_str(), "args" | "executable" | "source" | "object"))
+                        .unwrap_or(false)
+                })
+                .and_then(|kw| get_suspicious_taint(checker, &kw.value))
         })
 }
 
-fn contains_curl_wget_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
     if let Some(s) = string_from_expr(expr, &checker.indexer) {
-        s.contains("curl") || s.contains("wget")
+        DANGEROUS_COMMANDS.iter().any(|&c| s.contains(c))
     } else {
         match expr {
-            ast::Expr::List(l) => l.elts.iter().any(|e| contains_curl_wget_expr(checker, e)),
-            ast::Expr::Tuple(t) => t.elts.iter().any(|e| contains_curl_wget_expr(checker, e)),
+            ast::Expr::List(l) => l
+                .elts
+                .iter()
+                .any(|e| contains_dangerous_exec_expr(checker, e)),
+            ast::Expr::Tuple(t) => t
+                .elts
+                .iter()
+                .any(|e| contains_dangerous_exec_expr(checker, e)),
             _ => false,
         }
     }
 }
 
-fn contains_curl_wget(checker: &Checker, call: &ast::ExprCall) -> bool {
+fn contains_dangerous_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
     for arg in &call.arguments.args {
-        if contains_curl_wget_expr(checker, arg) {
+        if contains_dangerous_exec_expr(checker, arg) {
             return true;
         }
     }
     for kw in &call.arguments.keywords {
-        if contains_curl_wget_expr(checker, &kw.value) {
+        if contains_dangerous_exec_expr(checker, &kw.value) {
             return true;
         }
     }
     false
 }
 
+fn get_taint_metadata(taint: TaintKind) -> (AuditConfidence, &'static str, &'static str) {
+    match taint {
+        TaintKind::Decoded | TaintKind::Deobfuscated => (
+            AuditConfidence::High,
+            "obfuscated shell command",
+            "obfuscated code",
+        ),
+        TaintKind::NetworkSourced => (
+            AuditConfidence::High,
+            "shell command from network-sourced data",
+            "code from network-sourced data",
+        ),
+        TaintKind::FileSourced => (
+            AuditConfidence::High,
+            "shell command from file-sourced data",
+            "code from file-sourced data",
+        ),
+        TaintKind::Fingerprinting => (
+            AuditConfidence::Medium,
+            "shell command with system fingerprinting data",
+            "code with system fingerprinting data",
+        ),
+        TaintKind::EnvVariables => (
+            AuditConfidence::Medium,
+            "shell command with environment variables",
+            "code with environment variables",
+        ),
+        _ => (
+            AuditConfidence::High,
+            "unwanted shell command",
+            "obfuscated code",
+        ),
+    }
+}
+
 fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
 
+    if contains_dangerous_exec(checker, call) {
+        let is_obf = suspicious_taint.is_some();
+        checker.audit_results.push(AuditItem {
+            label,
+            rule: Rule::DangerousExec,
+            description: if is_obf {
+                "Execution of obfuscated dangerous command in shell command".to_string()
+            } else {
+                "Execution of dangerous command in shell command".to_string()
+            },
+            confidence: AuditConfidence::High,
+            location: Some(call.range),
+        });
+        return;
+    }
+
     let (rule, description, confidence) = if let Some(taint) = suspicious_taint {
-        let desc = match taint {
-            TaintKind::Decoded | TaintKind::Deobfuscated => {
-                "Execution of unwanted obfuscated shell command."
-            }
-            TaintKind::NetworkSourced => "Execution of shell command from network-sourced data.",
-            TaintKind::FileSourced => "Execution of shell command from file-sourced data.",
-            TaintKind::Fingerprinting => {
-                "Execution of shell command from system fingerprinting data."
-            }
-            _ => "Execution of unwanted shell command.",
-        };
+        let (confidence, desc, _) = get_taint_metadata(taint);
         (
-            Rule::ObfuscateShellExec,
-            desc.to_string(),
-            AuditConfidence::High,
+            Rule::ObfuscatedShellExec,
+            format!("Execution of {}.", desc),
+            confidence,
         )
     } else {
         (
@@ -152,44 +222,23 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
     };
 
     checker.audit_results.push(AuditItem {
-        label: label.clone(),
+        label,
         rule,
         description,
         confidence,
         location: Some(call.range),
     });
-
-    if contains_curl_wget(checker, call) {
-        let is_obf = suspicious_taint.is_some();
-        checker.audit_results.push(AuditItem {
-            label,
-            rule: Rule::CurlWgetExec,
-            description: if is_obf {
-                "Execution of obfuscated curl/wget in shell command".to_string()
-            } else {
-                "Execution of curl/wget in shell command".to_string()
-            },
-            confidence: AuditConfidence::High,
-            location: Some(call.range),
-        });
-    }
 }
 
 fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
 
     let (rule, description, confidence) = if let Some(taint) = suspicious_taint {
-        let desc = match taint {
-            TaintKind::Decoded | TaintKind::Deobfuscated => "Execution of obfuscated code.",
-            TaintKind::NetworkSourced => "Execution of code from network-sourced data.",
-            TaintKind::FileSourced => "Execution of code from file-sourced data.",
-            TaintKind::Fingerprinting => "Execution of code from system fingerprinting data.",
-            _ => "Execution of obfuscated code.",
-        };
+        let (confidence, _, desc) = get_taint_metadata(taint);
         (
             Rule::ObfuscatedCodeExec,
-            desc.to_string(),
-            AuditConfidence::High,
+            format!("Execution of {}.", desc),
+            confidence,
         )
     } else {
         (
@@ -304,17 +353,17 @@ pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
 
 #[cfg(test)]
 mod tests {
-    use crate::audit::result::Rule;
+    use crate::audit::result::{AuditConfidence, Rule};
     use crate::rules::test::*;
     use test_case::test_case;
 
     #[test_case("exec_01.py", Rule::ShellExec, vec!["subprocess.call", "os.popen", "subprocess.check_output"])]
     #[test_case("exec_02.py", Rule::CodeExec, vec!["eval", "builtins.exec", "exec", "eval", "exec", "eval", "exec"])]
     #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec"])]
-    #[test_case("exec_03.py", Rule::ObfuscateShellExec, vec!["os.system", "subprocess.run"])]
+    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "subprocess.run"])]
     #[test_case(
         "exec_04.py",
-        Rule::ShellExec,
+        Rule::ObfuscatedShellExec,
         vec![
             "os.system",
             "subprocess.Popen",
@@ -324,20 +373,54 @@ mod tests {
     )]
     #[test_case(
         "exec_05.py",
-        Rule::ShellExec,
+        Rule::ObfuscatedShellExec,
         vec![
             "commands.getstatusoutput",
             "commands.getstatusoutput"
         ]
     )]
-    #[test_case("exec_06.py", Rule::CurlWgetExec, vec!["subprocess.run", "os.system"])]
+    #[test_case("exec_06.py", Rule::DangerousExec, vec!["subprocess.run", "os.system"])]
     #[test_case("exec_07.py", Rule::ObfuscatedCodeExec, vec!["exec", "builtins.exec", "exec"])]
     #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
     #[test_case("exec_09.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval"])]
     #[test_case("exec_10.py", Rule::CodeExec, vec!["globals.eval"])]
     #[test_case("exec_11.py", Rule::ObfuscatedCodeExec, vec!["exec", "exec"])]
     #[test_case("exec_12.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
+    #[test_case("exec_14.py", Rule::ShellExec, vec!["subprocess.Popen"])]
+    #[test_case("exec_15.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system"])]
+    #[test_case("exec_16.py", Rule::DangerousExec, vec!["os.system", "subprocess.run"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_exec_confidence() {
+        let result = test_path("exec_15.py").unwrap();
+        for item in &result.items {
+            if item.rule == Rule::ObfuscatedShellExec {
+                assert_eq!(item.confidence, AuditConfidence::Medium);
+            }
+        }
+    }
+
+    #[test]
+    fn test_exec_13() {
+        match test_path("exec_13.py") {
+            Ok(result) => {
+                let actual = result
+                    .items
+                    .iter()
+                    .map(|r| (r.label.clone(), r.rule))
+                    .collect::<Vec<(String, Rule)>>();
+                let expected = vec![
+                    ("subprocess.run".to_string(), Rule::ShellExec),
+                    ("subprocess.run".to_string(), Rule::DangerousExec),
+                ];
+                assert_eq!(actual, expected);
+            }
+            Err(e) => {
+                panic!("test failed: {:?}", e);
+            }
+        }
     }
 }

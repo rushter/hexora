@@ -57,3 +57,5 @@ target/
 venv/
 resources/test/test.py
 samples/
+pypi
+dumped/
