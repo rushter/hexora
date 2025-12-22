@@ -24,7 +24,7 @@ def process_package(package_path: str, output_folder: str):
     if not package_path:
         return
 
-    file_name = os.path.basename(package_path)
+    file_name = os.path.basename(package_path) + ".txt"
     target_path = os.path.join(output_folder, file_name)
 
     if os.path.exists(target_path):

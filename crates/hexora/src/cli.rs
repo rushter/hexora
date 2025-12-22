@@ -145,6 +145,9 @@ enum Commands {
     DumpPackage {
         #[arg(help = "Path to the zip file.", index = 1)]
         path: PathBuf,
+
+        #[arg(long, help = "Filter files by name (contains pattern)")]
+        filter: Option<String>,
     },
 }
 
@@ -312,8 +315,8 @@ pub fn run_cli(start_arg: usize) {
                 }
             }
         }
-        Commands::DumpPackage { path } => {
-            if let Err(e) = hexora_io::dump_package(&path) {
+        Commands::DumpPackage { path, filter } => {
+            if let Err(e) = hexora_io::dump_package(&path, filter.as_deref()) {
                 error!("Dump package failed: {}", e);
             }
         }

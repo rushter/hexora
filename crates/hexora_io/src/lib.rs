@@ -112,7 +112,7 @@ pub fn list_python_files(
         })
 }
 
-pub fn dump_package(path: &Path) -> Result<(), std::io::Error> {
+pub fn dump_package(path: &Path, filter: Option<&str>) -> Result<(), std::io::Error> {
     let path_filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -120,6 +120,11 @@ pub fn dump_package(path: &Path) -> Result<(), std::io::Error> {
     println!("=== Dumping package: {} ===", path_filename);
     for file in list_python_files(path, None) {
         if file.zip_path.is_some() {
+            if let Some(f) = filter {
+                if !file.file_path.to_string_lossy().contains(f) {
+                    continue;
+                }
+            }
             println!("--- File: {:?} ---", file.file_path);
             println!("{}", file.content);
             println!("-----------------------");
