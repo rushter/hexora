@@ -16,7 +16,7 @@ const CLI_START_ARG_PYTHON: usize = 1;
 pub struct AuditResult {
     pub items: Vec<AuditItem>,
     pub path: PathBuf,
-    pub zip_path: Option<PathBuf>,
+    pub archive_path: Option<PathBuf>,
 }
 
 #[pyfunction]
@@ -38,7 +38,7 @@ fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
                 let res = AuditResult {
                     items: r.items,
                     path: r.path,
-                    zip_path: r.zip_path,
+                    archive_path: r.archive_path,
                 };
                 let obj = pythonize(py, &res).map_err(|e| {
                     PyRuntimeError::new_err(format!("Failed to serialize result: {}", e))
@@ -64,7 +64,7 @@ fn audit_file(input_path: PathBuf) -> PyResult<Py<PyAny>> {
             let res = AuditResult {
                 items: res.items,
                 path: res.path,
-                zip_path: res.zip_path,
+                archive_path: res.archive_path,
             };
             let obj = pythonize(py, &res).map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to serialize result: {}", e))

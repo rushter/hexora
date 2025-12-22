@@ -9,6 +9,7 @@ use std::path::Path;
 pub fn annotate_result(
     item: &AuditItem,
     path: &Path,
+    archive_path: Option<&Path>,
     source_code: &str,
     colored: bool,
 ) -> Result<String, String> {
@@ -18,7 +19,11 @@ pub fn annotate_result(
         Buffer::no_color()
     };
     if let Some(location) = item.location {
-        let file_path = path.display();
+        let file_path = if let Some(zip) = archive_path {
+            format!("{}:{}", zip.display(), path.display())
+        } else {
+            path.display().to_string()
+        };
         let file = SimpleFile::new(&file_path, &source_code);
         let diagnostic = Diagnostic::warning()
             .with_message(&item.description)
@@ -52,6 +57,7 @@ pub fn annotate_result(
 pub fn annotate_results(
     items: &[AuditItem],
     path: &Path,
+    archive_path: Option<&Path>,
     source_code: &str,
 ) -> Result<String, String> {
     let mut buffer = Buffer::no_color();
@@ -70,7 +76,11 @@ pub fn annotate_results(
         })
         .collect();
 
-    let file_path = path.display();
+    let file_path = if let Some(zip) = archive_path {
+        format!("{}:{}", zip.display(), path.display())
+    } else {
+        path.display().to_string()
+    };
     let file = SimpleFile::new(&file_path, &source_code);
     let diagnostic = Diagnostic::warning().with_labels(labels);
 

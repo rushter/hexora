@@ -1,6 +1,6 @@
 use crate::audit::annotate::annotate_result;
 use crate::audit::parse::audit_path;
-use crate::audit::result::{AuditConfidence, AuditItem};
+use crate::audit::result::{AuditConfidence, AuditItem, AuditResult};
 use crate::audit::result::{AuditItemJSON, Rule};
 use crate::benchmark::run_benchmark;
 use clap::{Args, Parser, Subcommand};
@@ -166,13 +166,14 @@ fn print_rules_markdown() {
 }
 
 fn write_annotations(
-    file_out: &mut Box<dyn Write>,
+    file_out: &mut dyn Write,
     item: &AuditItem,
     path: &Path,
+    archive_path: Option<&Path>,
     source_code: &str,
     colored: bool,
 ) {
-    match annotate_result(item, path, source_code, colored) {
+    match annotate_result(item, path, archive_path, source_code, colored) {
         Ok(annotation) => {
             writeln!(file_out, "{}", annotation)
                 .unwrap_or_else(|e| error!("Failed to write annotation: {:?}", e));
@@ -184,13 +185,14 @@ fn write_annotations(
 }
 
 fn write_json(
-    file_out: &mut Box<dyn Write>,
+    file_out: &mut dyn Write,
     item: &AuditItem,
     path: &Path,
+    archive_path: Option<&Path>,
     source_code: &str,
     annotate: bool,
 ) {
-    let item = AuditItemJSON::new(item, path, source_code, annotate);
+    let item = AuditItemJSON::new(item, path, archive_path, source_code, annotate);
     match serde_json::to_string(&item) {
         Ok(json) => {
             writeln!(file_out, "{}", json)
@@ -202,39 +204,66 @@ fn write_json(
     }
 }
 
-fn process_result(
-    result: &[AuditItem],
-    path: &Path,
-    source_code: &str,
+struct AuditOutput {
+    writer: Box<dyn Write>,
+    format: OutputFormat,
+    annotate: bool,
     colored: bool,
-    output_path: &Option<PathBuf>,
-    output_format: &OutputFormat,
-    output_annotations: bool,
-) -> Result<(), std::io::Error>
-where
-{
-    let mut file_out: Box<dyn Write> = if let Some(output_path) = output_path {
-        let file_out = std::fs::File::create(output_path)?;
-        Box::new(file_out)
-    } else {
-        Box::new(std::io::stdout())
-    };
+}
 
-    for item in result {
-        match output_format {
-            OutputFormat::Terminal => {
-                write_annotations(&mut file_out, item, path, source_code, colored);
-            }
-            OutputFormat::Json => {
-                write_json(&mut file_out, item, path, source_code, output_annotations);
+impl AuditOutput {
+    fn new(opts: &AuditOptions) -> Result<Self, std::io::Error> {
+        let writer: Box<dyn Write> = if let Some(path) = &opts.output_path {
+            Box::new(std::fs::File::create(path)?)
+        } else {
+            Box::new(std::io::stdout())
+        };
+
+        Ok(Self {
+            writer,
+            format: opts.output_format.clone(),
+            annotate: opts.output_annotations,
+            colored: opts.output_path.is_none(),
+        })
+    }
+
+    fn write_result(&mut self, result: &AuditResult, items: &[AuditItem]) {
+        for item in items {
+            match self.format {
+                OutputFormat::Terminal => {
+                    write_annotations(
+                        &mut *self.writer,
+                        item,
+                        &result.path,
+                        result.archive_path.as_deref(),
+                        &result.source_code,
+                        self.colored,
+                    );
+                }
+                OutputFormat::Json => {
+                    write_json(
+                        &mut *self.writer,
+                        item,
+                        &result.path,
+                        result.archive_path.as_deref(),
+                        &result.source_code,
+                        self.annotate,
+                    );
+                }
             }
         }
     }
-    Ok(())
 }
 
 fn audit_python_files(opts: &AuditOptions) {
-    let colored = opts.output_path.is_none();
+    let mut output = match AuditOutput::new(opts) {
+        Ok(output) => output,
+        Err(e) => {
+            error!("Failed to initialize output: {:?}", e);
+            return;
+        }
+    };
+
     let dump_dir = if let Some(path) = &opts.dump_annotated {
         if path.exists() && !path.is_dir() {
             error!("Dump path {:?} exists but it is not a directory", path);
@@ -254,17 +283,9 @@ fn audit_python_files(opts: &AuditOptions) {
                 let filtered: Vec<AuditItem> = result
                     .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
                     .collect();
-                if let Err(e) = process_result(
-                    &filtered,
-                    &result.path,
-                    &result.source_code,
-                    colored,
-                    &opts.output_path,
-                    &opts.output_format,
-                    opts.output_annotations,
-                ) {
-                    error!("{:?}", e);
-                }
+
+                output.write_result(&result, &filtered);
+
                 if let Some(ref dest) = dump_dir {
                     result.annotate_to_file(&filtered, dest);
                 }

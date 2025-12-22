@@ -340,7 +340,7 @@ where
 pub struct AuditResult {
     pub items: Vec<AuditItem>,
     pub path: PathBuf,
-    pub zip_path: Option<PathBuf>,
+    pub archive_path: Option<PathBuf>,
     pub source_code: String,
 }
 
@@ -389,7 +389,12 @@ impl AuditResult {
         }
         let file_name = format!("audit_{}.py", sha256_path(&self.path));
         let dest_path = dest_folder.join(file_name);
-        let annotations = annotate_results(items, &self.path, &self.source_code);
+        let annotations = annotate_results(
+            items,
+            &self.path,
+            self.archive_path.as_deref(),
+            &self.source_code,
+        );
         match annotations {
             Ok(annotated) => {
                 std::fs::write(&dest_path, annotated).unwrap_or_else(|e| {
@@ -409,6 +414,8 @@ impl AuditResult {
 #[derive(Debug, Serialize)]
 pub struct AuditItemJSON<'a> {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_path: Option<String>,
     pub label: &'a String,
     pub rule: &'a str,
     pub description: &'a String,
@@ -419,9 +426,15 @@ pub struct AuditItemJSON<'a> {
     pub annotation: Option<String>,
 }
 impl<'a> AuditItemJSON<'a> {
-    pub fn new(item: &'a AuditItem, path: &Path, source_code: &str, annotate: bool) -> Self {
+    pub fn new(
+        item: &'a AuditItem,
+        path: &Path,
+        archive_path: Option<&Path>,
+        source_code: &str,
+        annotate: bool,
+    ) -> Self {
         let annotation = if annotate {
-            annotate_result(item, path, source_code, false)
+            annotate_result(item, path, archive_path, source_code, false)
                 .inspect_err(|err| error!("Failed to annotate result: {}", err))
                 .ok()
         } else {
@@ -430,6 +443,7 @@ impl<'a> AuditItemJSON<'a> {
 
         Self {
             path: path.display().to_string(),
+            archive_path: archive_path.map(|p| p.display().to_string()),
             label: &item.label,
             rule: item.rule.code(),
             description: &item.description,

@@ -20,13 +20,13 @@ pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
 
 fn audit_file_with_content(
     file_path: PathBuf,
-    zip_path: Option<PathBuf>,
+    archive_path: Option<PathBuf>,
     source_code: String,
 ) -> Result<AuditResult, String> {
     let audit_items = audit_source(source_code.clone())?;
     Ok(AuditResult {
         path: file_path,
-        zip_path,
+        archive_path,
         items: audit_items,
         source_code,
     })
@@ -42,7 +42,7 @@ pub fn audit_path(
         .into_iter()
         .filter_map(|file| {
             debug!("Auditing file: {}", file.full_path());
-            match audit_file_with_content(file.file_path, file.zip_path, file.content) {
+            match audit_file_with_content(file.file_path, file.archive_path, file.content) {
                 Ok(result) => Some(result),
                 Err(e) => {
                     error!("Error auditing file: {}", e);

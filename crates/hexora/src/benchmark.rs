@@ -12,7 +12,7 @@ pub struct BenchmarkResult {
     pub duration: Duration,
     pub confidence_counts: HashMap<AuditConfidence, usize>,
     pub rule_counts: HashMap<Rule, usize>,
-    pub zip_path_counts: HashMap<String, usize>,
+    pub archive_path_counts: HashMap<String, usize>,
 }
 
 impl BenchmarkResult {
@@ -38,7 +38,7 @@ impl BenchmarkResult {
 
         if print_missing {
             let mut missing_audits: Vec<_> = self
-                .zip_path_counts
+                .archive_path_counts
                 .iter()
                 .filter(|&(_, &count)| count == 0)
                 .map(|(path, _)| path)
@@ -72,10 +72,10 @@ pub fn run_benchmark(
 
     for result in audit_results {
         benchmark_result.total_files += 1;
-        if let Some(zip_path) = &result.zip_path {
+        if let Some(archive_path) = &result.archive_path {
             benchmark_result
-                .zip_path_counts
-                .entry(zip_path.to_string_lossy().to_string())
+                .archive_path_counts
+                .entry(archive_path.to_string_lossy().to_string())
                 .or_insert(0);
         }
 
@@ -92,10 +92,10 @@ pub fn run_benchmark(
 
             *benchmark_result.rule_counts.entry(item.rule).or_insert(0) += 1;
 
-            if let Some(zip_path) = &result.zip_path {
+            if let Some(archive_path) = &result.archive_path {
                 *benchmark_result
-                    .zip_path_counts
-                    .entry(zip_path.to_string_lossy().to_string())
+                    .archive_path_counts
+                    .entry(archive_path.to_string_lossy().to_string())
                     .or_insert(0) += 1;
             }
         }

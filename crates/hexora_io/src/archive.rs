@@ -24,7 +24,7 @@ impl TarGzIterator {
         let metadata = fs::metadata(path).ok()?;
 
         if metadata.len() > MAX_ARCHIVE_SIZE {
-            error!("tar.gz file {:?} exceeds maximum size of 10MB", path);
+            error!("tar.gz file {:?} exceeds maximum size of 50MB", path);
             return None;
         }
 
@@ -67,7 +67,7 @@ impl TarGzIterator {
                     python_files.push(PythonFile {
                         file_path: path_in_tar,
                         content,
-                        zip_path: Some(path.to_owned()),
+                        archive_path: Some(path.to_owned()),
                     });
                 }
             }
@@ -101,7 +101,7 @@ impl Iterator for TarGzIterator {
 
 pub struct ZipIterator {
     archive: zip::ZipArchive<fs::File>,
-    zip_path: PathBuf,
+    archive_path: PathBuf,
     current_index: usize,
     num_files: usize,
     matched_count: usize,
@@ -112,7 +112,7 @@ impl ZipIterator {
         let metadata = fs::metadata(path).ok()?;
 
         if metadata.len() > MAX_ARCHIVE_SIZE {
-            error!("Zip file {:?} exceeds maximum size of 10MB", path);
+            error!("Zip file {:?} exceeds maximum size of 50MB", path);
             return None;
         }
 
@@ -130,7 +130,7 @@ impl ZipIterator {
 
         Some(ZipIterator {
             archive,
-            zip_path: path.to_owned(),
+            archive_path: path.to_owned(),
             current_index: 0,
             num_files,
             matched_count: 0,
@@ -165,14 +165,14 @@ impl Iterator for ZipIterator {
                     return Some(PythonFile {
                         file_path: path_in_zip,
                         content,
-                        zip_path: Some(self.zip_path.clone()),
+                        archive_path: Some(self.archive_path.clone()),
                     });
                 }
             }
         }
 
         if self.matched_count == 0 {
-            debug!("No Python files in zip: {:?}", self.zip_path);
+            debug!("No Python files in zip: {:?}", self.archive_path);
             self.matched_count = 1;
         }
 

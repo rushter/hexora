@@ -47,12 +47,12 @@ impl Iterator for EntryIterator {
 pub struct PythonFile {
     pub file_path: PathBuf,
     pub content: String,
-    pub zip_path: Option<PathBuf>,
+    pub archive_path: Option<PathBuf>,
 }
 
 impl PythonFile {
     pub fn full_path(&self) -> String {
-        match &self.zip_path {
+        match &self.archive_path {
             Some(zp) => format!("{}:{}", self.file_path.display(), zp.display()),
             None => self.file_path.display().to_string(),
         }
@@ -91,7 +91,7 @@ pub fn list_python_files(
                     return EntryIterator::FileSystem(std::iter::once(PythonFile {
                         file_path: path.to_owned(),
                         content,
-                        zip_path: None,
+                        archive_path: None,
                     }));
                 }
             }
@@ -119,7 +119,7 @@ pub fn dump_package(path: &Path, filter: Option<&str>) -> Result<(), std::io::Er
         .unwrap_or("unknown");
     println!("=== Dumping package: {} ===", path_filename);
     for file in list_python_files(path, None) {
-        if file.zip_path.is_some() {
+        if file.archive_path.is_some() {
             if let Some(f) = filter {
                 if !file.file_path.to_string_lossy().contains(f) {
                     continue;
@@ -151,8 +151,8 @@ mod tests {
         let py_path = dir.path().join("test.py");
         fs::write(&py_path, "print('hello')").unwrap();
 
-        let zip_path = dir.path().join("test.zip");
-        let file = fs::File::create(&zip_path).unwrap();
+        let archive_path = dir.path().join("test.zip");
+        let file = fs::File::create(&archive_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = SimpleFileOptions::default();
 
@@ -173,13 +173,16 @@ mod tests {
         for file in results {
             if file.file_path.ends_with("test.py") {
                 assert_eq!(file.content, "print('hello')");
-                assert!(file.zip_path.is_none());
+                assert!(file.archive_path.is_none());
                 assert_eq!(file.full_path(), py_path.display().to_string());
                 found_py = true;
-            } else if file.file_path.ends_with("inner.py") && file.zip_path.is_some() {
+            } else if file.file_path.ends_with("inner.py") && file.archive_path.is_some() {
                 assert_eq!(file.content, "print('zip')");
-                assert!(file.zip_path.as_ref().unwrap().ends_with("test.zip"));
-                assert_eq!(file.full_path(), format!("inner.py:{}", zip_path.display()));
+                assert!(file.archive_path.as_ref().unwrap().ends_with("test.zip"));
+                assert_eq!(
+                    file.full_path(),
+                    format!("inner.py:{}", archive_path.display())
+                );
                 found_zip_py = true;
             }
         }
@@ -198,8 +201,8 @@ mod tests {
         let py_path2 = dir.path().join("test2.py");
         fs::write(&py_path2, "print('hello 2')").unwrap();
 
-        let zip_path = dir.path().join("test.zip");
-        let file = fs::File::create(&zip_path).unwrap();
+        let archive_path = dir.path().join("test.zip");
+        let file = fs::File::create(&archive_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = SimpleFileOptions::default();
         zip.start_file("inner.py", options).unwrap();
@@ -241,7 +244,7 @@ mod tests {
         assert_eq!(results[0].content, "print('tar.gz')");
         assert!(
             results[0]
-                .zip_path
+                .archive_path
                 .as_ref()
                 .unwrap()
                 .ends_with("test.tar.gz")
@@ -253,8 +256,8 @@ mod tests {
     fn test_no_python_files_in_zip() {
         let dir = tempdir().unwrap();
 
-        let zip_path = dir.path().join("empty.zip");
-        let file = fs::File::create(&zip_path).unwrap();
+        let archive_path = dir.path().join("empty.zip");
+        let file = fs::File::create(&archive_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = SimpleFileOptions::default();
 
@@ -269,8 +272,8 @@ mod tests {
     #[test]
     fn test_password_protected_zip() {
         let dir = tempdir().unwrap();
-        let zip_path = dir.path().join("protected.zip");
-        let file = fs::File::create(&zip_path).unwrap();
+        let archive_path = dir.path().join("protected.zip");
+        let file = fs::File::create(&archive_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
 
         let options =
@@ -290,7 +293,7 @@ mod tests {
         assert!(results[0].file_path.ends_with("secret.py"));
         assert!(
             results[0]
-                .zip_path
+                .archive_path
                 .as_ref()
                 .unwrap()
                 .ends_with("protected.zip")
