@@ -13,10 +13,11 @@ static DANGEROUS_COMMANDS: &[&str] = &[
     "curl",
     "wget",
     "powershell",
-    "bash",
     "ifconfig",
     "netcat",
     "/bin/sh",
+    "base64",
+    "/dev/tcp",
 ];
 
 pub fn is_shell_command(segments: &[&str]) -> bool {
@@ -187,18 +188,73 @@ fn get_taint_metadata(taint: TaintKind) -> (AuditConfidence, &'static str, &'sta
     }
 }
 
+fn contains_suspicious_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+    match expr {
+        ast::Expr::Call(call) => {
+            if let Some(qn) = checker.indexer.get_qualified_name(call) {
+                let segments = qn.segments();
+                if segments.len() == 1 {
+                    if matches!(segments[0], "__import__" | "compile") {
+                        return true;
+                    }
+                } else if segments.len() == 2
+                    && (segments[0] == "builtins" || segments[0] == "__builtins__")
+                {
+                    if matches!(segments[1], "__import__" | "compile") {
+                        return true;
+                    }
+                }
+            }
+
+            if contains_suspicious_expr(checker, &call.func) {
+                return true;
+            }
+
+            for arg in &call.arguments.args {
+                if contains_suspicious_expr(checker, arg) {
+                    return true;
+                }
+            }
+            for kw in &call.arguments.keywords {
+                if contains_suspicious_expr(checker, &kw.value) {
+                    return true;
+                }
+            }
+        }
+        ast::Expr::Attribute(attr) => {
+            return contains_suspicious_expr(checker, &attr.value);
+        }
+        _ => {}
+    }
+    false
+}
+
+fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
+    for arg in &call.arguments.args {
+        if contains_suspicious_expr(checker, arg) {
+            return true;
+        }
+    }
+    for kw in &call.arguments.keywords {
+        if contains_suspicious_expr(checker, &kw.value) {
+            return true;
+        }
+    }
+    false
+}
+
 fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
 
     if contains_dangerous_exec(checker, call) {
-        let is_obf = suspicious_taint.is_some();
+        let is_obf = suspicious_taint.is_some() || is_highly_suspicious_exec(checker, call);
         checker.audit_results.push(AuditItem {
             label,
             rule: Rule::DangerousExec,
             description: if is_obf {
                 "Execution of obfuscated dangerous command in shell command".to_string()
             } else {
-                "Execution of dangerous command in shell command".to_string()
+                "Execution of potentially dangerous command in shell command".to_string()
             },
             confidence: AuditConfidence::High,
             location: Some(call.range),
@@ -206,7 +262,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
         return;
     }
 
-    let (rule, description, confidence) = if let Some(taint) = suspicious_taint {
+    let (rule, description, mut confidence) = if let Some(taint) = suspicious_taint {
         let (confidence, desc, _) = get_taint_metadata(taint);
         (
             Rule::ObfuscatedShellExec,
@@ -221,6 +277,10 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
         )
     };
 
+    if is_highly_suspicious_exec(checker, call) {
+        confidence = AuditConfidence::High;
+    }
+
     checker.audit_results.push(AuditItem {
         label,
         rule,
@@ -233,7 +293,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
 fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
 
-    let (rule, description, confidence) = if let Some(taint) = suspicious_taint {
+    let (rule, description, mut confidence) = if let Some(taint) = suspicious_taint {
         let (confidence, _, desc) = get_taint_metadata(taint);
         (
             Rule::ObfuscatedCodeExec,
@@ -247,6 +307,10 @@ fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
             AuditConfidence::Medium,
         )
     };
+
+    if is_highly_suspicious_exec(checker, call) {
+        confidence = AuditConfidence::High;
+    }
 
     checker.audit_results.push(AuditItem {
         label,
@@ -400,6 +464,34 @@ mod tests {
             if item.rule == Rule::ObfuscatedShellExec {
                 assert_eq!(item.confidence, AuditConfidence::Medium);
             }
+        }
+    }
+
+    #[test]
+    fn test_suspicious_exec_confidence() {
+        let result = test_path("exec_18.py").unwrap();
+        let suspicious_items: Vec<_> = result
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.rule,
+                    Rule::ShellExec
+                        | Rule::CodeExec
+                        | Rule::ObfuscatedShellExec
+                        | Rule::ObfuscatedCodeExec
+                )
+            })
+            .collect();
+
+        assert!(!suspicious_items.is_empty());
+        for item in suspicious_items {
+            assert_eq!(
+                item.confidence,
+                AuditConfidence::High,
+                "Item {} should have High confidence",
+                item.label
+            );
         }
     }
 
