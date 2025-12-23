@@ -97,6 +97,13 @@ struct AuditOptions {
             medium, high, very_high, very_low"
     )]
     min_confidence: AuditConfidence,
+
+    #[arg(
+        long,
+        default_value = "0",
+        help = "Minimum total score for a file to be included in the results."
+    )]
+    min_score: u32,
 }
 #[derive(Args, Clone, Debug)]
 struct BenchmarkOptions {
@@ -280,6 +287,10 @@ fn audit_python_files(opts: &AuditOptions) {
     match audit_path(&opts.input_path, None) {
         Ok(results) => {
             for result in results {
+                if result.file_score() < opts.min_score {
+                    continue;
+                }
+
                 let filtered: Vec<AuditItem> = result
                     .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
                     .collect();

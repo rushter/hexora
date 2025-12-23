@@ -367,6 +367,10 @@ fn sha256_path(path: &Path) -> String {
 }
 
 impl AuditResult {
+    pub fn file_score(&self) -> u32 {
+        self.items.iter().map(|item| item.confidence as u32).sum()
+    }
+
     pub fn filter_items<'a>(
         &'a self,
         include_codes: &'a [String],
