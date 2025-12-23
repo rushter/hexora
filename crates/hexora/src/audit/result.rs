@@ -89,6 +89,9 @@ pub enum Rule {
     SuspiciousParameterName,
     SuspiciousVariable,
 
+    // Exfiltration
+    DataExfiltration,
+
     // Other
     BinaryDownload,
     BuiltinsVariable,
@@ -165,6 +168,9 @@ impl Rule {
             Rule::BinaryDownload => "HX8000",
             Rule::BuiltinsVariable => "HX8010",
             Rule::SuspiciousComment => "HX8020",
+
+            // Exfiltration: HX9000
+            Rule::DataExfiltration => "HX9000",
         }
     }
 
@@ -227,6 +233,9 @@ impl Rule {
             Rule::SuspiciousFunctionName => "Suspicious function name.",
             Rule::SuspiciousParameterName => "Suspicious parameter name.",
             Rule::SuspiciousVariable => "Suspicious variable name.",
+
+            // Exfiltration
+            Rule::DataExfiltration => "Potential data exfiltration.",
 
             // Other
             Rule::BinaryDownload => "Suspicious binary download.",
@@ -307,6 +316,9 @@ impl Rule {
                 "Enumeration of sensitive browser extensions. Usually used to steal credentials.",
             ),
             Rule::WebHook => Some("Webhooks are often used to exfiltrate (upload) collected data."),
+            Rule::DataExfiltration => {
+                Some("Data exfiltration is the unauthorized transfer of data from a computer.")
+            }
             _ => None,
         }
     }

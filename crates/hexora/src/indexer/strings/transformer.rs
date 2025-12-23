@@ -1,6 +1,7 @@
 use crate::indexer::encoding::{decode_bytes, unescape_to_bytes};
 use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
+use crate::indexer::taint::TaintState;
 use base64::{Engine as _, engine::general_purpose};
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
@@ -327,10 +328,32 @@ impl<'a> NodeTransformer<'a> {
             }
 
             ast::Expr::FString(f) => {
+                let mut taints = TaintState::new();
+                for part in &f.value {
+                    if let ast::FStringPart::FString(inner) = part {
+                        for element in &inner.elements {
+                            if let ast::InterpolatedStringElement::Interpolation(interp) = element {
+                                taints.extend(self.indexer.get_taint(&interp.expression));
+                            }
+                        }
+                    }
+                }
+
                 // Render f-string by resolving simple interpolations and preserving {name}
                 // placeholders when resolution isn't possible.
                 let rendered = self.render_fstring_value(&f.value);
-                *expr = self.make_string_expr(f.range, rendered, Some(Transformation::FString));
+                let new_expr =
+                    self.make_string_expr(f.range, rendered, Some(Transformation::FString));
+                if let Some(id) = new_expr.node_index().load().as_u32() {
+                    self.indexer
+                        .model
+                        .taint_map
+                        .borrow_mut()
+                        .entry(id)
+                        .or_default()
+                        .extend(taints);
+                }
+                *expr = new_expr;
             }
 
             ast::Expr::BinOp(binop) => {

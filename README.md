@@ -137,8 +137,9 @@ Right now, the following rules are available:
 | HX3020 | DunderShellExec | Execution of a shell command via `__import__`. |
 | HX3030 | DunderCodeExec | Execution of code via `__import__`. |
 | HX3040 | DLLInjection | Possible DLL injection. |
-| HX3050 | CurlWgetExec | Execution of curl or wget in shell command. |
-| HX4000 | ObfuscateShellExec | Execution of an obfuscated shell command. |
+| HX3050 | DangerousExec | Execution of potentially dangerous command inside a shell command. |
+| HX3060 | SuspiciousCall | Suspicious function call. |
+| HX4000 | ObfuscatedShellExec | Execution of an obfuscated shell command. |
 | HX4010 | ObfuscatedCodeExec | Execution of obfuscated code. |
 | HX4020 | ObfuscatedDunderShellExec | Execution of an obfuscated shell command via `__import__`. |
 | HX4030 | ObfuscatedDunderCodeExec | Execution of obfuscated code via `__import__`. |
@@ -161,10 +162,10 @@ Right now, the following rules are available:
 | HX7000 | SuspiciousFunctionName | Suspicious function name. |
 | HX7010 | SuspiciousParameterName | Suspicious parameter name. |
 | HX7020 | SuspiciousVariable | Suspicious variable name. |
+| HX9000 | DataExfiltration | Potential data exfiltration. |
 | HX8000 | BinaryDownload | Suspicious binary download. |
 | HX8010 | BuiltinsVariable | Suspicious builtin variable usage. |
 | HX8020 | SuspiciousComment | Suspicious comment. |
-
 
 ## Credits
 
