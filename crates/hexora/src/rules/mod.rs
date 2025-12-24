@@ -10,6 +10,7 @@ mod fingerprinting;
 mod identifier;
 mod imports;
 mod literal;
+mod write;
 
 pub mod comments;
 pub mod expression;

@@ -96,6 +96,7 @@ pub enum Rule {
     BinaryDownload,
     BuiltinsVariable,
     SuspiciousComment,
+    SuspiciousWrite,
 }
 impl Serialize for Rule {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -168,6 +169,7 @@ impl Rule {
             Rule::BinaryDownload => "HX8000",
             Rule::BuiltinsVariable => "HX8010",
             Rule::SuspiciousComment => "HX8020",
+            Rule::SuspiciousWrite => "HX8030",
 
             // Exfiltration: HX9000
             Rule::DataExfiltration => "HX9000",
@@ -239,6 +241,7 @@ impl Rule {
 
             // Other
             Rule::BinaryDownload => "Suspicious binary download.",
+            Rule::SuspiciousWrite => "Suspicious write to the filesystem.",
             Rule::BuiltinsVariable => "Suspicious builtin variable usage.",
             Rule::SuspiciousComment => "Suspicious comment.",
         }
@@ -319,6 +322,9 @@ impl Rule {
             Rule::DataExfiltration => {
                 Some("Data exfiltration is the unauthorized transfer of data from a computer.")
             }
+            Rule::SuspiciousWrite => Some(
+                "Writing to files with to suspicious extensions (.exe, .py) can be used to store malicious payloads.",
+            ),
             _ => None,
         }
     }

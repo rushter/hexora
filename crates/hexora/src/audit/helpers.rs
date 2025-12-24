@@ -80,15 +80,17 @@ pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Optio
         ast::Expr::Name(ast::ExprName { node_index, .. }) => {
             let external_expr = indexer.get_exprs_by_index(node_index)?;
             let mut string = String::new();
+            let mut found = false;
             for expr in external_expr {
                 match expr {
                     ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
                         string.push_str(value.to_str());
+                        found = true;
                     }
                     _ => continue,
                 }
             }
-            Some(string)
+            if found { Some(string) } else { None }
         }
         _ => None,
     }

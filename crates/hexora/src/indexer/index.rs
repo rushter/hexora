@@ -476,6 +476,9 @@ impl<'a> NodeIndexer<'a> {
                 path.push(attr_path.join(""));
                 Some(path)
             }
+            ["Path"] | ["pathlib", "Path"] => {
+                Some(qn.segments().iter().map(|s| s.to_string()).collect())
+            }
             ["globals"] | ["locals"] | ["vars"] => Some(vec![qn.segments()[0].to_string()]),
             _ => self.resolve_function_call_path(call),
         }
