@@ -1,4 +1,5 @@
 mod archive;
+pub mod encoding;
 
 use std::collections::HashSet;
 use std::fs;

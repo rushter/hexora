@@ -1,5 +1,4 @@
 pub mod checker;
-pub mod encoding;
 pub mod index;
 pub mod locator;
 pub mod model;

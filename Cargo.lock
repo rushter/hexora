@@ -616,8 +616,10 @@ dependencies = [
 name = "hexora_io"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "flate2",
  "log",
+ "once_cell",
  "tar",
  "tempfile",
  "walkdir",

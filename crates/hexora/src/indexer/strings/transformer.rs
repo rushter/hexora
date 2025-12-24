@@ -1,4 +1,4 @@
-use crate::indexer::encoding::{decode_bytes, unescape_to_bytes};
+use hexora_io::encoding::{decode_bytes, unescape_to_bytes};
 use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
 use crate::indexer::taint::TaintState;
