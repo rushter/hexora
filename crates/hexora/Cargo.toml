@@ -30,7 +30,6 @@ path = "src/main.rs"
 [dependencies]
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160"}
 ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 
@@ -49,8 +48,6 @@ strum_macros = "0.27.0"
 serde_json = "1.0.113"
 pythonize = "0.26.0"
 sha2 = "0.11.0-rc.2"
-encoding_rs = "0.8.35"
-base64 = "0.22.1"
 hexora_io = { path = "../hexora_io" }
 
 [dev-dependencies]

@@ -1,8 +1,9 @@
 use crate::indexer::model::Transformation;
 use crate::indexer::node_transformer::NodeTransformer;
 use crate::indexer::taint::TaintState;
-use base64::{Engine as _, engine::general_purpose};
-use hexora_io::encoding::{decode_bytes, unescape_to_bytes};
+use hexora_io::encoding::{
+    base64_decode, bytes_to_escaped, decode_bytes, hex_to_escaped, unescape_to_bytes,
+};
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
     StringLiteralFlags,
@@ -204,9 +205,7 @@ impl<'a> NodeTransformer<'a> {
 
         let arg_str = self.extract_string(&call.arguments.args[0])?;
         if name == "a2b_base64" {
-            let bytes = general_purpose::STANDARD
-                .decode(arg_str.trim().as_bytes())
-                .ok()?;
+            let bytes = base64_decode(&arg_str, false)?;
             return Some(self.make_string_expr(
                 call.range,
                 bytes_to_escaped(&bytes),
@@ -260,12 +259,7 @@ impl<'a> NodeTransformer<'a> {
         }
 
         let arg_str = self.extract_string(&call.arguments.args[0])?;
-        let bytes_arg = arg_str.trim().as_bytes();
-        let bytes = if name == "urlsafe_b64decode" {
-            general_purpose::URL_SAFE.decode(bytes_arg).ok()?
-        } else {
-            general_purpose::STANDARD.decode(bytes_arg).ok()?
-        };
+        let bytes = base64_decode(&arg_str, name == "urlsafe_b64decode")?;
 
         let escaped = bytes_to_escaped(&bytes);
         Some(self.make_string_expr(call.range, escaped, Some(Transformation::Base64)))
@@ -377,34 +371,4 @@ impl<'a> NodeTransformer<'a> {
             _ => {}
         }
     }
-}
-
-#[inline]
-pub(crate) fn bytes_to_escaped(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("\\x{:02x}", b)).collect()
-}
-
-#[inline]
-pub(crate) fn hex_to_escaped(input: &str) -> Option<String> {
-    let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-    if filtered.is_empty() || !filtered.len().is_multiple_of(2) {
-        return None;
-    }
-    filtered
-        .as_bytes()
-        .chunks(2)
-        .map(|chunk| {
-            let h = chunk[0] as char;
-            let l = chunk[1] as char;
-            if h.is_ascii_hexdigit() && l.is_ascii_hexdigit() {
-                Some(format!(
-                    "\\x{}{}",
-                    h.to_ascii_lowercase(),
-                    l.to_ascii_lowercase()
-                ))
-            } else {
-                None
-            }
-        })
-        .collect()
 }

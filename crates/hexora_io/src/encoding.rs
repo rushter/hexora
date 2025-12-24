@@ -1,3 +1,4 @@
+use base64::{Engine as _, engine::general_purpose};
 use encoding_rs;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -296,6 +297,45 @@ pub fn unescape_to_bytes(input: &str) -> Option<Vec<u8>> {
         }
     }
     Some(bytes)
+}
+
+#[inline]
+pub fn bytes_to_escaped(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("\\x{:02x}", b)).collect()
+}
+
+#[inline]
+pub fn hex_to_escaped(input: &str) -> Option<String> {
+    let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    if filtered.is_empty() || filtered.len() % 2 != 0 {
+        return None;
+    }
+    filtered
+        .as_bytes()
+        .chunks(2)
+        .map(|chunk| {
+            let h = chunk[0] as char;
+            let l = chunk[1] as char;
+            if h.is_ascii_hexdigit() && l.is_ascii_hexdigit() {
+                Some(format!(
+                    "\\x{}{}",
+                    h.to_ascii_lowercase(),
+                    l.to_ascii_lowercase()
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+pub fn base64_decode(input: &str, url_safe: bool) -> Option<Vec<u8>> {
+    let input = input.trim();
+    if url_safe {
+        general_purpose::URL_SAFE.decode(input).ok()
+    } else {
+        general_purpose::STANDARD.decode(input).ok()
+    }
 }
 
 #[cfg(test)]
