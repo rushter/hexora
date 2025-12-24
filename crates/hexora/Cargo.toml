@@ -13,14 +13,7 @@ rust-version = "1.90"
 
 [lib]
 name = "hexora"
-crate-type = ["cdylib", "rlib"]
-
-
-[features]
-default = []
-python = [
-    "pyo3",
-]
+crate-type = ["rlib"]
 
 
 [[bin]]
@@ -33,7 +26,6 @@ ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev="3f63ea4b5
 ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 
-pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
 log = "0.4.17"
 env_logger = "0.11.8"
 serde = { version = "1.0.197", features = ["derive"] }
@@ -46,7 +38,6 @@ codespan-reporting = "0.12.0"
 strum = "0.27.0"
 strum_macros = "0.27.0"
 serde_json = "1.0.113"
-pythonize = "0.26.0"
 sha2 = "0.11.0-rc.2"
 hexora_io = { path = "../hexora_io" }
 

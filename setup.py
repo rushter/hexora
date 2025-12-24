@@ -8,8 +8,7 @@ setup(
             "hexora._hexora",
             binding=Binding.PyO3,
             debug=False,
-            features=["python"],
-            path="crates/hexora/Cargo.toml",
+            path="crates/hexora_py/Cargo.toml",
         )
     ],
     packages=[

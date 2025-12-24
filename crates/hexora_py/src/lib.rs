@@ -1,10 +1,10 @@
 /// This module provides a Python interface to hexora library.
 ///
-use crate::cli;
+use hexora::cli;
 use std::path::PathBuf;
 
-use crate::audit::parse;
-use crate::audit::result::AuditItem;
+use hexora::audit::parse;
+use hexora::audit::result::AuditItem;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pythonize::pythonize;
@@ -30,7 +30,7 @@ fn run_cli() -> PyResult<()> {
 #[pyfunction]
 #[pyo3(signature = (input_path))]
 fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
-    let results = parse::audit_path(&input_path);
+    let results = parse::audit_path(&input_path, None);
     match results {
         Ok(results) => Python::attach(|py| {
             let mut items = Vec::new();

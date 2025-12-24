@@ -1,0 +1,15 @@
+[package]
+name = "hexora_py"
+version = "0.1.0"
+edition = "2024"
+description = "Python bindings for Hexora"
+
+[lib]
+name = "hexora"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hexora = { path = "../hexora" }
+pyo3 = { version = "0.26", features = ["extension-module"] }
+pythonize = "0.26.0"
+serde = { version = "1.0", features = ["derive"] }
