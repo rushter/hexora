@@ -11,6 +11,8 @@ tar = "0.4"
 flate2 = "1.0"
 encoding_rs = "0.8.35"
 once_cell = "1.21.3"
+ruff_source_file = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160"}
+ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev="3f63ea4b504d50eaf3c479de68e4017d2434a160" }
 
 [dev-dependencies]
 tempfile = "3.23.0"

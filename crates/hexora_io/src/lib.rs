@@ -1,6 +1,7 @@
 mod archive;
 pub mod encoding;
 pub mod macros;
+pub mod locator;
 
 use std::collections::HashSet;
 use std::fs;

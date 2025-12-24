@@ -976,7 +976,7 @@ impl<'a> NodeIndexer<'a> {
 mod tests {
     use super::*;
     use crate::audit::helpers::get_expression_range;
-    use crate::indexer::locator::Locator;
+    use hexora_io::locator::Locator;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
     use std::collections::HashMap;

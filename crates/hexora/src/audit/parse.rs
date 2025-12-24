@@ -1,7 +1,7 @@
 use crate::audit::result::{AuditItem, AuditResult};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
-use crate::indexer::locator::Locator;
+use hexora_io::locator::Locator;
 use crate::indexer::node_transformer::NodeTransformer;
 use hexora_io::list_python_files;
 use log::{debug, error};

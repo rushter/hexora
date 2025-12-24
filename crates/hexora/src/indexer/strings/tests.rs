@@ -1,5 +1,5 @@
 use crate::indexer::index::NodeIndexer;
-use crate::indexer::locator::Locator;
+use hexora_io::locator::Locator;
 use crate::indexer::node_transformer::NodeTransformer;
 use ruff_python_ast::visitor::source_order::*;
 use ruff_python_ast::visitor::transformer::Transformer;
