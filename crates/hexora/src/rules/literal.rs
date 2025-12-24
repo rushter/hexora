@@ -162,6 +162,19 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
     let suspicious_keywords = [
         ("shellcode", AuditConfidence::Medium),
         ("webshell", AuditConfidence::Medium),
+        ("eval(", AuditConfidence::High),
+        ("exec(", AuditConfidence::High),
+        ("base64.", AuditConfidence::High),
+        ("import subprocess", AuditConfidence::High),
+        ("import socket", AuditConfidence::High),
+        ("import requests", AuditConfidence::High),
+        ("import urllib", AuditConfidence::High),
+        ("import pty", AuditConfidence::High),
+        ("from subprocess", AuditConfidence::High),
+        ("from socket", AuditConfidence::High),
+        ("from requests", AuditConfidence::High),
+        ("from urllib", AuditConfidence::High),
+        ("from pty", AuditConfidence::High),
     ];
 
     let mut m = vec![
