@@ -187,6 +187,7 @@ mod tests {
     }
 
     #[test_case("exfil_01.py", Rule::DataExfiltration, vec!["urllib.request.request.urlopen"])]
+    #[test_case("exfil_02.py", Rule::DataExfiltration, vec!["requests.get"])]
     fn test_exfiltration(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

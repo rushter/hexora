@@ -79,7 +79,7 @@ pub fn get_call_taint(segments: &[&str], call: &ExprCall) -> Option<TaintKind> {
         | ["socket", "socket", "recv" | "recvfrom"] => Some(TaintKind::NetworkSourced),
 
         // OS / Environment Fingerprinting
-        ["os", "uname" | "getlogin" | "getuid" | "getgid"]
+        ["os", "uname" | "getlogin" | "getuid" | "getgid" | "getcwd"]
         | ["getpass", "getuser"]
         | [
             "platform",
@@ -195,6 +195,15 @@ pub fn compute_expr_taint(
                             | "values"
                             | "items"
                             | "fileno"
+                            | "encode"
+                            | "decode"
+                            | "strip"
+                            | "lstrip"
+                            | "rstrip"
+                            | "replace"
+                            | "lower"
+                            | "upper"
+                            | "split"
                     ) {
                         taints.extend(get_taint(&attr.value));
                     }
