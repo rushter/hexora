@@ -188,6 +188,7 @@ mod tests {
 
     #[test_case("exfil_01.py", Rule::DataExfiltration, vec!["urllib.request.request.urlopen"])]
     #[test_case("exfil_02.py", Rule::DataExfiltration, vec!["requests.get"])]
+    #[test_case("exfil_03.py", Rule::DataExfiltration, vec!["socket.socket.send"])]
     fn test_exfiltration(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
@@ -242,5 +243,19 @@ mod tests {
         for item in dup2_results {
             assert_eq!(item.confidence, AuditConfidence::High);
         }
+    }
+
+    #[test]
+    fn test_exfil_confidence() {
+        use crate::audit::result::AuditConfidence;
+
+        let result = test_path("exfil_03.py").unwrap();
+        let exfil_results: Vec<_> = result
+            .items
+            .iter()
+            .filter(|i| i.rule == Rule::DataExfiltration)
+            .collect();
+        assert_eq!(exfil_results.len(), 1);
+        assert_eq!(exfil_results[0].confidence, AuditConfidence::High);
     }
 }
