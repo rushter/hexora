@@ -307,7 +307,7 @@ pub fn bytes_to_escaped(bytes: &[u8]) -> String {
 #[inline]
 pub fn hex_to_escaped(input: &str) -> Option<String> {
     let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-    if filtered.is_empty() || filtered.len() % 2 != 0 {
+    if filtered.is_empty() || !filtered.len().is_multiple_of(2) {
         return None;
     }
     filtered

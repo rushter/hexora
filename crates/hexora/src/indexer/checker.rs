@@ -1,8 +1,8 @@
 use crate::audit::result::AuditItem;
 use crate::indexer::index::NodeIndexer;
-use hexora_io::locator::Locator;
 use crate::rules::comments::check_comments;
 use crate::rules::{expression, statement};
+use hexora_io::locator::Locator;
 use ruff_python_ast;
 use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::{self as ast, Expr, Stmt};

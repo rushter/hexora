@@ -6,7 +6,7 @@ description = "Python bindings for Hexora"
 
 [lib]
 name = "hexora"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 hexora = { path = "../hexora" }
