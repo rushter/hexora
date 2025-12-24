@@ -1,7 +1,9 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
-
+default-members = [
+    "crates/hexora"
+]
 [workspace.package]
 edition = "2024"
 description = "Static analysis of malicious Python scripts."
