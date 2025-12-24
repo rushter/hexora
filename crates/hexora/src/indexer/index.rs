@@ -86,8 +86,15 @@ impl<'a> NodeIndexer<'a> {
             Stmt::ClassDef(_) => {
                 self.push_scope(ScopeKind::Class);
             }
-            Stmt::FunctionDef(_) => {
+            Stmt::FunctionDef(func) => {
                 self.push_scope(ScopeKind::Function);
+                for (i, param) in func.parameters.args.iter().enumerate() {
+                    let mut binding = SymbolBinding::assignment(None);
+                    binding.taint.insert(TaintKind::InternalParameter(i));
+                    self.current_scope_mut()
+                        .symbols
+                        .insert(param.name().to_string(), binding);
+                }
             }
             Stmt::Import(import_stmt) => {
                 self.handle_import_stmt(import_stmt);
@@ -110,10 +117,13 @@ impl<'a> NodeIndexer<'a> {
                     return_taint.extend(self.get_taint(ret_expr));
                 }
 
+                let leaks = self.scope_stack.last().unwrap().parameter_leaks.clone();
+
                 self.pop_scope();
                 let symbols = &mut self.current_scope_mut().symbols;
                 let mut binding = SymbolBinding::function(func);
                 binding.return_taint = return_taint;
+                binding.parameter_leaks = leaks;
                 symbols.insert(func.name.to_string(), binding);
             }
             Stmt::Assign(assign) => {
@@ -284,11 +294,27 @@ impl<'a> NodeIndexer<'a> {
             kind,
             symbols: HashMap::with_capacity(32),
             parent_scope: parent,
+            parameter_leaks: Vec::new(),
         });
     }
 
     pub fn pop_scope(&mut self) {
         self.scope_stack.pop();
+    }
+
+    pub fn add_parameter_leak(&mut self, parameter_index: usize, sink_name: String) {
+        for scope in self.scope_stack.iter_mut().rev() {
+            if scope.kind == ScopeKind::Function {
+                if !scope
+                    .parameter_leaks
+                    .iter()
+                    .any(|(i, s)| *i == parameter_index && s == &sink_name)
+                {
+                    scope.parameter_leaks.push((parameter_index, sink_name));
+                }
+                break;
+            }
+        }
     }
 
     pub(crate) fn lookup_binding(&self, name: &str) -> Option<&SymbolBinding<'a>> {
@@ -364,11 +390,18 @@ impl<'a> NodeIndexer<'a> {
         match target {
             Expr::Name(name) => self.handle_name_assignment(name, value),
             Expr::Attribute(attr) => self.handle_attribute_assignment(attr, value),
+            Expr::Subscript(sub) => self.handle_subscript_assignment(sub, value),
             Expr::Tuple(ExprTuple { elts, .. }) | Expr::List(ExprList { elts, .. }) => {
                 let target_refs: Vec<&'a Expr> = elts.iter().collect();
                 self.handle_sequence_assignment(&target_refs, value)
             }
             _ => {}
+        }
+    }
+
+    fn handle_subscript_assignment(&mut self, sub: &ExprSubscript, value: &'a Expr) {
+        if let Expr::Name(name) = sub.value.as_ref() {
+            self.handle_name_assignment(name, value);
         }
     }
 
@@ -937,11 +970,13 @@ impl<'a> NodeIndexer<'a> {
             let exprs = binding.assigned_expressions.clone();
             let taint = binding.taint.clone();
 
-            self.model
-                .expr_mapping
-                .entry(node_id)
-                .or_default()
-                .extend(exprs);
+            if !exprs.is_empty() {
+                self.model
+                    .expr_mapping
+                    .entry(node_id)
+                    .or_default()
+                    .extend(exprs);
+            }
 
             if !taint.is_empty() {
                 self.model.taint_map.borrow_mut().insert(node_id, taint);
@@ -959,11 +994,13 @@ impl<'a> NodeIndexer<'a> {
             let exprs = binding.assigned_expressions.clone();
             let taint = binding.taint.clone();
 
-            self.model
-                .expr_mapping
-                .entry(node_id)
-                .or_default()
-                .extend(exprs);
+            if !exprs.is_empty() {
+                self.model
+                    .expr_mapping
+                    .entry(node_id)
+                    .or_default()
+                    .extend(exprs);
+            }
 
             if !taint.is_empty() {
                 self.model.taint_map.borrow_mut().insert(node_id, taint);

@@ -100,13 +100,8 @@ fn get_exfil_confidence(taint: &TaintKind) -> Option<AuditConfidence> {
     }
 }
 
-pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
-    let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) else {
-        return;
-    };
-    let segments = qualified_name.segments();
-
-    let is_exfil = match segments.as_slice() {
+fn is_exfiltration_sink(segments: &[&str]) -> bool {
+    match segments {
         s if s.starts_with(&["urllib"])
             && (s.ends_with(&["urlopen"]) || s.ends_with(&["Request"])) =>
         {
@@ -124,53 +119,92 @@ pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
         ]
         | ["socket", "socket", "send" | "sendall" | "sendto"] => true,
         _ => false,
-    };
-
-    if !is_exfil {
-        return;
     }
+}
 
+pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
+    let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) else {
+        return;
+    };
+    let name = qualified_name.as_str();
+
+    if is_exfiltration_sink(&qualified_name.segments()) {
+        check_direct_exfiltration(checker, call, &name);
+    } else if let Some(binding) = checker.indexer.lookup_binding(&name) {
+        let leaks = binding.parameter_leaks.clone();
+        check_leaked_exfiltration(checker, call, &name, &leaks);
+    }
+}
+
+#[inline]
+fn check_direct_exfiltration(checker: &mut Checker, call: &ast::ExprCall, name: &str) {
     let mut found_taint = None;
-    let mut confidence = AuditConfidence::High;
+
+    let mut process_taints =
+        |indexer: &mut crate::indexer::index::NodeIndexer,
+         taints: &crate::indexer::taint::TaintState| {
+            for taint in taints {
+                if let TaintKind::InternalParameter(i) = taint {
+                    indexer.add_parameter_leak(*i, name.to_string());
+                }
+                if found_taint.is_none() {
+                    if let Some(conf) = get_exfil_confidence(taint) {
+                        found_taint = Some((*taint, conf));
+                    }
+                }
+            }
+        };
 
     for arg in &call.arguments.args {
         let taints = checker.indexer.get_taint(arg);
-        if let Some((taint, conf)) = taints
-            .iter()
-            .find_map(|t| get_exfil_confidence(t).map(|c| (t, c)))
-        {
-            found_taint = Some(*taint);
-            confidence = conf;
-            break;
-        }
+        process_taints(&mut checker.indexer, &taints);
+    }
+    for kw in &call.arguments.keywords {
+        let taints = checker.indexer.get_taint(&kw.value);
+        process_taints(&mut checker.indexer, &taints);
     }
 
-    if found_taint.is_none() {
-        for kw in &call.arguments.keywords {
-            let taints = checker.indexer.get_taint(&kw.value);
-            if let Some((taint, conf)) = taints
-                .iter()
-                .find_map(|t| get_exfil_confidence(t).map(|c| (t, c)))
-            {
-                found_taint = Some(*taint);
-                confidence = conf;
-                break;
-            }
-        }
-    }
-
-    if let Some(taint) = found_taint {
+    if let Some((taint, confidence)) = found_taint {
         checker.audit_results.push(AuditItem {
-            label: qualified_name.as_str(),
+            label: name.to_string(),
             rule: Rule::DataExfiltration,
             description: format!(
                 "Potential data exfiltration with {:?} data via {}.",
-                taint,
-                qualified_name.as_str()
+                taint, name
             ),
             confidence,
             location: Some(call.range),
         });
+    }
+}
+
+#[inline]
+fn check_leaked_exfiltration(
+    checker: &mut Checker,
+    call: &ast::ExprCall,
+    name: &str,
+    leaks: &[(usize, String)],
+) {
+    for (param_idx, sink_name) in leaks {
+        let Some(arg) = call.arguments.args.get(*param_idx) else {
+            continue;
+        };
+
+        for taint in checker.indexer.get_taint(arg) {
+            if let Some(confidence) = get_exfil_confidence(&taint) {
+                checker.audit_results.push(AuditItem {
+                    label: name.to_string(),
+                    rule: Rule::DataExfiltration,
+                    description: format!(
+                        "Potential data exfiltration with {:?} data via {} (leaks to {}).",
+                        taint, name, sink_name
+                    ),
+                    confidence,
+                    location: Some(call.range),
+                });
+                break;
+            }
+        }
     }
 }
 
@@ -189,6 +223,7 @@ mod tests {
     #[test_case("exfil_01.py", Rule::DataExfiltration, vec!["urllib.request.request.urlopen"])]
     #[test_case("exfil_02.py", Rule::DataExfiltration, vec!["requests.get"])]
     #[test_case("exfil_03.py", Rule::DataExfiltration, vec!["socket.socket.send"])]
+    #[test_case("exfil_04.py", Rule::DataExfiltration, vec!["send_data", "send_data"])]
     fn test_exfiltration(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

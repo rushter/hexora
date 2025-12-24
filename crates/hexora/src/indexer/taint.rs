@@ -12,6 +12,7 @@ pub enum TaintKind {
     NetworkSourced,
     Fingerprinting,
     EnvVariables,
+    InternalParameter(usize),
 }
 
 pub type TaintState = HashSet<TaintKind>;

@@ -19,6 +19,7 @@ pub struct SymbolBinding<'a> {
     pub function_def: Option<&'a StmtFunctionDef>,
     pub taint: TaintState,
     pub return_taint: TaintState,
+    pub parameter_leaks: Vec<(usize, String)>,
 }
 
 impl<'a> SymbolBinding<'a> {
@@ -31,6 +32,7 @@ impl<'a> SymbolBinding<'a> {
             function_def: None,
             taint: HashSet::new(),
             return_taint: HashSet::new(),
+            parameter_leaks: Vec::new(),
         }
     }
 
@@ -43,6 +45,7 @@ impl<'a> SymbolBinding<'a> {
             function_def: None,
             taint: HashSet::new(),
             return_taint: HashSet::new(),
+            parameter_leaks: Vec::new(),
         }
     }
 
@@ -60,6 +63,7 @@ impl<'a> SymbolBinding<'a> {
             function_def: None,
             taint: HashSet::new(),
             return_taint: HashSet::new(),
+            parameter_leaks: Vec::new(),
         }
     }
 
@@ -72,6 +76,7 @@ impl<'a> SymbolBinding<'a> {
             function_def: Some(func),
             taint: HashSet::new(),
             return_taint: HashSet::new(),
+            parameter_leaks: Vec::new(),
         }
     }
 
@@ -92,6 +97,7 @@ pub struct Scope<'a> {
     pub kind: ScopeKind,
     pub symbols: HashMap<String, SymbolBinding<'a>>,
     pub parent_scope: Option<usize>,
+    pub parameter_leaks: Vec<(usize, String)>,
 }
 
 impl<'a> Scope<'a> {
@@ -100,6 +106,7 @@ impl<'a> Scope<'a> {
             kind,
             symbols: HashMap::with_capacity(32),
             parent_scope,
+            parameter_leaks: Vec::new(),
         }
     }
 }
