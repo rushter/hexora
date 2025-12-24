@@ -1,5 +1,6 @@
 /// Encrypts strings to avoid false positive detections by antivirus software.
 /// They scan binaries for strings and some of them trigger detection.
+#[macro_export]
 macro_rules! es {
     ($s:expr) => {{
         const KEY: u8 = 0xDE;
@@ -28,4 +29,4 @@ macro_rules! es {
     }};
 }
 
-pub(crate) use es;
+pub use es;

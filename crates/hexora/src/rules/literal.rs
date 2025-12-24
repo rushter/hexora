@@ -2,7 +2,7 @@ use crate::audit::helpers::{ListLike, string_from_expr};
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::model::Transformation;
-use crate::macros::es;
+use hexora_io::macros::es;
 
 use crate::indexer::taint::TaintKind;
 use memchr::memmem;
