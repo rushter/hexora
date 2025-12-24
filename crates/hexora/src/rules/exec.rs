@@ -453,6 +453,7 @@ mod tests {
     #[test_case("exec_14.py", Rule::ShellExec, vec!["subprocess.Popen"])]
     #[test_case("exec_15.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system"])]
     #[test_case("exec_16.py", Rule::DangerousExec, vec!["os.system", "subprocess.run"])]
+    #[test_case("exec_17.py", Rule::ObfuscatedShellExec, vec!["os.system"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

@@ -105,9 +105,16 @@ impl<'a> NodeIndexer<'a> {
                 self.pop_scope();
             }
             Stmt::FunctionDef(func) => {
+                let mut return_taint = TaintState::new();
+                for ret_expr in collect_returns(&func.body) {
+                    return_taint.extend(self.get_taint(ret_expr));
+                }
+
                 self.pop_scope();
                 let symbols = &mut self.current_scope_mut().symbols;
-                symbols.insert(func.name.to_string(), SymbolBinding::function(func));
+                let mut binding = SymbolBinding::function(func);
+                binding.return_taint = return_taint;
+                symbols.insert(func.name.to_string(), binding);
             }
             Stmt::Assign(assign) => {
                 self.handle_assign_stmt(assign);
@@ -204,6 +211,7 @@ impl<'a> NodeIndexer<'a> {
             expr,
             |e| self.get_taint(e),
             |e| self.resolve_qualified_name(e),
+            |e| self.get_function_return_taint(e),
         );
 
         if !taints.is_empty() {
@@ -214,6 +222,17 @@ impl<'a> NodeIndexer<'a> {
                 .or_default()
                 .extend(taints);
         }
+    }
+
+    pub fn get_function_return_taint(&self, expr: &Expr) -> TaintState {
+        if let Expr::Call(call) = expr {
+            if let Expr::Name(func_name) = call.func.as_ref() {
+                if let Some(binding) = self.lookup_binding(func_name.id.as_str()) {
+                    return binding.return_taint.clone();
+                }
+            }
+        }
+        TaintState::new()
     }
 
     pub fn visit_node<T>(&self, node: &T)
@@ -589,6 +608,52 @@ impl<'a> NodeIndexer<'a> {
             .rfind(|(_, scope)| scope.kind == ScopeKind::Class)
             .map(|(i, _)| i)
     }
+}
+
+fn collect_returns(body: &[Stmt]) -> Vec<&Expr> {
+    let mut returns = Vec::new();
+    for stmt in body {
+        match stmt {
+            Stmt::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    returns.push(value.as_ref());
+                }
+            }
+            Stmt::If(if_stmt) => {
+                returns.extend(collect_returns(&if_stmt.body));
+                for clause in &if_stmt.elif_else_clauses {
+                    returns.extend(collect_returns(&clause.body));
+                }
+            }
+            Stmt::For(for_stmt) => {
+                returns.extend(collect_returns(&for_stmt.body));
+                returns.extend(collect_returns(&for_stmt.orelse));
+            }
+            Stmt::While(while_stmt) => {
+                returns.extend(collect_returns(&while_stmt.body));
+                returns.extend(collect_returns(&while_stmt.orelse));
+            }
+            Stmt::With(with_stmt) => {
+                returns.extend(collect_returns(&with_stmt.body));
+            }
+            Stmt::Try(try_stmt) => {
+                returns.extend(collect_returns(&try_stmt.body));
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    returns.extend(collect_returns(&h.body));
+                }
+                returns.extend(collect_returns(&try_stmt.orelse));
+                returns.extend(collect_returns(&try_stmt.finalbody));
+            }
+            Stmt::Match(match_stmt) => {
+                for case in &match_stmt.cases {
+                    returns.extend(collect_returns(&case.body));
+                }
+            }
+            _ => {}
+        }
+    }
+    returns
 }
 
 impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {

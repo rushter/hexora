@@ -18,6 +18,7 @@ pub struct SymbolBinding<'a> {
     pub assigned_expressions: Vec<&'a Expr>,
     pub function_def: Option<&'a StmtFunctionDef>,
     pub taint: TaintState,
+    pub return_taint: TaintState,
 }
 
 impl<'a> SymbolBinding<'a> {
@@ -29,6 +30,7 @@ impl<'a> SymbolBinding<'a> {
             assigned_expressions: Vec::new(),
             function_def: None,
             taint: HashSet::new(),
+            return_taint: HashSet::new(),
         }
     }
 
@@ -40,6 +42,7 @@ impl<'a> SymbolBinding<'a> {
             assigned_expressions: Vec::new(),
             function_def: None,
             taint: HashSet::new(),
+            return_taint: HashSet::new(),
         }
     }
 
@@ -56,6 +59,7 @@ impl<'a> SymbolBinding<'a> {
             assigned_expressions,
             function_def: None,
             taint: HashSet::new(),
+            return_taint: HashSet::new(),
         }
     }
 
@@ -67,6 +71,7 @@ impl<'a> SymbolBinding<'a> {
             assigned_expressions: Vec::new(),
             function_def: Some(func),
             taint: HashSet::new(),
+            return_taint: HashSet::new(),
         }
     }
 

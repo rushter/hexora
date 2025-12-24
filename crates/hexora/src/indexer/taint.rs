@@ -118,6 +118,7 @@ pub fn compute_expr_taint(
     expr: &Expr,
     get_taint: impl Fn(&Expr) -> TaintState,
     resolve_qualified_name: impl Fn(&Expr) -> Option<QualifiedName>,
+    get_function_return_taint: impl Fn(&Expr) -> TaintState,
 ) -> TaintState {
     let mut taints = TaintState::new();
 
@@ -164,6 +165,9 @@ pub fn compute_expr_taint(
                     taints.insert(taint);
                 }
             }
+
+            // Also check for local function return taints
+            taints.extend(get_function_return_taint(expr));
 
             // Propagate taint from arguments for certain functions
             let should_propagate = if let Some(qn) = qn {
