@@ -226,10 +226,21 @@ impl<'a> NodeIndexer<'a> {
 
     pub fn get_function_return_taint(&self, expr: &Expr) -> TaintState {
         if let Expr::Call(call) = expr {
-            if let Expr::Name(func_name) = call.func.as_ref() {
-                if let Some(binding) = self.lookup_binding(func_name.id.as_str()) {
-                    return binding.return_taint.clone();
+            match call.func.as_ref() {
+                Expr::Name(func_name) => {
+                    if let Some(binding) = self.lookup_binding(func_name.id.as_str()) {
+                        if !binding.return_taint.is_empty() {
+                            return binding.return_taint.clone();
+                        }
+                        if let Some(Expr::Lambda(lambda)) = binding.value_expr {
+                            return self.get_taint(&lambda.body);
+                        }
+                    }
                 }
+                Expr::Lambda(lambda) => {
+                    return self.get_taint(&lambda.body);
+                }
+                _ => {}
             }
         }
         TaintState::new()
@@ -695,6 +706,7 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
     fn visit_comprehension(&mut self, comprehension: &'a Comprehension) {
         self.visit_node(comprehension);
         walk_comprehension(self, comprehension);
+        self.handle_assignment_target(&comprehension.target, &comprehension.iter);
     }
 
     #[inline]

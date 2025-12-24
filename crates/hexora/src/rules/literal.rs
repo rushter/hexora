@@ -49,7 +49,7 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
         ("Coinbase", AuditConfidence::Low),
         ("Discord", AuditConfidence::Low),
         ("Electrum", AuditConfidence::Low),
-        ("exodus.wallet", AuditConfidence::Medium),
+        ("exodus.wallet", AuditConfidence::High),
         ("Guarda", AuditConfidence::Low),
         ("Jaxx", AuditConfidence::Low),
         ("KeePass", AuditConfidence::Low),

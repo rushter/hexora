@@ -5,6 +5,7 @@ use crate::indexer::taint::TaintKind;
 
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
+use ruff_python_ast::HasNodeIndex;
 
 static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
@@ -18,7 +19,10 @@ static DANGEROUS_COMMANDS: &[&str] = &[
     "/bin/sh",
     "base64",
     "/dev/tcp",
+    "start /B",
 ];
+
+const MAX_DEPTH: u32 = 10;
 
 pub fn is_shell_command(segments: &[&str]) -> bool {
     match segments {
@@ -189,6 +193,24 @@ fn get_taint_metadata(taint: TaintKind) -> (AuditConfidence, &'static str, &'sta
 }
 
 fn contains_suspicious_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+    contains_suspicious_expr_limited(checker, expr, 0)
+}
+
+fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+
+    if let Some(id) = expr.node_index().load().as_u32() {
+        if let Some(exprs) = checker.indexer.model.expr_mapping.get(&id) {
+            for &e in exprs {
+                if contains_suspicious_expr_limited(checker, e, depth + 1) {
+                    return true;
+                }
+            }
+        }
+    }
+
     match expr {
         ast::Expr::Call(call) => {
             if let Some(qn) = checker.indexer.get_qualified_name(call) {
@@ -206,23 +228,26 @@ fn contains_suspicious_expr(checker: &Checker, expr: &ast::Expr) -> bool {
                 }
             }
 
-            if contains_suspicious_expr(checker, &call.func) {
+            if contains_suspicious_expr_limited(checker, &call.func, depth + 1) {
                 return true;
             }
 
             for arg in &call.arguments.args {
-                if contains_suspicious_expr(checker, arg) {
+                if contains_suspicious_expr_limited(checker, arg, depth + 1) {
                     return true;
                 }
             }
             for kw in &call.arguments.keywords {
-                if contains_suspicious_expr(checker, &kw.value) {
+                if contains_suspicious_expr_limited(checker, &kw.value, depth + 1) {
                     return true;
                 }
             }
         }
         ast::Expr::Attribute(attr) => {
-            return contains_suspicious_expr(checker, &attr.value);
+            return contains_suspicious_expr_limited(checker, &attr.value, depth + 1);
+        }
+        ast::Expr::Lambda(lambda) => {
+            return contains_suspicious_expr_limited(checker, &lambda.body, depth + 1);
         }
         _ => {}
     }
@@ -245,9 +270,10 @@ fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
 
 fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
+    let is_highly_suspicious = is_highly_suspicious_exec(checker, call);
 
     if contains_dangerous_exec(checker, call) {
-        let is_obf = suspicious_taint.is_some() || is_highly_suspicious_exec(checker, call);
+        let is_obf = suspicious_taint.is_some() || is_highly_suspicious;
         checker.audit_results.push(AuditItem {
             label,
             rule: Rule::DangerousExec,
@@ -269,6 +295,12 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
             format!("Execution of {}.", desc),
             confidence,
         )
+    } else if is_highly_suspicious {
+        (
+            Rule::ObfuscatedShellExec,
+            "Execution of obfuscated shell command.".to_string(),
+            AuditConfidence::High,
+        )
     } else {
         (
             Rule::ShellExec,
@@ -277,7 +309,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
         )
     };
 
-    if is_highly_suspicious_exec(checker, call) {
+    if is_highly_suspicious {
         confidence = AuditConfidence::High;
     }
 
@@ -292,6 +324,7 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
 
 fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
     let suspicious_taint = get_call_suspicious_taint(checker, call);
+    let is_highly_suspicious = is_highly_suspicious_exec(checker, call);
 
     let (rule, description, mut confidence) = if let Some(taint) = suspicious_taint {
         let (confidence, _, desc) = get_taint_metadata(taint);
@@ -299,6 +332,12 @@ fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
             Rule::ObfuscatedCodeExec,
             format!("Execution of {}.", desc),
             confidence,
+        )
+    } else if is_highly_suspicious {
+        (
+            Rule::ObfuscatedCodeExec,
+            "Execution of obfuscated code.".to_string(),
+            AuditConfidence::High,
         )
     } else {
         (
@@ -308,7 +347,7 @@ fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) 
         )
     };
 
-    if is_highly_suspicious_exec(checker, call) {
+    if is_highly_suspicious {
         confidence = AuditConfidence::High;
     }
 
@@ -454,6 +493,8 @@ mod tests {
     #[test_case("exec_15.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system"])]
     #[test_case("exec_16.py", Rule::DangerousExec, vec!["os.system", "subprocess.run"])]
     #[test_case("exec_17.py", Rule::ObfuscatedShellExec, vec!["os.system"])]
+    #[test_case("exec_19.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
+    #[test_case("exec_20.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

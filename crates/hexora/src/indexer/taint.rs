@@ -262,15 +262,40 @@ pub fn compute_expr_taint(
         }
         Expr::ListComp(lc) => {
             taints.extend(get_taint(&lc.elt));
+            for comp_gen in &lc.generators {
+                taints.extend(get_taint(&comp_gen.iter));
+                for if_ in &comp_gen.ifs {
+                    taints.extend(get_taint(if_));
+                }
+            }
         }
         Expr::SetComp(sc) => {
             taints.extend(get_taint(&sc.elt));
+            for comp_gen in &sc.generators {
+                taints.extend(get_taint(&comp_gen.iter));
+                for if_ in &comp_gen.ifs {
+                    taints.extend(get_taint(if_));
+                }
+            }
         }
         Expr::DictComp(dc) => {
+            taints.extend(get_taint(&dc.key));
             taints.extend(get_taint(&dc.value));
+            for comp_gen in &dc.generators {
+                taints.extend(get_taint(&comp_gen.iter));
+                for if_ in &comp_gen.ifs {
+                    taints.extend(get_taint(if_));
+                }
+            }
         }
         Expr::Generator(r#gen) => {
             taints.extend(get_taint(&r#gen.elt));
+            for comp_gen in &r#gen.generators {
+                taints.extend(get_taint(&comp_gen.iter));
+                for if_ in &comp_gen.ifs {
+                    taints.extend(get_taint(if_));
+                }
+            }
         }
         Expr::Await(aw) => {
             taints.extend(get_taint(&aw.value));
