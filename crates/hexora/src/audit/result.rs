@@ -52,8 +52,6 @@ pub enum Rule {
     // Execution
     CodeExec,
     ShellExec,
-    DunderShellExec,
-    DunderCodeExec,
     DLLInjection,
     DangerousExec,
     SuspiciousCall,
@@ -61,8 +59,6 @@ pub enum Rule {
     // Obfuscation/Execution
     ObfuscatedShellExec,
     ObfuscatedCodeExec,
-    ObfuscatedDunderShellExec,
-    ObfuscatedDunderCodeExec,
 
     // Imports
     DunderImport,
@@ -128,8 +124,6 @@ impl Rule {
             // Execution: HX3000
             Rule::CodeExec => "HX3000",
             Rule::ShellExec => "HX3010",
-            Rule::DunderShellExec => "HX3020",
-            Rule::DunderCodeExec => "HX3030",
             Rule::DLLInjection => "HX3040",
             Rule::DangerousExec => "HX3050",
             Rule::SuspiciousCall => "HX3060",
@@ -137,8 +131,6 @@ impl Rule {
             // Obfuscation/Execution: HX4000
             Rule::ObfuscatedShellExec => "HX4000",
             Rule::ObfuscatedCodeExec => "HX4010",
-            Rule::ObfuscatedDunderShellExec => "HX4020",
-            Rule::ObfuscatedDunderCodeExec => "HX4030",
 
             // Imports: HX5000
             Rule::DunderImport => "HX5000",
@@ -193,8 +185,6 @@ impl Rule {
             // Execution
             Rule::CodeExec => "Possible code execution.",
             Rule::ShellExec => "Execution of a shell command.",
-            Rule::DunderShellExec => "Execution of a shell command via `__import__`.",
-            Rule::DunderCodeExec => "Execution of code via `__import__`.",
             Rule::DLLInjection => "Possible DLL injection.",
             Rule::DangerousExec => {
                 "Execution of potentially dangerous command inside a shell command."
@@ -204,10 +194,6 @@ impl Rule {
             // Obfuscation/Execution
             Rule::ObfuscatedShellExec => "Execution of an obfuscated shell command.",
             Rule::ObfuscatedCodeExec => "Execution of obfuscated code.",
-            Rule::ObfuscatedDunderShellExec => {
-                "Execution of an obfuscated shell command via `__import__`."
-            }
-            Rule::ObfuscatedDunderCodeExec => "Execution of obfuscated code via `__import__`.",
 
             // Imports
             Rule::DunderImport => "Suspicious use of `__import__`.",
@@ -267,12 +253,6 @@ impl Rule {
             }
             Rule::ObfuscatedCodeExec => {
                 Some("Obfuscated code exec can be used to bypass detection.")
-            }
-            Rule::ObfuscatedDunderShellExec => {
-                Some("Obfuscated shell command via `__import__`. Used to bypass detection.")
-            }
-            Rule::ObfuscatedDunderCodeExec => {
-                Some("Obfuscated code exec via `__import__`. Used to bypass detection.")
             }
 
             // Imports

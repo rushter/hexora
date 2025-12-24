@@ -93,6 +93,15 @@ Some libraries or code snippets are used for legit purposes, and it's hard to di
 malicious ones.
 That's why some matches have a low confidence level.
 
+Some rules can have different confidence levels. Avoid filtering a lot of rules by codes unless you are
+very confident. For example, code and shell execution can have medium, high, and very high confidence.
+This depends on how the code was executed. If we detect an obfuscation attempt, we elevate confidence.
+
+For example, this code will have a high confidence:
+```
+globals()["__builtins__"].eval("print(123)")
+```
+
 ## Usage in Python
 
 ```python
@@ -134,15 +143,11 @@ Right now, the following rules are available:
 | HX2010 | EnvAccess | Access to a sensitive environment variable. |
 | HX3000 | CodeExec | Possible code execution. |
 | HX3010 | ShellExec | Execution of a shell command. |
-| HX3020 | DunderShellExec | Execution of a shell command via `__import__`. |
-| HX3030 | DunderCodeExec | Execution of code via `__import__`. |
 | HX3040 | DLLInjection | Possible DLL injection. |
 | HX3050 | DangerousExec | Execution of potentially dangerous command inside a shell command. |
 | HX3060 | SuspiciousCall | Suspicious function call. |
 | HX4000 | ObfuscatedShellExec | Execution of an obfuscated shell command. |
 | HX4010 | ObfuscatedCodeExec | Execution of obfuscated code. |
-| HX4020 | ObfuscatedDunderShellExec | Execution of an obfuscated shell command via `__import__`. |
-| HX4030 | ObfuscatedDunderCodeExec | Execution of obfuscated code via `__import__`. |
 | HX5000 | DunderImport | Suspicious use of `__import__`. |
 | HX5010 | SuspiciousImport | Suspicious import. |
 | HX5020 | CtypesImport | Suspicious ctypes import. |
@@ -166,6 +171,7 @@ Right now, the following rules are available:
 | HX8000 | BinaryDownload | Suspicious binary download. |
 | HX8010 | BuiltinsVariable | Suspicious builtin variable usage. |
 | HX8020 | SuspiciousComment | Suspicious comment. |
+| HX8030 | SuspiciousWrite | Suspicious write to the filesystem. |
 
 ## Credits
 
