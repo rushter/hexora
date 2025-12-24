@@ -3,12 +3,8 @@ use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::taint::TaintKind;
 
-use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
-
-static SUSPICIOUS_IMPORTS: Lazy<&[&str]> =
-    Lazy::new(|| &["os", "subprocess", "popen2", "commands"]);
 
 static DANGEROUS_COMMANDS: &[&str] = &[
     "curl",
@@ -216,13 +212,19 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
             if let Some(qn) = checker.indexer.get_qualified_name(call) {
                 let segments = qn.segments();
                 if segments.len() == 1 {
-                    if matches!(segments[0], "__import__" | "compile") {
+                    if matches!(
+                        segments[0],
+                        "__import__" | "compile" | "getattr" | "globals" | "locals" | "vars"
+                    ) {
                         return true;
                     }
                 } else if segments.len() == 2
                     && (segments[0] == "builtins" || segments[0] == "__builtins__")
                 {
-                    if matches!(segments[1], "__import__" | "compile") {
+                    if matches!(
+                        segments[1],
+                        "__import__" | "compile" | "getattr" | "globals" | "locals" | "vars"
+                    ) {
                         return true;
                     }
                 }
@@ -246,6 +248,12 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
         ast::Expr::Attribute(attr) => {
             return contains_suspicious_expr_limited(checker, &attr.value, depth + 1);
         }
+        ast::Expr::Subscript(sub) => {
+            if contains_suspicious_expr_limited(checker, &sub.value, depth + 1) {
+                return true;
+            }
+            return contains_suspicious_expr_limited(checker, &sub.slice, depth + 1);
+        }
         ast::Expr::Lambda(lambda) => {
             return contains_suspicious_expr_limited(checker, &lambda.body, depth + 1);
         }
@@ -255,6 +263,9 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
 }
 
 fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
+    if contains_suspicious_expr(checker, &call.func) {
+        return true;
+    }
     for arg in &call.arguments.args {
         if contains_suspicious_expr(checker, arg) {
             return true;
@@ -268,11 +279,57 @@ fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
     false
 }
 
-fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
+pub fn is_shell_command_name(name: &str) -> bool {
+    let segments: Vec<&str> = name.split('.').collect();
+    is_shell_command(&segments)
+}
+
+pub fn is_code_exec_name(name: &str) -> bool {
+    let segments: Vec<&str> = name.split('.').collect();
+    is_code_exec(&segments)
+}
+
+fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &str) {
+    for arg in &call.arguments.args {
+        for taint in checker.indexer.get_taint(arg) {
+            if let TaintKind::InternalParameter(param_idx) = taint {
+                checker
+                    .indexer
+                    .add_parameter_leak(param_idx, label.to_string());
+            }
+        }
+    }
+    for kw in &call.arguments.keywords {
+        for taint in checker.indexer.get_taint(&kw.value) {
+            if let TaintKind::InternalParameter(param_idx) = taint {
+                checker
+                    .indexer
+                    .add_parameter_leak(param_idx, label.to_string());
+            }
+        }
+    }
+}
+
+fn is_dunder_or_builtins(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
+    if label.contains("builtins.")
+        || label.contains("__builtins__.")
+        || label.contains("globals")
+        || label.contains("locals")
+        || label.contains("vars")
+    {
+        return true;
+    }
+
+    contains_suspicious_expr(checker, &call.func)
+}
+
+fn push_report(checker: &mut Checker, call: &ast::ExprCall, label: String, is_shell: bool) {
+    record_execution_leak(checker, call, &label);
     let suspicious_taint = get_call_suspicious_taint(checker, call);
     let is_highly_suspicious = is_highly_suspicious_exec(checker, call);
+    let is_dunder_manipulation = is_dunder_or_builtins(checker, call, &label);
 
-    if contains_dangerous_exec(checker, call) {
+    if is_shell && contains_dangerous_exec(checker, call) {
         let is_obf = suspicious_taint.is_some() || is_highly_suspicious;
         checker.audit_results.push(AuditItem {
             label,
@@ -289,28 +346,50 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
     }
 
     let (rule, description, mut confidence) = if let Some(taint) = suspicious_taint {
-        let (confidence, desc, _) = get_taint_metadata(taint);
-        (
-            Rule::ObfuscatedShellExec,
-            format!("Execution of {}.", desc),
-            confidence,
-        )
+        let (confidence, shell_desc, code_desc) = get_taint_metadata(taint);
+        let rule = if is_shell {
+            Rule::ObfuscatedShellExec
+        } else {
+            Rule::ObfuscatedCodeExec
+        };
+        let desc = if is_shell { shell_desc } else { code_desc };
+        (rule, format!("Execution of {}.", desc), confidence)
     } else if is_highly_suspicious {
+        let rule = if is_shell {
+            Rule::ObfuscatedShellExec
+        } else {
+            Rule::ObfuscatedCodeExec
+        };
+        let desc = if is_shell {
+            "obfuscated shell command"
+        } else {
+            "obfuscated code"
+        };
         (
-            Rule::ObfuscatedShellExec,
-            "Execution of obfuscated shell command.".to_string(),
+            rule,
+            format!("Execution of {}.", desc),
             AuditConfidence::High,
         )
     } else {
-        (
-            Rule::ShellExec,
-            "Possible execution of unwanted shell command.".to_string(),
-            AuditConfidence::Medium,
-        )
+        let rule = if is_shell {
+            Rule::ShellExec
+        } else {
+            Rule::CodeExec
+        };
+        let desc = if is_shell {
+            "Possible execution of unwanted shell command."
+        } else {
+            "Possible execution of unwanted code."
+        };
+        (rule, desc.to_string(), AuditConfidence::Medium)
     };
 
     if is_highly_suspicious {
         confidence = AuditConfidence::High;
+    }
+
+    if is_dunder_manipulation {
+        confidence = AuditConfidence::VeryHigh;
     }
 
     checker.audit_results.push(AuditItem {
@@ -322,136 +401,96 @@ fn push_shell_report(checker: &mut Checker, call: &ast::ExprCall, label: String)
     });
 }
 
-fn push_code_report(checker: &mut Checker, call: &ast::ExprCall, label: String) {
-    let suspicious_taint = get_call_suspicious_taint(checker, call);
-    let is_highly_suspicious = is_highly_suspicious_exec(checker, call);
+fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool) {
+    let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) else {
+        return;
+    };
+    let name = qn.as_str();
+    let Some(binding) = checker.indexer.lookup_binding(&name) else {
+        return;
+    };
 
-    let (rule, description, mut confidence) = if let Some(taint) = suspicious_taint {
-        let (confidence, _, desc) = get_taint_metadata(taint);
-        (
-            Rule::ObfuscatedCodeExec,
-            format!("Execution of {}.", desc),
-            confidence,
-        )
-    } else if is_highly_suspicious {
-        (
-            Rule::ObfuscatedCodeExec,
-            "Execution of obfuscated code.".to_string(),
-            AuditConfidence::High,
-        )
+    let check_fn = if is_shell {
+        is_shell_command_name
     } else {
-        (
-            Rule::CodeExec,
-            "Possible execution of unwanted code.".to_string(),
-            AuditConfidence::Medium,
-        )
+        is_code_exec_name
     };
 
-    if is_highly_suspicious {
-        confidence = AuditConfidence::High;
+    let leaks = binding.parameter_leaks.clone();
+    for (param_idx, sink_name) in leaks {
+        if check_fn(&sink_name) {
+            if let Some(arg) = call.arguments.args.get(param_idx) {
+                let suspicious_taint = get_suspicious_taint(checker, arg);
+                let (rule, description, confidence) = if let Some(taint) = suspicious_taint {
+                    let (conf, shell_desc, code_desc) = get_taint_metadata(taint);
+                    let desc = if is_shell { shell_desc } else { code_desc };
+                    let rule = if is_shell {
+                        Rule::ObfuscatedShellExec
+                    } else {
+                        Rule::ObfuscatedCodeExec
+                    };
+                    (
+                        rule,
+                        format!(
+                            "Execution of {} (via local function {} leaking to {}).",
+                            desc, name, sink_name
+                        ),
+                        conf,
+                    )
+                } else {
+                    let rule = if is_shell {
+                        Rule::ShellExec
+                    } else {
+                        Rule::CodeExec
+                    };
+                    let type_str = if is_shell { "shell command" } else { "code" };
+                    (
+                        rule,
+                        format!(
+                            "Possible execution of unwanted {} (via local function {} leaking to {}).",
+                            type_str, name, sink_name
+                        ),
+                        AuditConfidence::Medium,
+                    )
+                };
+
+                let mut confidence = confidence;
+                if is_dunder_or_builtins(checker, call, &name) {
+                    confidence = AuditConfidence::VeryHigh;
+                }
+
+                checker.audit_results.push(AuditItem {
+                    label: name.clone(),
+                    rule,
+                    description,
+                    confidence,
+                    location: Some(call.range),
+                });
+            }
+        }
     }
-
-    checker.audit_results.push(AuditItem {
-        label,
-        rule,
-        description,
-        confidence,
-        location: Some(call.range),
-    });
-}
-
-fn sys_modules_contain_imports(
-    checker: &Checker,
-    expr: &ast::Expr,
-    imports: &[&str],
-) -> Option<String> {
-    // sys.modules["<module>"]
-    let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = expr else {
-        return None;
-    };
-    let qn = checker.indexer.resolve_qualified_name(value.as_ref())?;
-    if qn.segments() != ["sys", "modules"] {
-        return None;
-    }
-    let key = string_from_expr(slice, &checker.indexer)?;
-    imports.iter().any(|m| m == &key).then_some(key)
-}
-
-fn resolve_import_origin(checker: &Checker, expr: &ast::Expr, imports: &[&str]) -> Option<String> {
-    sys_modules_contain_imports(checker, expr, imports)
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    let qualified_name = checker.indexer.get_qualified_name(call);
-
-    if let Some(qualified_name) = qualified_name
-        && is_shell_command(&qualified_name.segments())
+    if let Some(qn) = checker.indexer.get_qualified_name(call)
+        && is_shell_command(&qn.segments())
     {
-        push_shell_report(checker, call, qualified_name.as_str());
+        push_report(checker, call, qn.as_str(), true);
         return;
     }
 
-    // sys.modules["os"].<func>(...)
-    if let ast::Expr::Attribute(attr) = &*call.func
-        && let Some(module) = resolve_import_origin(checker, &attr.value, *SUSPICIOUS_IMPORTS)
-    {
-        let name = attr.attr.as_str();
-        if is_shell_command(&[module.as_str(), name]) {
-            let label = format!("sys.modules[\"{}\"].{}", module, name);
-            push_shell_report(checker, call, label);
-            return;
-        }
-    }
-
-    // getattr(sys.modules["os"], "<func>")(…)
-    if let ast::Expr::Call(inner_call) = &*call.func {
-        let qn = checker.indexer.get_qualified_name(inner_call);
-
-        if let Some(qn) = qn {
-            let is_getattr = qn.last().map(|s| s == "getattr").unwrap_or(false);
-            if is_getattr {
-                let args = &inner_call.arguments.args;
-                if args.len() >= 2 {
-                    let target = &args[0];
-                    let attr_name = string_from_expr(&args[1], &checker.indexer);
-
-                    if let Some(name) = attr_name
-                        && let Some(module) =
-                            resolve_import_origin(checker, target, *SUSPICIOUS_IMPORTS)
-                        && is_shell_command(&[module.as_str(), name.as_str()])
-                    {
-                        let label = format!("getattr(sys.modules[\"{}\"], \"{}\")", module, name);
-                        push_shell_report(checker, call, label);
-                    }
-                }
-            }
-        }
-    }
+    check_leaked_exec(checker, call, true);
 }
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    let qn = checker.indexer.get_qualified_name(call);
-
-    if let Some(qn) = qn
+    if let Some(qn) = checker.indexer.get_qualified_name(call)
         && is_code_exec(&qn.segments())
     {
-        push_code_report(checker, call, qn.as_str());
+        push_report(checker, call, qn.as_str(), false);
         return;
     }
 
-    // Handle globals()["eval"](...) or g["eval"](...)
-    if let ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) = &*call.func {
-        if let Some(qn) = checker.indexer.resolve_qualified_name(value) {
-            let segments = qn.segments();
-            if segments.len() == 1 && matches!(segments[0], "globals" | "locals" | "vars") {
-                if let Some(attr_name) = string_from_expr(slice, &checker.indexer) {
-                    if is_code_exec(&[attr_name.as_str()]) {
-                        push_code_report(checker, call, format!("{}.{}", segments[0], attr_name));
-                    }
-                }
-            }
-        }
-    }
+    check_leaked_exec(checker, call, false);
 }
 
 #[cfg(test)]
@@ -462,8 +501,8 @@ mod tests {
 
     #[test_case("exec_01.py", Rule::ShellExec, vec!["subprocess.call", "os.popen", "subprocess.check_output"])]
     #[test_case("exec_02.py", Rule::CodeExec, vec!["eval", "builtins.exec", "exec", "eval", "exec", "eval", "exec"])]
-    #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec"])]
-    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "subprocess.run"])]
+    #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.exec"])]
+    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system", "subprocess.run"])]
     #[test_case(
         "exec_04.py",
         Rule::ObfuscatedShellExec,
@@ -486,7 +525,7 @@ mod tests {
     #[test_case("exec_07.py", Rule::ObfuscatedCodeExec, vec!["exec", "builtins.exec", "exec"])]
     #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
     #[test_case("exec_09.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval"])]
-    #[test_case("exec_10.py", Rule::CodeExec, vec!["globals.eval"])]
+    #[test_case("exec_10.py", Rule::ObfuscatedCodeExec, vec!["eval"])]
     #[test_case("exec_11.py", Rule::ObfuscatedCodeExec, vec!["exec", "exec"])]
     #[test_case("exec_12.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     #[test_case("exec_14.py", Rule::ShellExec, vec!["subprocess.Popen"])]

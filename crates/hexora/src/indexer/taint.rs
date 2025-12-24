@@ -167,6 +167,13 @@ pub fn compute_expr_taint(
                 }
             }
 
+            // Also check the function itself for taint (e.g. __import__ or getattr)
+            if let Some(func_qn) = resolve_qualified_name(&call.func) {
+                if let Some(taint) = get_call_taint(&func_qn.segments(), call) {
+                    taints.insert(taint);
+                }
+            }
+
             // Also check for local function return taints
             taints.extend(get_function_return_taint(expr));
 

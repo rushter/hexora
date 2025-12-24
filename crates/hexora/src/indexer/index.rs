@@ -428,6 +428,7 @@ impl<'a> NodeIndexer<'a> {
         let res = match expr {
             Expr::Name(name) => self.resolve_name_path(name, context),
             Expr::Attribute(attr) => self.resolve_attribute_path(attr, context),
+            Expr::Subscript(sub) => self.resolve_subscript_path(sub, context),
             Expr::BinOp(binop) if matches!(binop.op, Operator::Add) => {
                 self.resolve_binop_path(binop, context)
             }
@@ -445,6 +446,24 @@ impl<'a> NodeIndexer<'a> {
                 .insert(node_id, res.clone());
         }
         res
+    }
+
+    fn resolve_subscript_path(
+        &self,
+        sub: &ExprSubscript,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
+        let segments: Vec<&str> = value_path.iter().map(|s| s.as_str()).collect();
+        match segments.as_slice() {
+            ["globals"]
+            | ["locals"]
+            | ["vars"]
+            | ["sys", "modules"]
+            | ["builtins"]
+            | ["__builtins__"] => self.resolve_expr_import_path_internal(&sub.slice, context),
+            _ => None,
+        }
     }
 
     fn resolve_name_path(
@@ -499,8 +518,29 @@ impl<'a> NodeIndexer<'a> {
         call: &ExprCall,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<String>> {
+        if let Some(node_id) = call.node_index().load().as_u32() {
+            if let Some(exprs) = self.model.expr_mapping.get(&node_id) {
+                if let Some(last_expr) = exprs.last() {
+                    return self.resolve_expr_import_path_internal(last_expr, context);
+                }
+            }
+        }
+
         let qn = self.resolve_qualified_name_internal(&call.func)?;
         match qn.segments().as_slice() {
+            ["__import__"] | ["builtins" | "__builtins__", "__import__"]
+                if !call.arguments.args.is_empty() =>
+            {
+                let arg_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                Some(
+                    arg_path
+                        .join("")
+                        .split('.')
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            }
             ["importlib", "import_module"] if !call.arguments.args.is_empty() => {
                 let arg_path =
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
