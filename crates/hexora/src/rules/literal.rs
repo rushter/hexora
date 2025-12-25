@@ -1,4 +1,3 @@
-use crate::audit::helpers::{ListLike, string_from_expr};
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::model::Transformation;
@@ -12,6 +11,7 @@ use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
 use ruff_text_size::Ranged;
 use serde::Serialize;
+use crate::indexer::resolver::{string_from_expr, ListLike};
 
 const MAX_PREVIEW_LENGTH: usize = 16;
 const LITERALS_PREVIEW_MAX_COUNT: usize = 5;

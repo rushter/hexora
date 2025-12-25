@@ -1052,7 +1052,7 @@ impl<'a> NodeIndexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::helpers::get_expression_range;
+    use crate::indexer::resolver::get_expression_range;
     use hexora_io::locator::Locator;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::visitor::source_order::SourceOrderVisitor;

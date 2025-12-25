@@ -1,6 +1,6 @@
-use crate::indexer::index::NodeIndexer;
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
+use crate::indexer::index::NodeIndexer;
 
 /// Returns the range of an expression.
 #[inline]

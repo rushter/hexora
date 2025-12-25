@@ -6,3 +6,4 @@ pub mod node_transformer;
 pub mod scope;
 pub mod strings;
 pub mod taint;
+pub mod resolver;

@@ -1,4 +1,4 @@
-use crate::audit::helpers::get_expression_range;
+use crate::indexer::resolver::get_expression_range;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use once_cell::sync::Lazy;
