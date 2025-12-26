@@ -535,7 +535,7 @@ impl<'a> NodeIndexer<'a> {
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
                 Some(
                     arg_path
-                        .join("")
+                        .join(".")
                         .split('.')
                         .map(|s| s.to_string())
                         .collect(),
@@ -546,7 +546,7 @@ impl<'a> NodeIndexer<'a> {
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
                 Some(
                     arg_path
-                        .join("")
+                        .join(".")
                         .split('.')
                         .map(|s| s.to_string())
                         .collect(),
@@ -1019,7 +1019,12 @@ impl<'a> NodeIndexer<'a> {
             }
 
             if !taint.is_empty() {
-                self.model.taint_map.borrow_mut().insert(node_id, taint);
+                self.model
+                    .taint_map
+                    .borrow_mut()
+                    .entry(node_id)
+                    .or_default()
+                    .extend(taint);
             }
         }
     }
@@ -1043,7 +1048,12 @@ impl<'a> NodeIndexer<'a> {
             }
 
             if !taint.is_empty() {
-                self.model.taint_map.borrow_mut().insert(node_id, taint);
+                self.model
+                    .taint_map
+                    .borrow_mut()
+                    .entry(node_id)
+                    .or_default()
+                    .extend(taint);
             }
         }
     }
