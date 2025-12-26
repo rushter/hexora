@@ -284,6 +284,12 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             confidence: AuditConfidence::VeryHigh,
             rule: Rule::SuspiciousLiteral,
         },
+        SuspiciousLiteral{
+            pattern:"pwned".to_string(),
+            description: "pwned detected in a literal. Potential harmful code.".to_string(),
+            confidence: AuditConfidence::Medium,
+            rule: Rule::SuspiciousLiteral,
+        },
 
 
     ];
