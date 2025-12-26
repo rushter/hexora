@@ -71,6 +71,13 @@ fn test_string_interpolation() {
 }
 
 #[test]
+fn test_string_mod_formatting() {
+    let source = r#"a = "echo %s | bash" % "cmd""#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "echo %s | bash"));
+}
+
+#[test]
 fn test_fstring_variable_replacement_simple() {
     let source = unindent(
         r#"

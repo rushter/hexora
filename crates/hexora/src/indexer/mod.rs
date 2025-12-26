@@ -3,7 +3,7 @@ pub mod index;
 pub mod model;
 pub mod name;
 pub mod node_transformer;
+pub mod resolver;
 pub mod scope;
 pub mod strings;
 pub mod taint;
-pub mod resolver;

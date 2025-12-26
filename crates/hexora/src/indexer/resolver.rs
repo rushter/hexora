@@ -1,6 +1,6 @@
+use crate::indexer::index::NodeIndexer;
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
-use crate::indexer::index::NodeIndexer;
 
 /// Returns the range of an expression.
 #[inline]
@@ -77,17 +77,59 @@ impl ListLike for ast::ExprTuple {
 pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<String> {
     match expr {
         ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
+        ast::Expr::BinOp(ast::ExprBinOp {
+            left,
+            op: ast::Operator::Add,
+            right,
+            ..
+        }) => {
+            let l = string_from_expr(left, indexer).unwrap_or_default();
+            let r = string_from_expr(right, indexer).unwrap_or_default();
+            if l.is_empty() && r.is_empty() {
+                None
+            } else {
+                Some(l + &r)
+            }
+        }
+        ast::Expr::BinOp(ast::ExprBinOp {
+            left,
+            op: ast::Operator::Mod,
+            ..
+        }) => string_from_expr(left, indexer),
+        ast::Expr::FString(f) => {
+            let mut res = String::new();
+            for part in &f.value {
+                match part {
+                    ast::FStringPart::Literal(lit) => res.push_str(&lit.value),
+                    ast::FStringPart::FString(fstring) => {
+                        for element in &fstring.elements {
+                            match element {
+                                ast::InterpolatedStringElement::Literal(lit) => {
+                                    res.push_str(lit.as_ref());
+                                }
+                                ast::InterpolatedStringElement::Interpolation(interp) => {
+                                    if let Some(s) = string_from_expr(&interp.expression, indexer) {
+                                        res.push_str(&s);
+                                    } else if let ast::Expr::Name(name) = interp.expression.as_ref()
+                                    {
+                                        res.push_str(&format!("{{{}}}", name.id.as_str()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if res.is_empty() { None } else { Some(res) }
+        }
         ast::Expr::Name(ast::ExprName { node_index, .. }) => {
             let external_expr = indexer.get_exprs_by_index(node_index)?;
             let mut string = String::new();
             let mut found = false;
             for expr in external_expr {
-                match expr {
-                    ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
-                        string.push_str(value.to_str());
-                        found = true;
-                    }
-                    _ => continue,
+                if let Some(s) = string_from_expr(expr, indexer) {
+                    string.push_str(&s);
+                    found = true;
                 }
             }
             if found { Some(string) } else { None }

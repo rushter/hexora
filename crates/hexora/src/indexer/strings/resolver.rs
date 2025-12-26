@@ -5,17 +5,59 @@ use ruff_python_ast::{self as ast, HasNodeIndex};
 impl<'a> NodeTransformer<'a> {
     pub(crate) fn get_resolved_exprs(&self, expr: &ast::Expr) -> Option<Vec<ast::Expr>> {
         let node_id = expr.node_index().load().as_u32()?;
-        let exprs = self.indexer.model.expr_mapping.get(&node_id).cloned()?;
-        Some(
-            exprs
-                .iter()
-                .map(|&e| {
-                    let mut cloned = e.clone();
-                    self.visit_expr(&mut cloned);
-                    cloned
-                })
-                .collect(),
-        )
+
+        if let Some(cached) = self
+            .indexer
+            .model
+            .transformed_exprs_cache
+            .borrow()
+            .get(&node_id)
+        {
+            return Some(cached.clone());
+        }
+
+        if !self
+            .indexer
+            .model
+            .currently_resolving
+            .borrow_mut()
+            .insert(node_id)
+        {
+            return None;
+        }
+
+        let res = self
+            .indexer
+            .model
+            .expr_mapping
+            .get(&node_id)
+            .cloned()
+            .map(|exprs| {
+                exprs
+                    .iter()
+                    .map(|&e| {
+                        let mut cloned = e.clone();
+                        self.visit_expr(&mut cloned);
+                        cloned
+                    })
+                    .collect::<Vec<ast::Expr>>()
+            });
+
+        self.indexer
+            .model
+            .currently_resolving
+            .borrow_mut()
+            .remove(&node_id);
+
+        if let Some(ref r) = res {
+            self.indexer
+                .model
+                .transformed_exprs_cache
+                .borrow_mut()
+                .insert(node_id, r.clone());
+        }
+
+        res
     }
 
     pub(crate) fn resolve_expr_to_string(&self, expr: &ast::Expr) -> Option<String> {

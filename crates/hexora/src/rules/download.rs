@@ -1,6 +1,6 @@
-use crate::indexer::resolver::string_from_expr;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::resolver::string_from_expr;
 use crate::rules::exec::get_call_suspicious_taint;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;

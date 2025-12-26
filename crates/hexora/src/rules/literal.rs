@@ -3,6 +3,7 @@ use crate::indexer::checker::Checker;
 use crate::indexer::model::Transformation;
 use hexora_io::macros::es;
 
+use crate::indexer::resolver::{ListLike, string_from_expr};
 use crate::indexer::taint::TaintKind;
 use memchr::memmem;
 use once_cell::sync::Lazy;
@@ -11,7 +12,6 @@ use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
 use ruff_text_size::Ranged;
 use serde::Serialize;
-use crate::indexer::resolver::{string_from_expr, ListLike};
 
 const MAX_PREVIEW_LENGTH: usize = 16;
 const LITERALS_PREVIEW_MAX_COUNT: usize = 5;

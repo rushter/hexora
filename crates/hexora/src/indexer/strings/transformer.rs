@@ -63,6 +63,52 @@ impl<'a> NodeTransformer<'a> {
             return Some(self.make_string_expr(sub.range, rev, transformation));
         }
 
+        let base_exprs = self
+            .get_resolved_exprs(&sub.value)
+            .unwrap_or_else(|| vec![sub.value.as_ref().clone()]);
+        for base in base_exprs {
+            // Handle [a, b, c][1]
+            if let Some(elts) = self.iterable_elts(&base) {
+                if let Some(idx) = self.extract_int_literal_u32(&sub.slice) {
+                    if (idx as usize) < elts.len() {
+                        let res = elts[idx as usize].clone();
+                        if let Some(id) = res.node_index().load().as_u32() {
+                            self.indexer
+                                .model
+                                .decoded_nodes
+                                .borrow_mut()
+                                .insert(id, Transformation::Subscript);
+                        }
+                        self.add_deobfuscated_taint(res.node_index());
+                        return Some(res);
+                    }
+                }
+            }
+
+            // Handle {"a": b}["a"]
+            if let ast::Expr::Dict(d) = &base {
+                if let Some(key_str) = self.resolve_expr_to_string(&sub.slice) {
+                    for item in &d.items {
+                        if let Some(k) = &item.key
+                            && let Some(k_str) = self.resolve_expr_to_string(k)
+                            && k_str == key_str
+                        {
+                            let res = item.value.clone();
+                            if let Some(id) = res.node_index().load().as_u32() {
+                                self.indexer
+                                    .model
+                                    .decoded_nodes
+                                    .borrow_mut()
+                                    .insert(id, Transformation::Subscript);
+                            }
+                            self.add_deobfuscated_taint(res.node_index());
+                            return Some(res);
+                        }
+                    }
+                }
+            }
+        }
+
         // Handle sys.modules["os"]
         let qualified = self.indexer.resolve_qualified_name(&sub.value);
         if let Some(name) = qualified
@@ -85,13 +131,13 @@ impl<'a> NodeTransformer<'a> {
 
         if let Some(res) = match segments {
             Some([name]) => match name.as_str() {
-                "getattr" => self.handle_getattr_call(call),
+                "getattr" => self.handle_getattr_call(call, None),
                 "bytes" => self.handle_bytes_constructor(call),
                 "chr" => self.handle_chr_constructor(call),
                 _ => None,
             },
             Some([m, name]) => match (m.as_str(), name.as_str()) {
-                ("builtins" | "__builtins__", "getattr") => self.handle_getattr_call(call),
+                ("builtins" | "__builtins__", "getattr") => self.handle_getattr_call(call, None),
                 ("importlib", "import_module") => self.handle_import_module_call(call),
                 ("binascii", "unhexlify" | "a2b_base64") => self.handle_encoding_call(call, name),
                 ("bytes", "fromhex") => self.handle_encoding_call(call, name),
@@ -115,6 +161,9 @@ impl<'a> NodeTransformer<'a> {
         match attr.attr.as_str() {
             "decode" => self.handle_decode_call(attr, call),
             "join" => self.handle_join_call(attr, call),
+            "__getattr__" | "__getattribute__" | "getattr" => {
+                self.handle_getattr_call(call, Some(attr.value.as_ref()))
+            }
             _ => None,
         }
     }
@@ -157,12 +206,25 @@ impl<'a> NodeTransformer<'a> {
     }
 
     #[inline]
-    fn handle_getattr_call(&self, call: &ast::ExprCall) -> Option<ast::Expr> {
-        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
+    fn handle_getattr_call(
+        &self,
+        call: &ast::ExprCall,
+        base: Option<&ast::Expr>,
+    ) -> Option<ast::Expr> {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.is_empty() {
             return None;
         }
 
-        let attr_name = self.resolve_expr_to_string(&call.arguments.args[1])?;
+        let (base_expr, attr_arg_idx) = if let Some(b) = base {
+            (b, 0)
+        } else {
+            if call.arguments.args.len() < 2 {
+                return None;
+            }
+            (&call.arguments.args[0], 1)
+        };
+
+        let attr_name = self.resolve_expr_to_string(&call.arguments.args[attr_arg_idx])?;
         let (attr_id, ident_id) = (
             self.indexer.get_atomic_index(),
             self.indexer.get_atomic_index(),
@@ -173,7 +235,7 @@ impl<'a> NodeTransformer<'a> {
         Some(ast::Expr::Attribute(ast::ExprAttribute {
             node_index: attr_id,
             range: call.range,
-            value: Box::new(call.arguments.args[0].clone()),
+            value: Box::new(base_expr.clone()),
             attr: ast::Identifier {
                 id: attr_name.into(),
                 range: call.range,

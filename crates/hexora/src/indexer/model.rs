@@ -26,6 +26,7 @@ pub struct SemanticModel<'a> {
     pub taint_map: RefCell<HashMap<NodeId, TaintState>>,
     pub resolve_cache: RefCell<HashMap<NodeId, Option<Vec<String>>>>,
     pub currently_resolving: RefCell<HashSet<NodeId>>,
+    pub transformed_exprs_cache: RefCell<HashMap<NodeId, Vec<Expr>>>,
 }
 
 impl<'a> SemanticModel<'a> {
@@ -38,6 +39,7 @@ impl<'a> SemanticModel<'a> {
             taint_map: RefCell::default(),
             resolve_cache: RefCell::default(),
             currently_resolving: RefCell::default(),
+            transformed_exprs_cache: RefCell::default(),
         }
     }
 
@@ -46,6 +48,7 @@ impl<'a> SemanticModel<'a> {
         self.call_qualified_names.clear();
         self.resolve_cache.get_mut().clear();
         self.currently_resolving.get_mut().clear();
+        self.transformed_exprs_cache.get_mut().clear();
     }
 }
 

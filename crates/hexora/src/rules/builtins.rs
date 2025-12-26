@@ -1,6 +1,6 @@
-use crate::indexer::resolver::string_from_expr;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::resolver::string_from_expr;
 
 use ruff_python_ast as ast;
 
