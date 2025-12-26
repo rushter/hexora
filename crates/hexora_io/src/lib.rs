@@ -56,7 +56,7 @@ pub struct PythonFile {
 impl PythonFile {
     pub fn full_path(&self) -> String {
         match &self.archive_path {
-            Some(zp) => format!("{}:{}", self.file_path.display(), zp.display()),
+            Some(zp) => format!("{}:{}", zp.display(), self.file_path.display()),
             None => self.file_path.display().to_string(),
         }
     }
