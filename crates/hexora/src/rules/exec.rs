@@ -291,7 +291,7 @@ fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &st
     }
 }
 
-fn is_dunder_or_builtins(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
+fn is_obfuscated(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
     label.contains("builtins.")
         || label.contains("__builtins__.")
         || label.contains("globals")
@@ -368,7 +368,7 @@ fn push_report(
         get_call_suspicious_taint(checker, call),
         is_highly_suspicious_exec(checker, call),
     );
-    if is_dunder_or_builtins(checker, call, &label) {
+    if is_obfuscated(checker, call, &label) {
         confidence = AuditConfidence::VeryHigh;
     }
     if let Some(extra) = extra_confidence {
@@ -412,7 +412,7 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
                     name,
                     sink_name
                 );
-                if is_dunder_or_builtins(checker, call, &name) {
+                if is_obfuscated(checker, call, &name) {
                     confidence = AuditConfidence::VeryHigh;
                 }
                 checker.audit_results.push(AuditItem {
