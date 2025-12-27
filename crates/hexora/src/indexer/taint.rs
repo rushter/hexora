@@ -216,6 +216,10 @@ pub fn compute_expr_taint(
                             | "lower"
                             | "upper"
                             | "split"
+                            | "read"
+                            | "readlines"
+                            | "read_bytes"
+                            | "read_text"
                     ) {
                         taints.extend(get_taint(&attr.value));
                     }

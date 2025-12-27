@@ -7,3 +7,5 @@ pub mod resolver;
 pub mod scope;
 pub mod strings;
 pub mod taint;
+#[cfg(test)]
+pub mod tests;

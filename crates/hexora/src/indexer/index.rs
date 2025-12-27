@@ -535,7 +535,7 @@ impl<'a> NodeIndexer<'a> {
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
                 Some(
                     arg_path
-                        .join(".")
+                        .join("")
                         .split('.')
                         .map(|s| s.to_string())
                         .collect(),
@@ -546,7 +546,7 @@ impl<'a> NodeIndexer<'a> {
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
                 Some(
                     arg_path
-                        .join(".")
+                        .join("")
                         .split('.')
                         .map(|s| s.to_string())
                         .collect(),
@@ -752,7 +752,29 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
     #[inline]
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         self.handle_stmt_pre(stmt);
-        walk_stmt(self, stmt);
+        match stmt {
+            Stmt::For(node) => {
+                self.visit_node(node);
+                self.visit_expr(&node.target);
+                self.visit_expr(&node.iter);
+                self.handle_assignment_target(&node.target, &node.iter);
+                self.visit_body(&node.body);
+                self.visit_body(&node.orelse);
+            }
+            Stmt::With(node) => {
+                self.visit_node(node);
+                for item in &node.items {
+                    self.visit_node(item);
+                    self.visit_expr(&item.context_expr);
+                    if let Some(target) = &item.optional_vars {
+                        self.visit_expr(target);
+                        self.handle_assignment_target(target, &item.context_expr);
+                    }
+                }
+                self.visit_body(&node.body);
+            }
+            _ => walk_stmt(self, stmt),
+        }
         self.handle_stmt_post(stmt);
     }
 
@@ -786,6 +808,13 @@ impl<'a> SourceOrderVisitor<'a> for NodeIndexer<'a> {
     fn visit_except_handler(&mut self, except_handler: &'a ExceptHandler) {
         self.visit_node(except_handler);
         walk_except_handler(self, except_handler);
+        let ExceptHandler::ExceptHandler(h) = except_handler;
+        if let Some(name) = &h.name {
+            let binding = SymbolBinding::assignment(None);
+            self.current_scope_mut()
+                .symbols
+                .insert(name.id.to_string(), binding);
+        }
     }
 
     #[inline]
@@ -947,7 +976,7 @@ impl<'a> NodeIndexer<'a> {
                 .unwrap_or_else(|| alias.name.to_string());
             let mut qualified: Vec<String> = Vec::new();
             if import_from_stmt.level > 0 {
-                qualified.push(".".repeat(import_from_stmt.level as usize));
+                qualified.push(".".repeat((import_from_stmt.level - 1) as usize));
             }
             if !base.is_empty() {
                 qualified.extend(base.split('.').map(|s| s.to_string()));
@@ -1056,336 +1085,5 @@ impl<'a> NodeIndexer<'a> {
                     .extend(taint);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::indexer::resolver::get_expression_range;
-    use hexora_io::locator::Locator;
-    use ruff_python_ast::PySourceType;
-    use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
-    use std::collections::HashMap;
-    use unindent::unindent;
-
-    fn convert_to_strings<'a>(
-        locator: &Locator<'a>,
-        mappings: &HashMap<u32, Vec<&Expr>>,
-    ) -> HashMap<u32, Vec<&'a str>> {
-        let mut result: HashMap<u32, Vec<&'a str>> = HashMap::new();
-
-        for (node_id, exprs) in mappings.iter() {
-            let res: Vec<&str> = exprs
-                .iter()
-                .map(|e| locator.slice(get_expression_range(e)))
-                .collect();
-            result.insert(*node_id, res);
-        }
-        result
-    }
-
-    fn get_result(source: &str) -> HashMap<u32, Vec<&str>> {
-        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
-        let locator = Locator::new(source);
-        let python_ast = parsed.suite();
-        let mut indexer = NodeIndexer::new();
-        indexer.visit_body(python_ast);
-        convert_to_strings(&locator, &indexer.model.expr_mapping)
-    }
-
-    fn with_indexer<F, R>(source: &str, f: F) -> R
-    where
-        F: FnOnce(&mut NodeIndexer, &[Stmt]) -> R,
-    {
-        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
-        let suite = parsed.suite();
-        let mut indexer = NodeIndexer::new();
-        indexer.visit_body(suite);
-        f(&mut indexer, suite)
-    }
-
-    fn resolve_call_at_index(
-        indexer: &mut NodeIndexer,
-        suite: &[Stmt],
-        index: usize,
-    ) -> Option<String> {
-        if let Stmt::Expr(StmtExpr { value, .. }) = &suite[index] {
-            if let Expr::Call(_) = &**value {
-                indexer.resolve_qualified_name(value).map(|qn| qn.as_str())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    #[test]
-    fn test_simple_case() {
-        let source = unindent(
-            r#"
-            a = "print"+"(123)"+";"+"123"
-            b = "".join(["cc", a,"b"])"#,
-        );
-
-        let expected = HashMap::from([(1025, vec![r#""print"+"(123)"+";"+"123""#])]);
-        let actual = get_result(&source);
-        assert_eq!(expected, actual);
-    }
-    #[test]
-    fn test_correct_scoping() {
-        let source = unindent(
-            r#"
-            c = 'first'
-            def func():
-                c = '10'
-                c += '_trials'
-                c += '_of_20'
-                d = ['a',c,'b']
-
-
-            def test_func_2():
-                e = ['a', c, 'b']
-            "#,
-        );
-        let expected = HashMap::from([
-            (1025, vec!["'10'", "'_trials'", "'_of_20'"]),
-            (1036, vec!["'first'"]),
-        ]);
-        let actual = get_result(&source);
-        assert_eq!(expected, actual);
-    }
-    #[test]
-    fn test_class_scoping() {
-        let source = unindent(
-            r#"
-            class Test:
-                def __init__(self):
-                    self.c = 'nope'
-                def test_func(self):
-                    f = ['a', self.c, 'b']
-            "#,
-        );
-        let expected = HashMap::from([(1026, vec!["'nope'"])]);
-        let actual = get_result(&source);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_resolve_from_import_call() {
-        let source = unindent(
-            r#"
-            from os import popen
-            popen('asd')
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved = resolve_call_at_index(indexer, suite, 1);
-            assert_eq!(resolved.as_deref(), Some("os.popen"));
-        });
-    }
-
-    #[test]
-    fn test_resolve_import_attr_call() {
-        let source = unindent(
-            r#"
-            import os
-            os.popen('asd')
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved = resolve_call_at_index(indexer, suite, 1);
-            assert_eq!(resolved.as_deref(), Some("os.popen"));
-        });
-    }
-
-    #[test]
-    fn test_resolve_alias_chain_import_call() {
-        let source = unindent(
-            r#"
-            import subprocess
-            s = subprocess
-            k = s
-            k.check_output(["pinfo -m", ' ', "ABC"])
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved = resolve_call_at_index(indexer, suite, 3);
-            assert_eq!(resolved.as_deref(), Some("subprocess.check_output"));
-        });
-    }
-
-    #[test]
-    fn test_resolve_builtin_direct_and_module() {
-        let source = unindent(
-            r#"
-            eval("1+2")
-            import builtins
-            builtins.len([1,2,3])
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved0 = resolve_call_at_index(indexer, suite, 0);
-            let got = resolved0.expect("expected qualified name");
-            assert_eq!(
-                got, "eval",
-                "expected builtin eval qualified name to be 'eval', got {got}"
-            );
-
-            let resolved2 = resolve_call_at_index(indexer, suite, 2);
-            assert_eq!(resolved2.as_deref(), Some("builtins.len"));
-        });
-    }
-
-    #[test]
-    fn test_resolve_unknown_name() {
-        let source = unindent(
-            r#"
-            full_length([1,2,3])
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved = resolve_call_at_index(indexer, suite, 0);
-            assert_eq!(resolved.as_deref(), Some("full_length"));
-        });
-    }
-
-    #[test]
-    fn test_scope_resolution_outside_function() {
-        let source = unindent(
-            r#"
-            import subprocess
-
-            def test():
-                s = subprocess.call
-
-            s(["uname -a"])
-            "#,
-        );
-        with_indexer(&source, |indexer, suite| {
-            let resolved = resolve_call_at_index(indexer, suite, 2);
-            assert_eq!(resolved.as_deref(), Some("s"));
-        });
-    }
-
-    #[test]
-    fn test_contains_builtins() {
-        let indexer = NodeIndexer::new();
-        let has_eval = indexer
-            .scope_stack
-            .first()
-            .unwrap()
-            .symbols
-            .contains_key("eval");
-        let has_getattr = indexer
-            .scope_stack
-            .first()
-            .unwrap()
-            .symbols
-            .contains_key("getattr");
-        assert!(
-            has_eval && has_getattr,
-            "Builtins should be bound in NodeIndexer global scope"
-        );
-    }
-
-    #[test]
-    fn test_contains_magic_vars() {
-        let indexer = NodeIndexer::new();
-        let has_dunder_name = indexer
-            .scope_stack
-            .first()
-            .unwrap()
-            .symbols
-            .contains_key("__name__");
-        assert!(
-            has_dunder_name,
-            "Magic globals like __name__ should be bound"
-        );
-    }
-
-    #[test]
-    fn test_sequence_unpacking_insufficient_values() {
-        let source = "a, b = [1]";
-        with_indexer(source, |indexer, _suite| {
-            let scope = &indexer.scope_stack[0];
-            assert!(!scope.symbols.contains_key("a"));
-            assert!(!scope.symbols.contains_key("b"));
-        });
-    }
-
-    #[test]
-    fn test_sequence_unpacking_extra_values() {
-        let source = "a, b = [1, 2, 3]";
-        with_indexer(source, |indexer, _suite| {
-            let scope = &indexer.scope_stack[0];
-            assert!(!scope.symbols.contains_key("a"));
-            assert!(!scope.symbols.contains_key("b"));
-        });
-    }
-
-    #[test]
-    fn test_sequence_unpacking_exact_match() {
-        let source = "a, b = [1, 2]";
-        with_indexer(source, |indexer, _suite| {
-            let scope = &indexer.scope_stack[0];
-            let a_binding = scope.symbols.get("a").unwrap();
-            assert_eq!(a_binding.assigned_expressions.len(), 1);
-            let b_binding = scope.symbols.get("b").unwrap();
-            assert_eq!(b_binding.assigned_expressions.len(), 1);
-        });
-    }
-
-    #[test]
-    fn test_aug_assign_attribute() {
-        let source = unindent(
-            r#"
-            class Test:
-                def __init__(self):
-                    self.x = 1
-                def test_func(self):
-                    self.x += 2
-                    y = self.x
-            "#,
-        );
-        let expected = HashMap::from([(1027, vec!["1", "2"])]);
-        let actual = get_result(&source);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_aug_assign_attribute_no_prior() {
-        let source = unindent(
-            r#"
-            class Test:
-                def test_func(self):
-                    self.x += 2
-                    y = self.x
-            "#,
-        );
-        let expected = HashMap::from([(1016, vec!["2"])]);
-        let actual = get_result(&source);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_clear_state() {
-        let source = "a = 1; b = a";
-        let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
-        let mut indexer = NodeIndexer::new();
-        indexer.visit_body(parsed.suite());
-
-        assert!(!indexer.model.expr_mapping.is_empty());
-        let old_index = indexer.index.load(Ordering::Relaxed);
-        assert!(old_index > 1000);
-
-        indexer.clear_state();
-        assert!(indexer.model.expr_mapping.is_empty());
-        assert!(indexer.model.call_qualified_names.is_empty());
-        assert!(indexer.model.comments.is_empty());
-        assert_eq!(indexer.index.load(Ordering::Relaxed), 1000);
-        assert_eq!(indexer.scope_stack.len(), 1);
-        assert!(indexer.scope_stack[0].symbols.contains_key("print"));
     }
 }

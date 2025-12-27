@@ -147,9 +147,15 @@ fn check_direct_exfiltration(checker: &mut Checker, call: &ast::ExprCall, name: 
                 if let TaintKind::InternalParameter(i) = taint {
                     indexer.add_parameter_leak(*i, name.to_string());
                 }
-                if found_taint.is_none() {
-                    if let Some(conf) = get_exfil_confidence(taint) {
-                        found_taint = Some((*taint, conf));
+                if let Some(conf) = get_exfil_confidence(taint) {
+                    match found_taint {
+                        Some((_, current_conf)) if conf > current_conf => {
+                            found_taint = Some((*taint, conf));
+                        }
+                        None => {
+                            found_taint = Some((*taint, conf));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -190,20 +196,32 @@ fn check_leaked_exfiltration(
             continue;
         };
 
+        let mut best_taint = None;
         for taint in checker.indexer.get_taint(arg) {
-            if let Some(confidence) = get_exfil_confidence(&taint) {
-                checker.audit_results.push(AuditItem {
-                    label: name.to_string(),
-                    rule: Rule::DataExfiltration,
-                    description: format!(
-                        "Potential data exfiltration with {:?} data via {} (leaks to {}).",
-                        taint, name, sink_name
-                    ),
-                    confidence,
-                    location: Some(call.range),
-                });
-                break;
+            if let Some(conf) = get_exfil_confidence(&taint) {
+                match best_taint {
+                    Some((_, current_conf)) if conf > current_conf => {
+                        best_taint = Some((taint, conf));
+                    }
+                    None => {
+                        best_taint = Some((taint, conf));
+                    }
+                    _ => {}
+                }
             }
+        }
+
+        if let Some((taint, confidence)) = best_taint {
+            checker.audit_results.push(AuditItem {
+                label: name.to_string(),
+                rule: Rule::DataExfiltration,
+                description: format!(
+                    "Potential data exfiltration with {:?} data via {} (leaks to {}).",
+                    taint, name, sink_name
+                ),
+                confidence,
+                location: Some(call.range),
+            });
         }
     }
 }
