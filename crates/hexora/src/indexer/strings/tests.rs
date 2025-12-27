@@ -263,6 +263,68 @@ fn test_chr_plus_one_generator() {
 }
 
 #[test]
+fn test_collection_extend() {
+    let source = unindent(
+        r#"
+        parts = ["e", "v"]
+        parts.extend(["a", "l"])
+        func_name = "".join(parts)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
+fn test_data_structure_resolution() {
+    let source = unindent(
+        r#"
+        data = {
+            "funcs": ["print", "eval"],
+            "params": {"a": 1, "b": 2}
+        }
+        f = data["funcs"][1]
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
+fn test_int_folding_for_chr() {
+    let source = r#"a = chr((10 * 10) - (2 * 4) + 1)"#; // 100 - 8 + 1 = 93 (']')
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "]"));
+}
+
+#[test]
+fn test_chr_with_variable_folding() {
+    let source = unindent(
+        r#"
+        x = 100
+        a = chr(x + 5)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "i")); // 105 is 'i'
+}
+
+#[test]
+fn test_join_on_list_with_extend_and_insert() {
+    let source = unindent(
+        r#"
+        p = ["a"]
+        p.extend(["l"])
+        p.insert(0, "v")
+        p.insert(0, "e")
+        s = "".join(p)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "eval"));
+}
+
+#[test]
 fn test_join_var() {
     let source = unindent(
         r#"

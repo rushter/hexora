@@ -79,6 +79,14 @@ pub fn is_code_exec(segments: &[&str]) -> bool {
     }
 }
 
+#[inline]
+fn is_indirect_exec(segments: &[&str]) -> bool {
+    matches!(
+        segments,
+        ["threading", "Thread"] | ["multiprocessing", "Process"]
+    )
+}
+
 pub fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<TaintKind> {
     let taints = checker.indexer.get_taint(expr);
     [
@@ -221,6 +229,8 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
                     "globals",
                     "locals",
                     "vars",
+                    "eval",
+                    "exec",
                 ];
                 if matches!(s[..], [name] if sus.contains(&name))
                     || matches!(s[..], ["builtins" | "__builtins__", name] if sus.contains(&name))
@@ -299,6 +309,16 @@ fn is_obfuscated(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
         || label.contains("vars")
         || label == "map"
         || contains_suspicious_expr(checker, &call.func)
+        || call
+            .arguments
+            .args
+            .iter()
+            .any(|arg| contains_suspicious_expr(checker, arg))
+        || call
+            .arguments
+            .keywords
+            .iter()
+            .any(|kw| contains_suspicious_expr(checker, &kw.value))
 }
 
 fn get_audit_info(
@@ -428,10 +448,33 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qn) = checker.indexer.get_qualified_name(call) {
+    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
         if is_shell_command(&qn.segments()) {
             push_report(checker, call, qn.as_str(), true, None);
             return;
+        }
+        if is_indirect_exec(&qn.segments()) {
+            let target_arg = call.arguments.args.first().or_else(|| {
+                call.arguments
+                    .keywords
+                    .iter()
+                    .find(|kw| kw.arg.as_ref().map(|a| a.as_str()) == Some("target"))
+                    .map(|kw| &kw.value)
+            });
+            if let Some(target) = target_arg {
+                if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
+                    if is_shell_command(&target_qn.segments()) {
+                        push_report(
+                            checker,
+                            call,
+                            target_qn.as_str(),
+                            true,
+                            Some(AuditConfidence::VeryHigh),
+                        );
+                        return;
+                    }
+                }
+            }
         }
         if qn.as_str() == "map" && !call.arguments.args.is_empty() {
             if let Some(func_qn) = checker
@@ -455,10 +498,33 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 }
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qn) = checker.indexer.get_qualified_name(call) {
+    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
         if is_code_exec(&qn.segments()) {
             push_report(checker, call, qn.as_str(), false, None);
             return;
+        }
+        if is_indirect_exec(&qn.segments()) {
+            let target_arg = call.arguments.args.first().or_else(|| {
+                call.arguments
+                    .keywords
+                    .iter()
+                    .find(|kw| kw.arg.as_ref().map(|a| a.as_str()) == Some("target"))
+                    .map(|kw| &kw.value)
+            });
+            if let Some(target) = target_arg {
+                if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
+                    if is_code_exec(&target_qn.segments()) {
+                        push_report(
+                            checker,
+                            call,
+                            target_qn.as_str(),
+                            false,
+                            Some(AuditConfidence::VeryHigh),
+                        );
+                        return;
+                    }
+                }
+            }
         }
         if qn.as_str() == "map" && !call.arguments.args.is_empty() {
             if let Some(func_qn) = checker
@@ -566,8 +632,8 @@ mod tests {
         for item in suspicious_items {
             assert_eq!(
                 item.confidence,
-                AuditConfidence::High,
-                "Item {} should have High confidence",
+                AuditConfidence::VeryHigh,
+                "Item {} should have VeryHigh confidence",
                 item.label
             );
         }
@@ -592,5 +658,13 @@ mod tests {
                 panic!("test failed: {:?}", e);
             }
         }
+    }
+
+    #[test_case(Rule::DangerousExec, vec!["os.system"])]
+    #[test_case(Rule::ShellExec, vec!["os.system", "subprocess.call"])]
+    #[test_case(Rule::CodeExec, vec!["eval"])]
+    #[test_case(Rule::ObfuscatedShellExec, vec!["os.system", "os.system", "os.system"])]
+    fn test_bypasses(rule: Rule, expected_names: Vec<&str>) {
+        assert_audit_results_by_name("exec_bypass.py", rule, expected_names);
     }
 }

@@ -117,7 +117,9 @@ fn is_exfiltration_sink(segments: &[&str]) -> bool {
             "HTTPConnection" | "HTTPSConnection",
             "request",
         ]
-        | ["socket", "socket", "send" | "sendall" | "sendto"] => true,
+        | ["socket", "socket", "send" | "sendall" | "sendto"]
+        | ["smtplib", "SMTP" | "SMTP_SSL", "sendmail" | "send_message"]
+        | ["ftplib", "FTP" | "FTP_TLS", "storbinary" | "storlines"] => true,
         _ => false,
     }
 }
@@ -198,6 +200,9 @@ fn check_leaked_exfiltration(
 
         let mut best_taint = None;
         for taint in checker.indexer.get_taint(arg) {
+            if let TaintKind::InternalParameter(i) = taint {
+                checker.indexer.add_parameter_leak(i, sink_name.clone());
+            }
             if let Some(conf) = get_exfil_confidence(&taint) {
                 match best_taint {
                     Some((_, current_conf)) if conf > current_conf => {
@@ -239,7 +244,7 @@ mod tests {
     }
 
     #[test_case("exfil_01.py", Rule::DataExfiltration, vec!["urllib.request.request.urlopen"])]
-    #[test_case("exfil_02.py", Rule::DataExfiltration, vec!["requests.get"])]
+    #[test_case("exfil_02.py", Rule::DataExfiltration, vec!["requests.get", "smtplib.SMTP.sendmail", "wrapper"])]
     #[test_case("exfil_03.py", Rule::DataExfiltration, vec!["socket.socket.send"])]
     #[test_case("exfil_04.py", Rule::DataExfiltration, vec!["send_data", "send_data"])]
     fn test_exfiltration(path: &str, rule: Rule, expected_names: Vec<&str>) {

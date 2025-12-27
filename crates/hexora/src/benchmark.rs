@@ -124,7 +124,7 @@ mod tests {
         let sum_rules: usize = result.rule_counts.values().sum();
         assert_eq!(sum_rules, result.total_matches);
 
-        assert!(result.rule_counts.keys().any(|r| r.code() == "HX3000"));
+        assert!(result.rule_counts.keys().any(|r| r.code() == "HX4010"));
     }
 
     #[test]

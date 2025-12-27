@@ -453,7 +453,7 @@ impl<'a> NodeIndexer<'a> {
         sub: &ExprSubscript,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<String>> {
-        let value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
+        let mut value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
         let segments: Vec<&str> = value_path.iter().map(|s| s.as_str()).collect();
         match segments.as_slice() {
             ["globals"]
@@ -462,6 +462,13 @@ impl<'a> NodeIndexer<'a> {
             | ["sys", "modules"]
             | ["builtins"]
             | ["__builtins__"] => self.resolve_expr_import_path_internal(&sub.slice, context),
+            _ if segments.last() == Some(&"__dict__") => {
+                value_path.pop();
+                let mut path = value_path;
+                let attr_path = self.resolve_expr_import_path_internal(&sub.slice, context)?;
+                path.push(attr_path.join(""));
+                Some(path)
+            }
             _ => None,
         }
     }
@@ -560,10 +567,49 @@ impl<'a> NodeIndexer<'a> {
                 path.push(attr_path.join(""));
                 Some(path)
             }
-            ["Path"] | ["pathlib", "Path"] | ["socket", "socket"] => {
+            ["Path"]
+            | ["pathlib", "Path"]
+            | ["socket", "socket"]
+            | ["smtplib", "SMTP" | "SMTP_SSL"]
+            | ["ftplib", "FTP" | "FTP_TLS"] => {
                 Some(qn.segments().iter().map(|s| s.to_string()).collect())
             }
             ["globals"] | ["locals"] | ["vars"] => Some(vec![qn.segments()[0].to_string()]),
+            ["eval"] | ["builtins" | "__builtins__", "eval"] if !call.arguments.args.is_empty() => {
+                let arg_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                Some(
+                    arg_path
+                        .join("")
+                        .split('.')
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            }
+            _ if qn.last() == Some("get") && !call.arguments.args.is_empty() => {
+                let mut segments = qn.segments();
+                segments.pop();
+                match segments.as_slice() {
+                    ["globals"]
+                    | ["locals"]
+                    | ["vars"]
+                    | ["sys", "modules"]
+                    | ["builtins"]
+                    | ["__builtins__"] => {
+                        self.resolve_expr_import_path_internal(&call.arguments.args[0], context)
+                    }
+                    [.., "__dict__"] => {
+                        segments.pop();
+                        let mut path: Vec<String> =
+                            segments.iter().map(|s| s.to_string()).collect();
+                        let attr_path = self
+                            .resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                        path.push(attr_path.join(""));
+                        Some(path)
+                    }
+                    _ => self.resolve_function_call_path(call),
+                }
+            }
             _ => self.resolve_function_call_path(call),
         }
     }
@@ -1013,7 +1059,7 @@ impl<'a> NodeIndexer<'a> {
 
     fn handle_call_expr(&mut self, call: &'a ExprCall, expr: &'a Expr) {
         self.handle_method_call_mutation(expr, call);
-        if let Some(qn) = self.resolve_qualified_name(expr)
+        if let Some(qn) = self.resolve_qualified_name(&call.func)
             && let Some(id) = expr.node_index().load().as_u32()
         {
             self.model.call_qualified_names.insert(id, qn);

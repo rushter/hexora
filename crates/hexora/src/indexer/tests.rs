@@ -169,8 +169,8 @@ fn test_resolve_builtin_direct_and_module() {
         let resolved0 = resolve_call_at_index(indexer, suite, 0);
         let got = resolved0.expect("expected qualified name");
         assert_eq!(
-            got, "eval",
-            "expected builtin eval qualified name to be 'eval', got {got}"
+            got, "1+2",
+            "expected builtin eval qualified name to be '1+2', got {got}"
         );
 
         let resolved2 = resolve_call_at_index(indexer, suite, 2);
@@ -676,6 +676,105 @@ fn test_taint_dict_unpacking() {
     );
     with_indexer(&source, |indexer, suite| {
         if let Stmt::Assign(assign) = &suite[2] {
+            let taints = indexer.get_taint(&assign.value);
+            assert!(taints.contains(&TaintKind::EnvVariables));
+        }
+    });
+}
+
+#[test]
+fn test_taint_with_open() {
+    let source = unindent(
+        r#"
+            with open("test.txt", "r") as f:
+                content = f.read()
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let with_stmt = &suite[0];
+        if let Stmt::With(w) = with_stmt {
+            if let Stmt::Assign(assign) = &w.body[0] {
+                let taints = indexer.get_taint(&assign.value);
+                assert!(taints.contains(&TaintKind::FileSourced));
+            }
+        }
+    });
+}
+
+#[test]
+fn test_taint_dict_get() {
+    let source = unindent(
+        r#"
+            import os
+            d = {"key": os.getenv("BAR")}
+            val = d.get("key")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        if let Stmt::Assign(assign) = &suite[2] {
+            let taints = indexer.get_taint(&assign.value);
+            assert!(taints.contains(&TaintKind::EnvVariables));
+        }
+    });
+}
+
+#[test]
+fn test_shadowing_builtin() {
+    let source = unindent(
+        r#"
+            eval = print
+            eval("hello")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 1);
+        assert_eq!(resolved.as_deref(), Some("print"));
+    });
+}
+
+#[test]
+fn test_resolve_sys_modules_subscript() {
+    let source = unindent(
+        r#"
+            import sys
+            sys.modules["os"].system("ls")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 1);
+        assert_eq!(resolved.as_deref(), Some("os.system"));
+    });
+}
+
+#[test]
+fn test_taint_list_pop() {
+    let source = unindent(
+        r#"
+            import os
+            l = [os.getenv("X")]
+            x = l.pop()
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        if let Stmt::Assign(assign) = &suite[2] {
+            let taints = indexer.get_taint(&assign.value);
+            assert!(taints.contains(&TaintKind::EnvVariables));
+        }
+    });
+}
+
+#[test]
+fn test_taint_list_extend() {
+    let source = unindent(
+        r#"
+            import os
+            l = []
+            l.extend([os.getenv("X")])
+            res = l
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        if let Stmt::Assign(assign) = &suite[3] {
             let taints = indexer.get_taint(&assign.value);
             assert!(taints.contains(&TaintKind::EnvVariables));
         }

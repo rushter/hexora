@@ -158,14 +158,40 @@ impl<'a> NodeTransformer<'a> {
 
         // Handle method calls (e.g., "".join(), b"".decode())
         let attr = call.func.as_attribute_expr()?;
-        match attr.attr.as_str() {
+        let method = attr.attr.as_str();
+        match method {
             "decode" => self.handle_decode_call(attr, call),
             "join" => self.handle_join_call(attr, call),
             "__getattr__" | "__getattribute__" | "getattr" => {
                 self.handle_getattr_call(call, Some(attr.value.as_ref()))
             }
+            "replace" | "strip" | "lower" | "upper" => {
+                self.handle_string_method_call(method, attr, call)
+            }
             _ => None,
         }
+    }
+
+    #[inline]
+    fn handle_string_method_call(
+        &self,
+        method: &str,
+        attr: &ast::ExprAttribute,
+        call: &ast::ExprCall,
+    ) -> Option<ast::Expr> {
+        let s = self.extract_string(&attr.value)?;
+        let result = match method {
+            "replace" if call.arguments.args.len() >= 2 => {
+                let old = self.resolve_expr_to_string(&call.arguments.args[0])?;
+                let new = self.resolve_expr_to_string(&call.arguments.args[1])?;
+                s.replace(&old, &new)
+            }
+            "strip" => s.trim().to_string(),
+            "lower" => s.to_lowercase(),
+            "upper" => s.to_uppercase(),
+            _ => return None,
+        };
+        Some(self.make_string_expr(call.range, result, self.get_transformation(&attr.value)))
     }
 
     #[inline]
