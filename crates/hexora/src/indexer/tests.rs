@@ -1,10 +1,10 @@
 use crate::indexer::index::NodeIndexer;
-use crate::indexer::resolver::get_expression_range;
 use crate::indexer::taint::TaintKind;
 use hexora_io::locator::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::*;
 use ruff_python_ast::{Expr, PySourceType, Stmt};
+use ruff_text_size::Ranged;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use unindent::unindent;
@@ -16,10 +16,7 @@ fn convert_to_strings<'a>(
     let mut result: HashMap<u32, Vec<&'a str>> = HashMap::new();
 
     for (node_id, exprs) in mappings.iter() {
-        let res: Vec<&str> = exprs
-            .iter()
-            .map(|e| locator.slice(get_expression_range(e)))
-            .collect();
+        let res: Vec<&str> = exprs.iter().map(|e| locator.slice(e.range())).collect();
         result.insert(*node_id, res);
     }
     result

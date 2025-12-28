@@ -1,4 +1,5 @@
 use ruff_python_ast::token::{TokenKind, Tokens};
+use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::Ranged;
@@ -342,47 +343,11 @@ impl<'a> NodeIndexer<'a> {
 }
 
 pub(crate) fn collect_returns(body: &[Stmt]) -> Vec<&Expr> {
-    let mut returns = Vec::new();
-    for stmt in body {
-        match stmt {
-            Stmt::Return(ret) => {
-                if let Some(value) = &ret.value {
-                    returns.push(value.as_ref());
-                }
-            }
-            Stmt::If(if_stmt) => {
-                returns.extend(collect_returns(&if_stmt.body));
-                for clause in &if_stmt.elif_else_clauses {
-                    returns.extend(collect_returns(&clause.body));
-                }
-            }
-            Stmt::For(for_stmt) => {
-                returns.extend(collect_returns(&for_stmt.body));
-                returns.extend(collect_returns(&for_stmt.orelse));
-            }
-            Stmt::While(while_stmt) => {
-                returns.extend(collect_returns(&while_stmt.body));
-                returns.extend(collect_returns(&while_stmt.orelse));
-            }
-            Stmt::With(with_stmt) => {
-                returns.extend(collect_returns(&with_stmt.body));
-            }
-            Stmt::Try(try_stmt) => {
-                returns.extend(collect_returns(&try_stmt.body));
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(h) = handler;
-                    returns.extend(collect_returns(&h.body));
-                }
-                returns.extend(collect_returns(&try_stmt.orelse));
-                returns.extend(collect_returns(&try_stmt.finalbody));
-            }
-            Stmt::Match(match_stmt) => {
-                for case in &match_stmt.cases {
-                    returns.extend(collect_returns(&case.body));
-                }
-            }
-            _ => {}
-        }
-    }
-    returns
+    let mut visitor = ruff_python_ast::helpers::ReturnStatementVisitor::default();
+    visitor.visit_body(body);
+    visitor
+        .returns
+        .into_iter()
+        .filter_map(|ret| ret.value.as_deref())
+        .collect()
 }

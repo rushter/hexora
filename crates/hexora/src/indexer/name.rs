@@ -1,31 +1,36 @@
+use ruff_python_ast::name::Name;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QualifiedName {
-    segments: Arc<[String]>,
+    segments: Arc<[Name]>,
 }
 
 impl QualifiedName {
     pub fn new<S: Into<String>>(qualified_name: S) -> Self {
         let s = qualified_name.into();
-        let segments: Vec<String> = if s.is_empty() {
+        let segments: Vec<Name> = if s.is_empty() {
             Vec::new()
         } else {
-            s.split('.').map(|s| s.to_string()).collect()
+            s.split('.').map(Name::from).collect()
         };
         Self {
             segments: Arc::from(segments),
         }
     }
 
-    pub fn from_segments(segments: Vec<String>) -> Self {
+    pub fn from_segments<I, S>(segments: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<Name>,
+    {
         Self {
-            segments: Arc::from(segments),
+            segments: Arc::from(segments.into_iter().map(Into::into).collect::<Vec<Name>>()),
         }
     }
 
     #[inline]
-    pub fn segments_slice(&self) -> &[String] {
+    pub fn segments_slice(&self) -> &[Name] {
         &self.segments
     }
 
@@ -56,7 +61,11 @@ impl QualifiedName {
 
     #[inline]
     pub fn as_str(&self) -> String {
-        self.segments.join(".")
+        self.segments
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(".")
     }
 }
 
@@ -140,8 +149,8 @@ impl QualifiedName {
     #[inline]
     pub fn is_exfiltration_sink(&self) -> bool {
         let s = self.segments_slice();
-        if s.starts_with(&["urllib".to_string()])
-            && (s.ends_with(&["urlopen".to_string()]) || s.ends_with(&["Request".to_string()]))
+        if s.starts_with(&[Name::from("urllib")])
+            && (s.ends_with(&[Name::from("urlopen")]) || s.ends_with(&[Name::from("Request")]))
         {
             return true;
         }

@@ -1,5 +1,6 @@
 use crate::indexer::index::NodeIndexer;
 use crate::indexer::scope::SymbolBinding;
+use ruff_python_ast::name::Name;
 use ruff_python_ast::*;
 
 impl<'a> NodeIndexer<'a> {
@@ -13,7 +14,7 @@ impl<'a> NodeIndexer<'a> {
         self.handle_aug_assign(&aug_assign.target, &aug_assign.value);
     }
 
-    pub(crate) fn add_import_binding(&mut self, local: String, qualified: Vec<String>) {
+    pub(crate) fn add_import_binding(&mut self, local: String, qualified: Vec<Name>) {
         let sym = SymbolBinding::import(qualified);
         self.current_scope_mut().symbols.insert(local, sym);
     }
@@ -25,7 +26,7 @@ impl<'a> NodeIndexer<'a> {
                 .as_ref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| alias.name.split('.').next().unwrap().to_string());
-            let qualified: Vec<String> = alias.name.split('.').map(|s| s.to_string()).collect();
+            let qualified: Vec<Name> = alias.name.split('.').map(Name::from).collect();
             self.add_import_binding(local, qualified);
         }
     }
@@ -41,14 +42,16 @@ impl<'a> NodeIndexer<'a> {
                 .as_ref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| alias.name.to_string());
-            let mut qualified: Vec<String> = Vec::new();
+            let mut qualified: Vec<Name> = Vec::new();
             if import_from_stmt.level > 0 {
-                qualified.push(".".repeat((import_from_stmt.level - 1) as usize));
+                qualified.push(Name::from(
+                    ".".repeat((import_from_stmt.level - 1) as usize),
+                ));
             }
             if !base.is_empty() {
-                qualified.extend(base.split('.').map(|s| s.to_string()));
+                qualified.extend(base.split('.').map(Name::from));
             }
-            qualified.push(alias.name.to_string());
+            qualified.push(Name::from(alias.name.as_str()));
             self.add_import_binding(local, qualified);
         }
     }

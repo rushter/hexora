@@ -2,51 +2,13 @@ use crate::indexer::index::NodeIndexer;
 use crate::indexer::model::NodeId;
 use crate::indexer::name::QualifiedName;
 use crate::indexer::scope::{BindingKind, SymbolBinding};
+use ruff_python_ast::name::Name;
+use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::{
     self as ast, Expr, ExprAttribute, ExprBinOp, ExprCall, ExprName, ExprSubscript, HasNodeIndex,
-    Operator, Stmt, StmtFunctionDef, StmtReturn,
+    Operator, StmtFunctionDef,
 };
 use ruff_text_size::TextRange;
-
-/// Returns the range of an expression.
-#[inline]
-pub fn get_expression_range(expr: &ast::Expr) -> TextRange {
-    match expr {
-        ast::Expr::BoolOp(node) => node.range,
-        ast::Expr::Named(node) => node.range,
-        ast::Expr::BinOp(node) => node.range,
-        ast::Expr::UnaryOp(node) => node.range,
-        ast::Expr::Lambda(node) => node.range,
-        ast::Expr::If(node) => node.range,
-        ast::Expr::Dict(node) => node.range,
-        ast::Expr::Set(node) => node.range,
-        ast::Expr::ListComp(node) => node.range,
-        ast::Expr::SetComp(node) => node.range,
-        ast::Expr::DictComp(node) => node.range,
-        ast::Expr::Generator(node) => node.range,
-        ast::Expr::Await(node) => node.range,
-        ast::Expr::Yield(node) => node.range,
-        ast::Expr::YieldFrom(node) => node.range,
-        ast::Expr::Compare(node) => node.range,
-        ast::Expr::Call(node) => node.range,
-        ast::Expr::FString(node) => node.range,
-        ast::Expr::TString(node) => node.range,
-        ast::Expr::StringLiteral(node) => node.range,
-        ast::Expr::BytesLiteral(node) => node.range,
-        ast::Expr::NumberLiteral(node) => node.range,
-        ast::Expr::BooleanLiteral(node) => node.range,
-        ast::Expr::NoneLiteral(node) => node.range,
-        ast::Expr::EllipsisLiteral(node) => node.range,
-        ast::Expr::Attribute(node) => node.range,
-        ast::Expr::Subscript(node) => node.range,
-        ast::Expr::Starred(node) => node.range,
-        ast::Expr::Name(node) => node.range,
-        ast::Expr::List(node) => node.range,
-        ast::Expr::Tuple(node) => node.range,
-        ast::Expr::Slice(node) => node.range,
-        ast::Expr::IpyEscapeCommand(node) => node.range,
-    }
-}
 
 #[allow(clippy::len_without_is_empty)]
 pub trait ListLike {
@@ -145,7 +107,7 @@ pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Optio
 }
 
 impl<'a> NodeIndexer<'a> {
-    pub fn resolve_expr_import_path(&self, expr: &Expr) -> Option<Vec<String>> {
+    pub fn resolve_expr_import_path(&self, expr: &Expr) -> Option<Vec<Name>> {
         self.resolve_expr_import_path_internal(expr, None)
     }
 
@@ -153,7 +115,7 @@ impl<'a> NodeIndexer<'a> {
         &self,
         expr: &Expr,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         let node_id = expr.node_index().load().as_u32()?;
         if context.is_none() {
             if let Some(res) = self.model.resolve_cache.borrow().get(&node_id) {
@@ -172,7 +134,7 @@ impl<'a> NodeIndexer<'a> {
             Expr::BinOp(binop) if matches!(binop.op, Operator::Add) => {
                 self.resolve_binop_path(binop, context)
             }
-            Expr::StringLiteral(s) => Some(vec![s.value.to_string()]),
+            Expr::StringLiteral(s) => Some(vec![Name::from(s.value.to_str())]),
             Expr::Call(call) => self.resolve_call_path(call, context),
             _ => None,
         };
@@ -192,7 +154,7 @@ impl<'a> NodeIndexer<'a> {
         &self,
         sub: &ExprSubscript,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         let mut value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
         let qn = QualifiedName::from_segments(value_path.clone());
 
@@ -204,7 +166,13 @@ impl<'a> NodeIndexer<'a> {
             value_path.pop();
             let mut path = value_path;
             let attr_path = self.resolve_expr_import_path_internal(&sub.slice, context)?;
-            path.push(attr_path.join(""));
+            path.push(Name::from(
+                attr_path
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(""),
+            ));
             Some(path)
         } else {
             None
@@ -215,7 +183,7 @@ impl<'a> NodeIndexer<'a> {
         &self,
         name: &ExprName,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         if let Some((call, func)) = context {
             for (i, param) in func.parameters.args.iter().enumerate() {
                 if param.name() == name.id.as_str() && i < call.arguments.args.len() {
@@ -242,9 +210,9 @@ impl<'a> NodeIndexer<'a> {
         &self,
         attr: &ExprAttribute,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         let mut base_path = self.resolve_expr_import_path_internal(&attr.value, context)?;
-        base_path.push(attr.attr.to_string());
+        base_path.push(Name::from(attr.attr.as_str()));
         Some(base_path)
     }
 
@@ -252,17 +220,21 @@ impl<'a> NodeIndexer<'a> {
         &self,
         binop: &ExprBinOp,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         let l = self.resolve_expr_import_path_internal(&binop.left, context)?;
         let r = self.resolve_expr_import_path_internal(&binop.right, context)?;
-        Some(vec![l.join("") + &r.join("")])
+        Some(vec![Name::from(format!(
+            "{}{}",
+            l.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(""),
+            r.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("")
+        ))])
     }
 
     fn resolve_call_path(
         &self,
         call: &ExprCall,
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Name>> {
         if let Some(node_id) = call.node_index().load().as_u32() {
             if let Some(exprs) = self.model.expr_mapping.get(&node_id) {
                 if let Some(last_expr) = exprs.last() {
@@ -278,9 +250,12 @@ impl<'a> NodeIndexer<'a> {
                 self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
             return Some(
                 arg_path
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
                     .join("")
                     .split('.')
-                    .map(|s| s.to_string())
+                    .map(Name::from)
                     .collect(),
             );
         }
@@ -290,7 +265,13 @@ impl<'a> NodeIndexer<'a> {
                 self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
             let attr_path =
                 self.resolve_expr_import_path_internal(&call.arguments.args[1], context)?;
-            path.push(attr_path.join(""));
+            path.push(Name::from(
+                attr_path
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(""),
+            ));
             return Some(path);
         }
 
@@ -299,7 +280,7 @@ impl<'a> NodeIndexer<'a> {
         }
 
         if qn.is_vars_function() {
-            return Some(vec![qn.first()?.to_string()]);
+            return Some(vec![Name::from(qn.first()?)]);
         }
 
         if qn.is_eval() && !call.arguments.args.is_empty() {
@@ -307,9 +288,12 @@ impl<'a> NodeIndexer<'a> {
                 self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
             return Some(
                 arg_path
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
                     .join("")
                     .split('.')
-                    .map(|s| s.to_string())
+                    .map(Name::from)
                     .collect(),
             );
         }
@@ -327,7 +311,13 @@ impl<'a> NodeIndexer<'a> {
                 path.pop();
                 let attr_path =
                     self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                path.push(attr_path.join(""));
+                path.push(Name::from(
+                    attr_path
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(""),
+                ));
                 return Some(path);
             }
         }
@@ -335,19 +325,16 @@ impl<'a> NodeIndexer<'a> {
         self.resolve_function_call_path(call)
     }
 
-    fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<String>> {
+    fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<Name>> {
         if let Expr::Name(func_name) = call.func.as_ref() {
             if let Some(binding) = self.lookup_binding(func_name.id.as_str())
                 && let BindingKind::Function = binding.kind
                 && let Some(func) = binding.function_def
             {
-                let return_expr: Option<&Expr> = func.body.iter().find_map(|s| {
-                    if let Stmt::Return(StmtReturn { value: Some(v), .. }) = s {
-                        Some(v.as_ref())
-                    } else {
-                        None
-                    }
-                });
+                let mut visitor = ruff_python_ast::helpers::ReturnStatementVisitor::default();
+                visitor.visit_body(&func.body);
+
+                let return_expr = visitor.returns.first().and_then(|r| r.value.as_deref());
 
                 if let Some(ret_expr) = return_expr {
                     return self.resolve_expr_import_path_internal(ret_expr, Some((call, func)));
@@ -357,15 +344,19 @@ impl<'a> NodeIndexer<'a> {
         None
     }
 
-    fn resolve_import_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
-        binding.imported_path.as_ref().cloned()
+    fn resolve_import_binding(&self, binding: &SymbolBinding) -> Option<Vec<Name>> {
+        binding.imported_path.as_ref().map(|path| {
+            path.iter()
+                .map(|s| Name::from(s.as_str()))
+                .collect::<Vec<Name>>()
+        })
     }
 
-    fn resolve_builtin_binding(&self, name: &str) -> Option<Vec<String>> {
-        Some(vec![name.to_string()])
+    fn resolve_builtin_binding(&self, name: &str) -> Option<Vec<Name>> {
+        Some(vec![Name::from(name)])
     }
 
-    fn resolve_assignment_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
+    fn resolve_assignment_binding(&self, binding: &SymbolBinding) -> Option<Vec<Name>> {
         if let Some(value_expr) = binding.value_expr {
             self.resolve_expr_import_path(value_expr)
         } else {
@@ -373,7 +364,7 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    fn resolve_binding_import_path(&self, name: &str) -> Option<Vec<String>> {
+    fn resolve_binding_import_path(&self, name: &str) -> Option<Vec<Name>> {
         if let Some(binding) = self.lookup_binding(name) {
             match binding.kind {
                 BindingKind::Import => self.resolve_import_binding(binding),

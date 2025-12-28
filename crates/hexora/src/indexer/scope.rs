@@ -1,4 +1,5 @@
 use crate::indexer::taint::TaintState;
+use ruff_python_ast::name::Name;
 use ruff_python_ast::{Expr, StmtFunctionDef};
 use std::collections::{HashMap, HashSet};
 
@@ -13,7 +14,7 @@ pub enum BindingKind {
 #[derive(Debug, Clone)]
 pub struct SymbolBinding<'a> {
     pub kind: BindingKind,
-    pub imported_path: Option<Vec<String>>,
+    pub imported_path: Option<Vec<Name>>,
     pub value_expr: Option<&'a Expr>,
     pub assigned_expressions: Vec<&'a Expr>,
     pub function_def: Option<&'a StmtFunctionDef>,
@@ -36,7 +37,7 @@ impl<'a> SymbolBinding<'a> {
         }
     }
 
-    pub fn import(path: Vec<String>) -> Self {
+    pub fn import(path: Vec<Name>) -> Self {
         Self {
             kind: BindingKind::Import,
             imported_path: Some(path),

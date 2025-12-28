@@ -1,6 +1,7 @@
 use crate::indexer::name::QualifiedName;
 use crate::indexer::taint::TaintState;
 use ruff_python_ast::Expr;
+use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -24,7 +25,7 @@ pub struct SemanticModel<'a> {
     pub comments: Vec<TextRange>,
     pub decoded_nodes: RefCell<HashMap<NodeId, Transformation>>,
     pub taint_map: RefCell<HashMap<NodeId, TaintState>>,
-    pub resolve_cache: RefCell<HashMap<NodeId, Option<Vec<String>>>>,
+    pub resolve_cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
     pub currently_resolving: RefCell<HashSet<NodeId>>,
     pub transformed_exprs_cache: RefCell<HashMap<NodeId, Vec<Expr>>>,
 }

@@ -1,9 +1,9 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
-use crate::indexer::resolver::get_expression_range;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
 use ruff_python_ast::Identifier;
+use ruff_text_size::Ranged;
 
 static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<(&str, AuditConfidence)>> = Lazy::new(|| {
     vec![
@@ -72,7 +72,7 @@ pub fn suspicious_variable(checker: &mut Checker, targets: &[ast::Expr]) {
                         rule: Rule::SuspiciousVariable,
                         description,
                         confidence,
-                        location: Some(get_expression_range(target)),
+                        location: Some(target.range()),
                     })
                 }
             }
