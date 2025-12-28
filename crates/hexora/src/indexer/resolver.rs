@@ -1,5 +1,11 @@
 use crate::indexer::index::NodeIndexer;
-use ruff_python_ast as ast;
+use crate::indexer::model::NodeId;
+use crate::indexer::name::QualifiedName;
+use crate::indexer::scope::{BindingKind, SymbolBinding};
+use ruff_python_ast::{
+    self as ast, Expr, ExprAttribute, ExprBinOp, ExprCall, ExprName, ExprSubscript, HasNodeIndex,
+    Operator, Stmt, StmtFunctionDef, StmtReturn,
+};
 use ruff_text_size::TextRange;
 
 /// Returns the range of an expression.
@@ -135,5 +141,317 @@ pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Optio
             if found { Some(string) } else { None }
         }
         _ => None,
+    }
+}
+
+impl<'a> NodeIndexer<'a> {
+    pub fn resolve_expr_import_path(&self, expr: &Expr) -> Option<Vec<String>> {
+        self.resolve_expr_import_path_internal(expr, None)
+    }
+
+    pub(crate) fn resolve_expr_import_path_internal(
+        &self,
+        expr: &Expr,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let node_id = expr.node_index().load().as_u32()?;
+        if context.is_none() {
+            if let Some(res) = self.model.resolve_cache.borrow().get(&node_id) {
+                return res.clone();
+            }
+        }
+
+        if !self.model.currently_resolving.borrow_mut().insert(node_id) {
+            return None;
+        }
+
+        let res = match expr {
+            Expr::Name(name) => self.resolve_name_path(name, context),
+            Expr::Attribute(attr) => self.resolve_attribute_path(attr, context),
+            Expr::Subscript(sub) => self.resolve_subscript_path(sub, context),
+            Expr::BinOp(binop) if matches!(binop.op, Operator::Add) => {
+                self.resolve_binop_path(binop, context)
+            }
+            Expr::StringLiteral(s) => Some(vec![s.value.to_string()]),
+            Expr::Call(call) => self.resolve_call_path(call, context),
+            _ => None,
+        };
+
+        self.model.currently_resolving.borrow_mut().remove(&node_id);
+
+        if context.is_none() {
+            self.model
+                .resolve_cache
+                .borrow_mut()
+                .insert(node_id, res.clone());
+        }
+        res
+    }
+
+    fn resolve_subscript_path(
+        &self,
+        sub: &ExprSubscript,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let mut value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
+        let qn = QualifiedName::from_segments(value_path.clone());
+
+        if qn.is_module_registry() {
+            return self.resolve_expr_import_path_internal(&sub.slice, context);
+        }
+
+        if qn.last() == Some("__dict__") {
+            value_path.pop();
+            let mut path = value_path;
+            let attr_path = self.resolve_expr_import_path_internal(&sub.slice, context)?;
+            path.push(attr_path.join(""));
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    fn resolve_name_path(
+        &self,
+        name: &ExprName,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        if let Some((call, func)) = context {
+            for (i, param) in func.parameters.args.iter().enumerate() {
+                if param.name() == name.id.as_str() && i < call.arguments.args.len() {
+                    return self.resolve_expr_import_path_internal(&call.arguments.args[i], None);
+                }
+            }
+        }
+
+        let node_id = name.node_index().load().as_u32()?;
+        let last_expr = self
+            .model
+            .expr_mapping
+            .get(&node_id)
+            .and_then(|exprs| exprs.last());
+
+        if let Some(last_expr) = last_expr {
+            self.resolve_expr_import_path_internal(last_expr, context)
+        } else {
+            self.resolve_binding_import_path(name.id.as_str())
+        }
+    }
+
+    fn resolve_attribute_path(
+        &self,
+        attr: &ExprAttribute,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let mut base_path = self.resolve_expr_import_path_internal(&attr.value, context)?;
+        base_path.push(attr.attr.to_string());
+        Some(base_path)
+    }
+
+    fn resolve_binop_path(
+        &self,
+        binop: &ExprBinOp,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        let l = self.resolve_expr_import_path_internal(&binop.left, context)?;
+        let r = self.resolve_expr_import_path_internal(&binop.right, context)?;
+        Some(vec![l.join("") + &r.join("")])
+    }
+
+    fn resolve_call_path(
+        &self,
+        call: &ExprCall,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<String>> {
+        if let Some(node_id) = call.node_index().load().as_u32() {
+            if let Some(exprs) = self.model.expr_mapping.get(&node_id) {
+                if let Some(last_expr) = exprs.last() {
+                    return self.resolve_expr_import_path_internal(last_expr, context);
+                }
+            }
+        }
+
+        let qn = self.resolve_qualified_name_internal(&call.func)?;
+
+        if qn.is_import_call() && !call.arguments.args.is_empty() {
+            let arg_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            return Some(
+                arg_path
+                    .join("")
+                    .split('.')
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
+        }
+
+        if qn.is_getattr() && call.arguments.args.len() >= 2 {
+            let mut path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            let attr_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[1], context)?;
+            path.push(attr_path.join(""));
+            return Some(path);
+        }
+
+        if qn.is_io_resource_constructor() {
+            return Some(qn.segments_slice().to_vec());
+        }
+
+        if qn.is_vars_function() {
+            return Some(vec![qn.first()?.to_string()]);
+        }
+
+        if qn.is_eval() && !call.arguments.args.is_empty() {
+            let arg_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            return Some(
+                arg_path
+                    .join("")
+                    .split('.')
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
+        }
+
+        if qn.last() == Some("get") && !call.arguments.args.is_empty() {
+            let mut segments = qn.segments_slice().to_vec();
+            segments.pop();
+            let base_qn = QualifiedName::from_segments(segments);
+            if base_qn.is_module_registry() {
+                return self.resolve_expr_import_path_internal(&call.arguments.args[0], context);
+            }
+
+            if base_qn.last() == Some("__dict__") {
+                let mut path = base_qn.segments_slice().to_vec();
+                path.pop();
+                let attr_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                path.push(attr_path.join(""));
+                return Some(path);
+            }
+        }
+
+        self.resolve_function_call_path(call)
+    }
+
+    fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<String>> {
+        if let Expr::Name(func_name) = call.func.as_ref() {
+            if let Some(binding) = self.lookup_binding(func_name.id.as_str())
+                && let BindingKind::Function = binding.kind
+                && let Some(func) = binding.function_def
+            {
+                let return_expr: Option<&Expr> = func.body.iter().find_map(|s| {
+                    if let Stmt::Return(StmtReturn { value: Some(v), .. }) = s {
+                        Some(v.as_ref())
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(ret_expr) = return_expr {
+                    return self.resolve_expr_import_path_internal(ret_expr, Some((call, func)));
+                }
+            }
+        }
+        None
+    }
+
+    fn resolve_import_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
+        binding.imported_path.as_ref().cloned()
+    }
+
+    fn resolve_builtin_binding(&self, name: &str) -> Option<Vec<String>> {
+        Some(vec![name.to_string()])
+    }
+
+    fn resolve_assignment_binding(&self, binding: &SymbolBinding) -> Option<Vec<String>> {
+        if let Some(value_expr) = binding.value_expr {
+            self.resolve_expr_import_path(value_expr)
+        } else {
+            None
+        }
+    }
+
+    fn resolve_binding_import_path(&self, name: &str) -> Option<Vec<String>> {
+        if let Some(binding) = self.lookup_binding(name) {
+            match binding.kind {
+                BindingKind::Import => self.resolve_import_binding(binding),
+                BindingKind::Builtin => self.resolve_builtin_binding(name),
+                BindingKind::Assignment => self.resolve_assignment_binding(binding),
+                BindingKind::Function => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
+        self.resolve_qualified_name_internal(expr)
+    }
+
+    fn resolve_qualified_name_internal<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
+        if let Some(mut path) = self.resolve_expr_import_path(expr) {
+            if path.len() == 1 {
+                let name = path.remove(0);
+                if let Some(binding) = self.lookup_binding(&name)
+                    && matches!(binding.kind, BindingKind::Builtin)
+                {
+                    return Some(QualifiedName::from_segments(vec![name]));
+                }
+                path.push(name);
+            }
+            return Some(QualifiedName::from_segments(path));
+        }
+
+        let target = match expr {
+            Expr::Call(call) => &call.func,
+            _ => expr,
+        };
+        if let Some(mut path) = self.resolve_expr_import_path(target) {
+            if path.len() == 1 {
+                let name = path.remove(0);
+                if let Some(binding) = self.lookup_binding(&name)
+                    && matches!(binding.kind, BindingKind::Builtin)
+                {
+                    return Some(QualifiedName::from_segments(vec![name]));
+                }
+                path.push(name);
+            }
+            Some(QualifiedName::from_segments(path))
+        } else {
+            self.collect_attribute_segments(target)
+                .map(QualifiedName::from_segments)
+        }
+    }
+
+    pub fn collect_attribute_segments(&self, expr: &Expr) -> Option<Vec<String>> {
+        let mut segments = Vec::new();
+        let mut current = expr;
+        while let Expr::Attribute(attr) = current {
+            segments.push(attr.attr.to_string());
+            current = &attr.value;
+        }
+        if let Expr::Name(name) = current {
+            segments.push(name.id.to_string());
+            segments.reverse();
+            Some(segments)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&QualifiedName> {
+        self.model.call_qualified_names.get(&node_id)
+    }
+
+    pub fn get_qualified_name<T>(&self, node: &T) -> Option<&QualifiedName>
+    where
+        T: HasNodeIndex,
+    {
+        node.node_index()
+            .load()
+            .as_u32()
+            .and_then(|id| self.get_call_qualified_name(id))
     }
 }

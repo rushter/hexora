@@ -58,7 +58,10 @@ impl QualifiedName {
     pub fn as_str(&self) -> String {
         self.segments.join(".")
     }
+}
 
+/// Specialized detection methods for different categories of Python functions.
+impl QualifiedName {
     #[inline]
     pub fn is_shell_command(&self) -> bool {
         match self.segments_slice() {
@@ -281,7 +284,10 @@ impl QualifiedName {
                     && path == "Path"
                     && (write == "write_text" || write == "write_bytes"))
     }
+}
 
+/// Detection methods for builtins and dynamic code execution patterns.
+impl QualifiedName {
     #[inline]
     pub fn is_import_call(&self) -> bool {
         match self.segments_slice() {
