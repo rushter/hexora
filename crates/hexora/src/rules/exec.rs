@@ -21,72 +21,6 @@ static DANGEROUS_COMMANDS: &[&str] = &[
 static DANGEROUS_COMMAND_PREFIXES: &[&str] = &["start "];
 const MAX_DEPTH: u32 = 10;
 
-#[inline]
-pub fn is_shell_command(segments: &[&str]) -> bool {
-    match segments {
-        ["os", submodule] => matches!(
-            *submodule,
-            "execl"
-                | "execle"
-                | "execlp"
-                | "execlpe"
-                | "execv"
-                | "execve"
-                | "execvp"
-                | "execvpe"
-                | "spawnl"
-                | "spawnle"
-                | "spawnlp"
-                | "spawnlpe"
-                | "spawnv"
-                | "spawnve"
-                | "spawnvp"
-                | "spawnvpe"
-                | "startfile"
-                | "system"
-                | "popen"
-                | "popen2"
-                | "popen3"
-                | "popen4"
-                | "posix_spawn"
-                | "posix_spawnp"
-        ),
-        ["subprocess", submodule] => matches!(
-            *submodule,
-            "Popen"
-                | "call"
-                | "check_call"
-                | "check_output"
-                | "run"
-                | "getoutput"
-                | "getstatusoutput"
-        ),
-        ["popen2", submodule] => matches!(
-            *submodule,
-            "popen2" | "popen3" | "popen4" | "Popen3" | "Popen4"
-        ),
-        ["commands", submodule] => matches!(*submodule, "getoutput" | "getstatusoutput"),
-        _ => false,
-    }
-}
-
-#[inline]
-pub fn is_code_exec(segments: &[&str]) -> bool {
-    match segments {
-        [only] => matches!(*only, "exec" | "eval"),
-        ["builtins" | "__builtins__" | "", submodule] => matches!(*submodule, "exec" | "eval"),
-        _ => false,
-    }
-}
-
-#[inline]
-fn is_indirect_exec(segments: &[&str]) -> bool {
-    matches!(
-        segments,
-        ["threading", "Thread"] | ["multiprocessing", "Process"]
-    )
-}
-
 pub fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<TaintKind> {
     let taints = checker.indexer.get_taint(expr);
     [
@@ -221,20 +155,7 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
     match expr {
         ast::Expr::Call(call) => {
             if let Some(qn) = checker.indexer.get_qualified_name(call) {
-                let s = qn.segments();
-                let sus = [
-                    "__import__",
-                    "compile",
-                    "getattr",
-                    "globals",
-                    "locals",
-                    "vars",
-                    "eval",
-                    "exec",
-                ];
-                if matches!(s[..], [name] if sus.contains(&name))
-                    || matches!(s[..], ["builtins" | "__builtins__", name] if sus.contains(&name))
-                {
+                if qn.is_suspicious_builtin() {
                     return true;
                 }
             }
@@ -276,14 +197,6 @@ fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
             .keywords
             .iter()
             .any(|kw| contains_suspicious_expr(checker, &kw.value))
-}
-
-pub fn is_shell_command_name(name: &str) -> bool {
-    is_shell_command(&name.split('.').collect::<Vec<_>>())
-}
-
-pub fn is_code_exec_name(name: &str) -> bool {
-    is_code_exec(&name.split('.').collect::<Vec<_>>())
 }
 
 fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &str) {
@@ -412,14 +325,16 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
     let Some(binding) = checker.indexer.lookup_binding(&name) else {
         return;
     };
-    let check_fn = if is_shell {
-        is_shell_command_name
-    } else {
-        is_code_exec_name
-    };
 
     for (param_idx, sink_name) in binding.parameter_leaks.clone() {
-        if check_fn(&sink_name) {
+        let sink_qn = crate::indexer::name::QualifiedName::new(sink_name.clone());
+        let matched = if is_shell {
+            sink_qn.is_shell_command()
+        } else {
+            sink_qn.is_code_exec()
+        };
+
+        if matched {
             if let Some(arg) = call.arguments.args.get(param_idx) {
                 let (rule, mut description, mut confidence) = get_audit_info(
                     is_shell,
@@ -449,11 +364,11 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
-        if is_shell_command(&qn.segments()) {
+        if qn.is_shell_command() {
             push_report(checker, call, qn.as_str(), true, None);
             return;
         }
-        if is_indirect_exec(&qn.segments()) {
+        if qn.is_indirect_exec() {
             let target_arg = call.arguments.args.first().or_else(|| {
                 call.arguments
                     .keywords
@@ -463,7 +378,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
             });
             if let Some(target) = target_arg {
                 if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
-                    if is_shell_command(&target_qn.segments()) {
+                    if target_qn.is_shell_command() {
                         push_report(
                             checker,
                             call,
@@ -481,7 +396,7 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
                 .indexer
                 .resolve_qualified_name(&call.arguments.args[0])
             {
-                if is_shell_command(&func_qn.segments()) {
+                if func_qn.is_shell_command() {
                     push_report(
                         checker,
                         call,
@@ -499,11 +414,11 @@ pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
-        if is_code_exec(&qn.segments()) {
+        if qn.is_code_exec() {
             push_report(checker, call, qn.as_str(), false, None);
             return;
         }
-        if is_indirect_exec(&qn.segments()) {
+        if qn.is_indirect_exec() {
             let target_arg = call.arguments.args.first().or_else(|| {
                 call.arguments
                     .keywords
@@ -513,7 +428,7 @@ pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
             });
             if let Some(target) = target_arg {
                 if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
-                    if is_code_exec(&target_qn.segments()) {
+                    if target_qn.is_code_exec() {
                         push_report(
                             checker,
                             call,
@@ -531,7 +446,7 @@ pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
                 .indexer
                 .resolve_qualified_name(&call.arguments.args[0])
             {
-                if is_code_exec(&func_qn.segments()) {
+                if func_qn.is_code_exec() {
                     push_report(
                         checker,
                         call,

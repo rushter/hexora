@@ -9,24 +9,7 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(qualified_name) = qualified_name {
         let name = qualified_name.to_string();
 
-        let mut matched = matches!(
-            qualified_name.segments().as_slice(),
-            ["os", "uname"]
-                | ["getpass", "getuser"]
-                | ["os", "getlogin"]
-                | ["platform", "system"]
-                | ["socket", "gethostname"]
-                | ["platform", "platform"]
-                | ["platform", "version"]
-                | ["platform", "release"]
-                | ["platform", "node"]
-                | ["platform", "processor"]
-                | ["platform", "machine"]
-                | ["platform", "architecture"]
-                | ["platform", "uname"]
-                | ["os", "environ", "copy"]
-                | ["socket", "getfqdn"]
-        );
+        let mut matched = qualified_name.is_os_fingerprint();
 
         let arg_qn = call
             .arguments
@@ -36,20 +19,20 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
 
         if !matched && (name == "dict" || name == "str") {
             if let Some(ref arg_qn) = arg_qn {
-                if arg_qn.segments() == ["os", "environ"] {
+                if arg_qn.is_exact(&["os", "environ"]) {
                     matched = true;
                 }
             }
         }
 
         if matched {
-            let (label, confidence) = match qualified_name.segments().as_slice() {
-                ["os", "environ", "copy"] => (name, AuditConfidence::Medium),
-                _ if name == "dict" || name == "str" => {
-                    let label = arg_qn.map(|qn| qn.to_string()).unwrap_or(name);
-                    (label, AuditConfidence::VeryHigh)
-                }
-                _ => (name, AuditConfidence::Medium),
+            let (label, confidence) = if qualified_name.as_str() == "os.environ.copy" {
+                (name, AuditConfidence::Medium)
+            } else if name == "dict" || name == "str" {
+                let label = arg_qn.map(|qn| qn.to_string()).unwrap_or(name);
+                (label, AuditConfidence::VeryHigh)
+            } else {
+                (name, AuditConfidence::Medium)
             };
 
             checker.audit_results.push(AuditItem {

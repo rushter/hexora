@@ -53,12 +53,7 @@ pub fn env_access(checker: &mut Checker, call: &ast::ExprCall) {
     let is_env_access = checker
         .indexer
         .resolve_qualified_name(&call.func)
-        .is_some_and(|qualified_name| {
-            matches!(
-                qualified_name.segments().as_slice(),
-                ["os", "environ", "get"] | ["os", "getenv"]
-            )
-        });
+        .is_some_and(|qualified_name| qualified_name.is_env_access());
     if !is_env_access {
         return;
     }

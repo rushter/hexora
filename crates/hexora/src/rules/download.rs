@@ -29,21 +29,10 @@ fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Optio
     }
     None
 }
-fn is_download_request(segments: &[&str]) -> bool {
-    match segments {
-        &[module, submodule] => match module {
-            "requests" => matches!(submodule, "get" | "post" | "request"),
-            "urllib" | "urllib2" => matches!(submodule, "urlopen"),
-            "urllib.request" => matches!(submodule, "urlopen"),
-            _ => false,
-        },
-        _ => false,
-    }
-}
 pub fn binary_download(checker: &mut Checker, call: &ast::ExprCall) {
     let qualified_name = checker.indexer.get_qualified_name(call);
     if let Some(qualified_name) = qualified_name
-        && is_download_request(&qualified_name.segments())
+        && qualified_name.is_download_request()
     {
         if let Some(label) = contains_download_extension(checker, call) {
             let suspicious_taint = get_call_suspicious_taint(checker, call);

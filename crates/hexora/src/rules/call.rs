@@ -1,7 +1,6 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::taint::TaintKind;
-use crate::rules::exec::is_shell_command;
 use once_cell::sync::Lazy;
 
 use ruff_python_ast as ast;
@@ -32,7 +31,7 @@ pub fn suspicious_call(checker: &mut Checker, call: &ast::ExprCall) {
         let name = qualified_name.as_str();
 
         // Check if it's a shell command to potentially upgrade os.dup2 confidence
-        let is_shell = is_shell_command(&qualified_name.segments());
+        let is_shell = qualified_name.is_shell_command();
 
         if is_shell {
             for item in checker.audit_results.iter_mut() {
@@ -44,7 +43,7 @@ pub fn suspicious_call(checker: &mut Checker, call: &ast::ExprCall) {
         }
 
         for call_rule in CALLS.iter() {
-            if qualified_name.segments().as_slice() == call_rule.name {
+            if qualified_name.is_exact(call_rule.name) {
                 let mut confidence = call_rule.confidence;
 
                 if name == "os.dup2" {
@@ -100,37 +99,13 @@ fn get_exfil_confidence(taint: &TaintKind) -> Option<AuditConfidence> {
     }
 }
 
-fn is_exfiltration_sink(segments: &[&str]) -> bool {
-    match segments {
-        s if s.starts_with(&["urllib"])
-            && (s.ends_with(&["urlopen"]) || s.ends_with(&["Request"])) =>
-        {
-            true
-        }
-        [
-            "requests",
-            "get" | "post" | "request" | "put" | "patch" | "delete",
-        ]
-        | [
-            "http",
-            "client",
-            "HTTPConnection" | "HTTPSConnection",
-            "request",
-        ]
-        | ["socket", "socket", "send" | "sendall" | "sendto"]
-        | ["smtplib", "SMTP" | "SMTP_SSL", "sendmail" | "send_message"]
-        | ["ftplib", "FTP" | "FTP_TLS", "storbinary" | "storlines"] => true,
-        _ => false,
-    }
-}
-
 pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
     let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) else {
         return;
     };
     let name = qualified_name.as_str();
 
-    if is_exfiltration_sink(&qualified_name.segments()) {
+    if qualified_name.is_exfiltration_sink() {
         check_direct_exfiltration(checker, call, &name);
     } else if let Some(binding) = checker.indexer.lookup_binding(&name) {
         let leaks = binding.parameter_leaks.clone();

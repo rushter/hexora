@@ -4,7 +4,6 @@ use crate::indexer::resolver::string_from_expr;
 
 use ruff_python_ast as ast;
 
-const VARS_FUNCTIONS: [&str; 3] = ["globals", "locals", "vars"];
 const BUILTINS_MODULE: [&str; 2] = ["__builtins__", "builtins"];
 
 fn contains_builtins_name(checker: &Checker, expr: &ast::Expr) -> Option<(String, String)> {
@@ -13,11 +12,10 @@ fn contains_builtins_name(checker: &Checker, expr: &ast::Expr) -> Option<(String
     };
 
     let qn = checker.indexer.resolve_qualified_name(value)?;
-    let segments = qn.segments();
-    if segments.len() != 1 || !VARS_FUNCTIONS.contains(&segments[0]) {
+    if !qn.is_vars_function() {
         return None;
     }
-    let var_name = segments[0].to_string();
+    let var_name = qn.last()?.to_string();
 
     let key = string_from_expr(slice, &checker.indexer)?;
 

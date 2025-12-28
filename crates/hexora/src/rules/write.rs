@@ -31,7 +31,7 @@ fn get_filename(checker: &Checker, expr: &ast::Expr) -> Option<String> {
     match expr {
         ast::Expr::Call(call) => {
             let qn = checker.indexer.resolve_qualified_name(expr)?;
-            if qn.segments() == ["pathlib", "Path"] {
+            if qn.is_exact(&["pathlib", "Path"]) {
                 string_from_expr(call.arguments.args.first()?, &checker.indexer)
             } else {
                 None
@@ -50,17 +50,20 @@ pub fn suspicious_write(checker: &mut Checker, call: &ast::ExprCall) {
         return;
     };
 
-    let filename = match qualified_name.segments().as_slice() {
-        ["open"] | ["builtins", "open"] if is_open_for_writing(checker, call) => call
-            .arguments
+    let filename = if (qualified_name.is_exact(&["open"])
+        || qualified_name.is_exact(&["builtins", "open"]))
+        && is_open_for_writing(checker, call)
+    {
+        call.arguments
             .args
             .first()
-            .and_then(|arg| get_filename(checker, arg)),
-        ["pathlib", "Path", "write_text" | "write_bytes"] => call
-            .func
+            .and_then(|arg| get_filename(checker, arg))
+    } else if qualified_name.is_pathlib_write() {
+        call.func
             .as_attribute_expr()
-            .and_then(|attr| get_filename(checker, &attr.value)),
-        _ => None,
+            .and_then(|attr| get_filename(checker, &attr.value))
+    } else {
+        None
     };
 
     if let Some(filename) = filename

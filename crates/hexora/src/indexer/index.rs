@@ -454,22 +454,20 @@ impl<'a> NodeIndexer<'a> {
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<String>> {
         let mut value_path = self.resolve_expr_import_path_internal(&sub.value, context)?;
-        let segments: Vec<&str> = value_path.iter().map(|s| s.as_str()).collect();
-        match segments.as_slice() {
-            ["globals"]
-            | ["locals"]
-            | ["vars"]
-            | ["sys", "modules"]
-            | ["builtins"]
-            | ["__builtins__"] => self.resolve_expr_import_path_internal(&sub.slice, context),
-            _ if segments.last() == Some(&"__dict__") => {
-                value_path.pop();
-                let mut path = value_path;
-                let attr_path = self.resolve_expr_import_path_internal(&sub.slice, context)?;
-                path.push(attr_path.join(""));
-                Some(path)
-            }
-            _ => None,
+        let qn = QualifiedName::from_segments(value_path.clone());
+
+        if qn.is_module_registry() {
+            return self.resolve_expr_import_path_internal(&sub.slice, context);
+        }
+
+        if qn.last() == Some("__dict__") {
+            value_path.pop();
+            let mut path = value_path;
+            let attr_path = self.resolve_expr_import_path_internal(&sub.slice, context)?;
+            path.push(attr_path.join(""));
+            Some(path)
+        } else {
+            None
         }
     }
 
@@ -534,84 +532,67 @@ impl<'a> NodeIndexer<'a> {
         }
 
         let qn = self.resolve_qualified_name_internal(&call.func)?;
-        match qn.segments().as_slice() {
-            ["__import__"] | ["builtins" | "__builtins__", "__import__"]
-                if !call.arguments.args.is_empty() =>
-            {
-                let arg_path =
-                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                Some(
-                    arg_path
-                        .join("")
-                        .split('.')
-                        .map(|s| s.to_string())
-                        .collect(),
-                )
-            }
-            ["importlib", "import_module"] if !call.arguments.args.is_empty() => {
-                let arg_path =
-                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                Some(
-                    arg_path
-                        .join("")
-                        .split('.')
-                        .map(|s| s.to_string())
-                        .collect(),
-                )
-            }
-            ["getattr"] if call.arguments.args.len() >= 2 => {
-                let mut path =
-                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                let attr_path =
-                    self.resolve_expr_import_path_internal(&call.arguments.args[1], context)?;
-                path.push(attr_path.join(""));
-                Some(path)
-            }
-            ["Path"]
-            | ["pathlib", "Path"]
-            | ["socket", "socket"]
-            | ["smtplib", "SMTP" | "SMTP_SSL"]
-            | ["ftplib", "FTP" | "FTP_TLS"] => {
-                Some(qn.segments().iter().map(|s| s.to_string()).collect())
-            }
-            ["globals"] | ["locals"] | ["vars"] => Some(vec![qn.segments()[0].to_string()]),
-            ["eval"] | ["builtins" | "__builtins__", "eval"] if !call.arguments.args.is_empty() => {
-                let arg_path =
-                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                Some(
-                    arg_path
-                        .join("")
-                        .split('.')
-                        .map(|s| s.to_string())
-                        .collect(),
-                )
-            }
-            _ if qn.last() == Some("get") && !call.arguments.args.is_empty() => {
-                let mut segments = qn.segments();
-                segments.pop();
-                match segments.as_slice() {
-                    ["globals"]
-                    | ["locals"]
-                    | ["vars"]
-                    | ["sys", "modules"]
-                    | ["builtins"]
-                    | ["__builtins__"] => {
-                        self.resolve_expr_import_path_internal(&call.arguments.args[0], context)
-                    }
-                    [.., "__dict__"] => {
-                        segments.pop();
-                        let mut path: Vec<String> =
-                            segments.iter().map(|s| s.to_string()).collect();
-                        let attr_path = self
-                            .resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-                        path.push(attr_path.join(""));
-                        Some(path)
-                    }
-                    _ => self.resolve_function_call_path(call),
-                }
-            }
-            _ => self.resolve_function_call_path(call),
+
+        if qn.is_import_call() && !call.arguments.args.is_empty() {
+            let arg_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            return Some(
+                arg_path
+                    .join("")
+                    .split('.')
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
         }
+
+        if qn.is_getattr() && call.arguments.args.len() >= 2 {
+            let mut path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            let attr_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[1], context)?;
+            path.push(attr_path.join(""));
+            return Some(path);
+        }
+
+        if qn.is_io_resource_constructor() {
+            return Some(qn.segments_slice().to_vec());
+        }
+
+        if qn.is_vars_function() {
+            return Some(vec![qn.first()?.to_string()]);
+        }
+
+        if qn.is_eval() && !call.arguments.args.is_empty() {
+            let arg_path =
+                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+            return Some(
+                arg_path
+                    .join("")
+                    .split('.')
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
+        }
+
+        if qn.last() == Some("get") && !call.arguments.args.is_empty() {
+            let mut segments = qn.segments_slice().to_vec();
+            segments.pop();
+            let base_qn = QualifiedName::from_segments(segments);
+            if base_qn.is_module_registry() {
+                return self.resolve_expr_import_path_internal(&call.arguments.args[0], context);
+            }
+
+            if base_qn.last() == Some("__dict__") {
+                let mut path = base_qn.segments_slice().to_vec();
+                path.pop();
+                let attr_path =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
+                path.push(attr_path.join(""));
+                return Some(path);
+            }
+        }
+
+        self.resolve_function_call_path(call)
     }
 
     fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<String>> {

@@ -4,16 +4,10 @@ use crate::indexer::checker::Checker;
 use ruff_python_ast as ast;
 
 pub fn clipboard_read(checker: &mut Checker, call: &ast::ExprCall) {
-    let clipboard_name =
-        checker
-            .indexer
-            .resolve_qualified_name(&call.func)
-            .filter(|qualified_name| {
-                matches!(
-                    qualified_name.segments().as_slice(),
-                    ["pyperclip", "paste"] | ["win32clipboard", "GetClipboardData"]
-                )
-            });
+    let clipboard_name = checker
+        .indexer
+        .resolve_qualified_name(&call.func)
+        .filter(|qualified_name| qualified_name.is_clipboard_read());
 
     if let Some(clipboard_name) = clipboard_name {
         checker.audit_results.push(AuditItem {
