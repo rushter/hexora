@@ -146,8 +146,7 @@ impl<'a> NodeIndexer<'a> {
         {
             match receiver {
                 Expr::Name(name) => {
-                    if let Some(symbol) = self.current_scope_mut().symbols.get_mut(name.id.as_str())
-                    {
+                    if let Some(symbol) = self.lookup_binding_mut(name.id.as_str()) {
                         symbol.add_assigned_expression(expr);
                         symbol.taint.extend(taint);
                     }
@@ -325,6 +324,22 @@ impl<'a> NodeIndexer<'a> {
                     return Some(binding);
                 }
                 match scope.parent_scope {
+                    Some(parent) => index = parent,
+                    None => break,
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn lookup_binding_mut(&mut self, name: &str) -> Option<&mut SymbolBinding<'a>> {
+        if !self.scope_stack.is_empty() {
+            let mut index = self.scope_stack.len() - 1;
+            loop {
+                if self.scope_stack[index].symbols.contains_key(name) {
+                    return self.scope_stack[index].symbols.get_mut(name);
+                }
+                match self.scope_stack[index].parent_scope {
                     Some(parent) => index = parent,
                     None => break,
                 }

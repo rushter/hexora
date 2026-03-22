@@ -761,19 +761,45 @@ fn test_taint_list_pop() {
 }
 
 #[test]
-fn test_taint_list_extend() {
+fn test_taint_subscript_mutation() {
     let source = unindent(
         r#"
             import os
             l = []
-            l.extend([os.getenv("X")])
-            res = l
+            l[0] = os.getenv("FOO")
+            x = l
             "#,
     );
     with_indexer(&source, |indexer, suite| {
-        if let Stmt::Assign(assign) = &suite[3] {
-            let taints = indexer.get_taint(&assign.value);
+        if let Stmt::Assign(StmtAssign { value, .. }) = &suite[3] {
+            let taints = indexer.get_taint(value);
             assert!(taints.contains(&TaintKind::EnvVariables));
+        } else {
+            panic!("Expected assignment at index 3");
         }
     });
+}
+
+#[test]
+fn test_subscript_mutation_no_pollution() {
+    let source = unindent(
+        r#"
+            l = ["a"]
+            l[0] = "b"
+            x = l
+            "#,
+    );
+    let result = get_result(&source);
+    let mut found = false;
+    for (_, values) in result.iter() {
+        if values.contains(&"[\"a\"]") {
+            found = true;
+            assert!(
+                !values.contains(&"\"b\""),
+                "Pollution detected: variable resolves to element value {:?}",
+                values
+            );
+        }
+    }
+    assert!(found, "Could not find mapping for variable 'l'");
 }

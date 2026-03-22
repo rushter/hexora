@@ -142,8 +142,25 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub(crate) fn handle_subscript_assignment(&mut self, sub: &ExprSubscript, value: &'a Expr) {
-        if let Expr::Name(name) = sub.value.as_ref() {
-            self.handle_name_assignment(name, value);
+        let taint = self.get_taint(value);
+        match sub.value.as_ref() {
+            Expr::Name(name) => {
+                if let Some(symbol) = self.lookup_binding_mut(name.id.as_str()) {
+                    symbol.taint.extend(taint);
+                }
+            }
+            Expr::Attribute(attr) => {
+                if let Expr::Name(ExprName { id: base_name, .. }) = &*attr.value
+                    && base_name.as_str() == "self"
+                    && let Some(idx) = self.find_class_scope()
+                {
+                    if let Some(symbol) = self.scope_stack[idx].symbols.get_mut(attr.attr.as_str())
+                    {
+                        symbol.taint.extend(taint);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
