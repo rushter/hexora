@@ -145,6 +145,22 @@ fn test_reverse_slice_on_string() {
 }
 
 #[test]
+fn test_reverse_slice_with_parentheses() {
+    let source = r#"a = "abc"[::- (1)]"#;
+    let expected = vec![string_item!("cba", 4, 18)];
+    let actual = get_strings(source);
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_reverse_slice_with_folding() {
+    let source = r#"a = "abc"[::- (2 - 1)]"#;
+    let expected = vec![string_item!("cba", 4, 22)];
+    let actual = get_strings(source);
+    assert_eq!(expected, actual);
+}
+
+#[test]
 fn test_join_reversed_list() {
     let source = r#"a = "".join(reversed(["tion","mo"]))"#;
     let expected = vec![string_item!("motion", 4, 36)];

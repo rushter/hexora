@@ -195,8 +195,11 @@ impl<'a> NodeTransformer<'a> {
     }
 
     pub(crate) fn evaluate_int_expr(&self, expr: &ast::Expr) -> Option<u32> {
+        self.evaluate_int_expr_i32(expr).map(|v| v as u32)
+    }
+
+    pub(crate) fn evaluate_int_expr_i32(&self, expr: &ast::Expr) -> Option<i32> {
         self.evaluate_int_expr_with_var(expr, None, 0)
-            .map(|v| v as u32)
     }
 
     pub(crate) fn evaluate_int_expr_with_var(
@@ -206,7 +209,15 @@ impl<'a> NodeTransformer<'a> {
         var_val: i32,
     ) -> Option<i32> {
         match expr {
-            ast::Expr::NumberLiteral(num) => Some(num.value.as_int()?.as_u32()? as i32),
+            ast::Expr::NumberLiteral(num) => num.value.as_int()?.as_u32().map(|v| v as i32),
+            ast::Expr::UnaryOp(unary) => {
+                let operand = self.evaluate_int_expr_with_var(&unary.operand, var_name, var_val)?;
+                match unary.op {
+                    ast::UnaryOp::USub => operand.checked_neg(),
+                    ast::UnaryOp::UAdd => Some(operand),
+                    _ => None,
+                }
+            }
             ast::Expr::Name(name) if var_name == Some(name.id.as_str()) => Some(var_val),
             ast::Expr::Call(call) => {
                 let name = matches!(call.func.as_ref(), ast::Expr::Name(name) if name.id.as_str() == "ord");
@@ -263,8 +274,7 @@ impl<'a> NodeTransformer<'a> {
             && slc.upper.is_none()
             && let Some(step) = &slc.step
         {
-            let text = self.locator.slice(step.range());
-            return text.trim() == "-1";
+            return self.evaluate_int_expr_i32(step) == Some(-1);
         }
         false
     }
