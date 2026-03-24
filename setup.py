@@ -16,5 +16,5 @@ setup(
     ],
     zip_safe=False,
     package_dir={"hexora": "hexora"},
-    package_data={"hexora": ["py.typed"]},
+    package_data={"hexora": ["py.typed", "*.pyi"]},
 )
