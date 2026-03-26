@@ -128,6 +128,16 @@ globals()["__builtins__"].eval("print(123)")
 >>> ...
  ```
 
+## Testing Against Malicious Dataset
+
+When developing new rules, you can use existing malicious datasets such as [malicious-software-packages-dataset](https://github.com/DataDog/malicious-software-packages-dataset).
+
+After cloning, point the benchmarking tool to the dataset directory:
+
+```bash
+cargo run --release benchmark malicious-software-packages-dataset/samples/pypi/ --print-missing --exclude-path data/excluded.txt  --min-confidence high
+```
+
 ## Available rules
 
 New rules are added regularly.
