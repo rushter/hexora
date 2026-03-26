@@ -184,7 +184,7 @@ mod tests {
                 assert!(file.archive_path.as_ref().unwrap().ends_with("test.zip"));
                 assert_eq!(
                     file.full_path(),
-                    format!("inner.py:{}", archive_path.display())
+                    format!("{}:inner.py", archive_path.display())
                 );
                 found_zip_py = true;
             }
