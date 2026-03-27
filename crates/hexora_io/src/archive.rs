@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const MAX_ARCHIVE_SIZE: u64 = 50 * 1024 * 1024; // 50MB
-const MAX_FILES_IN_ARCHIVE: usize = 2500;
+const MAX_FILES_IN_ARCHIVE: usize = 15000;
 
 // When a zip is password-protected, we try "infected" as the password.
 // This is hardcoded for now, but works for testing purposes.
