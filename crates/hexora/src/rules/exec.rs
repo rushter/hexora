@@ -199,6 +199,74 @@ fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
             .any(|kw| contains_suspicious_expr(checker, &kw.value))
 }
 
+fn is_python_exec_c(checker: &Checker, call: &ast::ExprCall) -> bool {
+    let check_list = |elts: &[ast::Expr]| -> bool {
+        if elts.len() < 2 {
+            return false;
+        }
+        let first_is_sys_exec = checker
+            .indexer
+            .resolve_qualified_name(&elts[0])
+            .is_some_and(|qn| qn.as_str() == "sys.executable");
+        let second_is_c = string_from_expr(&elts[1], &checker.indexer).is_some_and(|s| s == "-c");
+
+        first_is_sys_exec && second_is_c
+    };
+
+    if call.arguments.args.iter().any(|arg| match arg {
+        ast::Expr::List(l) => check_list(&l.elts),
+        ast::Expr::Tuple(t) => check_list(&t.elts),
+        _ => false,
+    }) {
+        return true;
+    }
+
+    if call.arguments.keywords.iter().any(|kw| {
+        kw.arg.as_ref().is_some_and(|a| a.as_str() == "args")
+            && match &kw.value {
+                ast::Expr::List(l) => check_list(&l.elts),
+                ast::Expr::Tuple(t) => check_list(&t.elts),
+                _ => false,
+            }
+    }) {
+        return true;
+    }
+
+    let has_executable_sys_exec = call.arguments.keywords.iter().any(|kw| {
+        kw.arg.as_ref().is_some_and(|a| a.as_str() == "executable")
+            && checker
+                .indexer
+                .resolve_qualified_name(&kw.value)
+                .is_some_and(|qn| qn.as_str() == "sys.executable")
+    });
+
+    if has_executable_sys_exec {
+        let args_starts_with_c = call
+            .arguments
+            .args
+            .first()
+            .and_then(|arg| string_from_expr(arg, &checker.indexer))
+            .is_some_and(|s| s == "-c")
+            || call
+                .arguments
+                .keywords
+                .iter()
+                .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == "args"))
+                .and_then(|kw| match &kw.value {
+                    ast::Expr::List(l) => l.elts.first(),
+                    ast::Expr::Tuple(t) => t.elts.first(),
+                    _ => None,
+                })
+                .and_then(|arg| string_from_expr(arg, &checker.indexer))
+                .is_some_and(|s| s == "-c");
+        if args_starts_with_c {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &str) {
     for expr in call
         .arguments
@@ -221,6 +289,7 @@ fn is_obfuscated(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
         || label.contains("locals")
         || label.contains("vars")
         || label == "map"
+        || is_python_exec_c(checker, call)
         || contains_suspicious_expr(checker, &call.func)
         || call
             .arguments
@@ -278,29 +347,41 @@ fn push_report(
 ) {
     record_execution_leak(checker, call, &label);
 
-    if is_shell && contains_dangerous_exec(checker, call) {
+    let is_py_exec = is_python_exec_c(checker, call);
+
+    if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
         let is_obf = get_call_suspicious_taint(checker, call).is_some()
             || is_highly_suspicious_exec(checker, call);
+        let mut confidence = AuditConfidence::High;
+        if is_obfuscated(checker, call, &label) {
+            confidence = AuditConfidence::VeryHigh;
+        }
         checker.audit_results.push(AuditItem {
             label,
             rule: Rule::DangerousExec,
             description: (if is_obf {
-                "Execution of obfuscated dangerous command in shell command"
+                "Execution of obfuscated dangerous command in shell"
             } else {
-                "Execution of potentially dangerous command in shell command"
+                "Execution of potentially dangerous command in shell"
             })
             .to_string(),
-            confidence: AuditConfidence::High,
+            confidence,
             location: Some(call.range),
         });
         return;
     }
 
-    let (rule, description, mut confidence) = get_audit_info(
-        is_shell,
+    let (mut rule, mut description, mut confidence) = get_audit_info(
+        is_shell && !is_py_exec,
         get_call_suspicious_taint(checker, call),
         is_highly_suspicious_exec(checker, call),
     );
+
+    if is_py_exec {
+        rule = Rule::CodeExec;
+        description = "Suspicious Python code execution using subprocess".to_string();
+    }
+
     if is_obfuscated(checker, call, &label) {
         confidence = AuditConfidence::VeryHigh;
     }
@@ -512,6 +593,7 @@ mod tests {
     #[test_case("exec_21.py", Rule::ShellExec, vec!["os.system"])]
     #[test_case("exec_22.py", Rule::DangerousExec, vec!["os.system", "os.system"])]
     #[test_case("exec_23.py", Rule::ShellExec, vec!["subprocess.Popen"])]
+    #[test_case("exec_24.py", Rule::CodeExec, vec!["subprocess.Popen"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
