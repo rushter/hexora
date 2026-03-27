@@ -58,7 +58,7 @@ pub fn audit_path(
     }
 }
 
-fn audit_source(source: String) -> Result<Vec<AuditItem>, String> {
+pub fn audit_source(source: String) -> Result<Vec<AuditItem>, String> {
     let parsed = ruff_python_parser::parse_unchecked_source(&source, ast::PySourceType::Python);
     let locator = Locator::new(&source);
     let python_ast = parsed.suite();
