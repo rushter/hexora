@@ -50,7 +50,10 @@ pub fn get_call_suspicious_taint(checker: &Checker, call: &ast::ExprCall) -> Opt
                 .iter()
                 .find(|kw| {
                     kw.arg.as_ref().is_some_and(|a| {
-                        matches!(a.as_str(), "args" | "executable" | "source" | "object")
+                        matches!(
+                            a.as_str(),
+                            "args" | "executable" | "source" | "object" | "input"
+                        )
                     })
                 })
                 .and_then(|kw| get_suspicious_taint(checker, &kw.value))
@@ -295,9 +298,11 @@ fn get_python_exec_script_path<'a>(
             return None;
         }
         let second = &elts[1];
-        let second_is_dash_c =
-            string_from_expr(second, &checker.indexer).is_some_and(|s| s == "-c");
-        if second_is_dash_c {
+        let second_flag = string_from_expr(second, &checker.indexer);
+        if second_flag
+            .as_deref()
+            .is_some_and(|s| matches!(s, "-c" | "-"))
+        {
             return None;
         }
         Some(second)
@@ -326,6 +331,49 @@ fn get_python_exec_script_path<'a>(
     }
 
     None
+}
+
+fn get_python_exec_stdin_code<'a>(
+    checker: &Checker,
+    call: &'a ast::ExprCall,
+) -> Option<&'a ast::Expr> {
+    let has_stdin_python = {
+        let check_list = |elts: &'a [ast::Expr]| -> bool {
+            if elts.len() < 2 {
+                return false;
+            }
+            let first_is_sys_exec = checker
+                .indexer
+                .resolve_qualified_name(&elts[0])
+                .is_some_and(|qn| qn.as_str() == "sys.executable");
+            let second_is_stdin =
+                string_from_expr(&elts[1], &checker.indexer).is_some_and(|s| s == "-");
+            first_is_sys_exec && second_is_stdin
+        };
+
+        call.arguments.args.iter().any(|arg| match arg {
+            ast::Expr::List(l) => check_list(&l.elts),
+            ast::Expr::Tuple(t) => check_list(&t.elts),
+            _ => false,
+        }) || call.arguments.keywords.iter().any(|kw| {
+            kw.arg.as_ref().is_some_and(|a| a.as_str() == "args")
+                && match &kw.value {
+                    ast::Expr::List(l) => check_list(&l.elts),
+                    ast::Expr::Tuple(t) => check_list(&t.elts),
+                    _ => false,
+                }
+        })
+    };
+
+    if !has_stdin_python {
+        return None;
+    }
+
+    call.arguments
+        .keywords
+        .iter()
+        .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == "input"))
+        .map(|kw| &kw.value)
 }
 
 fn get_direct_code_exec_source<'a>(
@@ -443,7 +491,8 @@ fn push_report(
 
     let py_exec_code = get_python_exec_c_code(checker, call);
     let py_exec_script = get_python_exec_script_path(checker, call);
-    let is_py_exec = py_exec_code.is_some() || py_exec_script.is_some();
+    let py_exec_stdin = get_python_exec_stdin_code(checker, call);
+    let is_py_exec = py_exec_code.is_some() || py_exec_script.is_some() || py_exec_stdin.is_some();
 
     if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
         let is_obf = get_call_suspicious_taint(checker, call).is_some()
@@ -478,6 +527,15 @@ fn push_report(
         description = "Suspicious Python code execution using subprocess".to_string();
         if let Some(code_expr) = py_exec_code {
             audit_nested_code_expr(checker, call, code_expr);
+        }
+        if let Some(code_expr) = py_exec_stdin {
+            audit_nested_code_expr(checker, call, code_expr);
+            if let Some(taint) = get_suspicious_taint(checker, code_expr) {
+                let (conf, _, c) = get_taint_metadata(taint);
+                rule = Rule::ObfuscatedCodeExec;
+                confidence = conf;
+                description = format!("Execution of {} via Python subprocess stdin.", c);
+            }
         }
         if let Some(script_path) = py_exec_script {
             if let Some(taint) = get_suspicious_taint(checker, script_path) {
@@ -705,7 +763,7 @@ mod tests {
     #[test_case("exec_22.py", Rule::DangerousExec, vec!["os.system", "os.system"])]
     #[test_case("exec_23.py", Rule::ShellExec, vec!["subprocess.Popen"])]
     #[test_case("exec_24.py", Rule::CodeExec, vec!["subprocess.Popen"])]
-    #[test_case("exec_24.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
+    #[test_case("exec_24.py", Rule::ObfuscatedCodeExec, vec!["exec", "subprocess.run"])]
     #[test_case("exec_25.py", Rule::CodeExec, vec!["exec"])]
     #[test_case("exec_25.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     #[test_case("exec_26.py", Rule::ShellExec, vec!["execfile"])]
