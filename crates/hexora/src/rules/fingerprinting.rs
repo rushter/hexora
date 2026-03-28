@@ -30,7 +30,7 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
                 (name, AuditConfidence::Medium)
             } else if name == "dict" || name == "str" {
                 let label = arg_qn.map(|qn| qn.to_string()).unwrap_or(name);
-                (label, AuditConfidence::VeryHigh)
+                (label, AuditConfidence::High)
             } else {
                 (name, AuditConfidence::Medium)
             };
