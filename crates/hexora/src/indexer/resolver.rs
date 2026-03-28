@@ -322,6 +322,10 @@ impl<'a> NodeIndexer<'a> {
             }
         }
 
+        if let Some(path) = self.resolve_expr_import_path_internal(&call.func, context) {
+            return Some(path);
+        }
+
         self.resolve_function_call_path(call)
     }
 

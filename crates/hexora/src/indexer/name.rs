@@ -248,6 +248,29 @@ impl QualifiedName {
     }
 
     #[inline]
+    pub fn is_screenshot_capture(&self) -> bool {
+        match self.segments_slice() {
+            [imagegrab, grab] if imagegrab == "ImageGrab" && grab == "grab" => true,
+            [pil, imagegrab, grab]
+                if pil == "PIL" && imagegrab == "ImageGrab" && grab == "grab" =>
+            {
+                true
+            }
+            [pyscreenshot, grab] if pyscreenshot == "pyscreenshot" && grab == "grab" => true,
+            [pyautogui, screenshot] if pyautogui == "pyautogui" && screenshot == "screenshot" => {
+                true
+            }
+            [mss, mss_ctor, grab] if mss == "mss" && mss_ctor == "mss" && grab == "grab" => true,
+            [d3dshot, create, screenshot]
+                if d3dshot == "d3dshot" && create == "create" && screenshot == "screenshot" =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    #[inline]
     pub fn is_env_access(&self) -> bool {
         match self.segments_slice() {
             [os, environ, get] if os == "os" && environ == "environ" && get == "get" => true,

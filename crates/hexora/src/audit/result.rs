@@ -48,6 +48,7 @@ pub enum Rule {
     // Access
     ClipboardRead,
     EnvAccess,
+    ScreenshotCapture,
 
     // Execution
     CodeExec,
@@ -120,6 +121,7 @@ impl Rule {
             // Access: HX2000
             Rule::ClipboardRead => "HX2000",
             Rule::EnvAccess => "HX2010",
+            Rule::ScreenshotCapture => "HX2020",
 
             // Execution: HX3000
             Rule::CodeExec => "HX3000",
@@ -181,6 +183,7 @@ impl Rule {
             // Access
             Rule::ClipboardRead => "Reading from the clipboard.",
             Rule::EnvAccess => "Access to a sensitive environment variable.",
+            Rule::ScreenshotCapture => "Capturing screenshots from the display.",
 
             // Execution
             Rule::CodeExec => "Possible code execution.",
@@ -241,6 +244,9 @@ impl Rule {
             Rule::EnvAccess => {
                 Some("Access to sensitive environment variables can be used to exfiltrate data.")
             }
+            Rule::ScreenshotCapture => Some(
+                "Screenshot capture can be used to steal sensitive information shown on screen.",
+            ),
 
             // Enumeration
             Rule::OSFingerprint => Some(

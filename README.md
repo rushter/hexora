@@ -151,6 +151,7 @@ Right now, the following rules are available:
 | HX1030 | OSFingerprint | Suspicious OS fingerprinting. |
 | HX2000 | ClipboardRead | Reading from the clipboard. |
 | HX2010 | EnvAccess | Access to a sensitive environment variable. |
+| HX2020 | ScreenshotCapture | Capturing screenshots from the display. |
 | HX3000 | CodeExec | Possible code execution. |
 | HX3010 | ShellExec | Execution of a shell command. |
 | HX3040 | DLLInjection | Possible DLL injection. |

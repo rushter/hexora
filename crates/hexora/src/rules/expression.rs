@@ -10,6 +10,7 @@ use crate::rules::exec::{code_exec, shell_exec};
 use crate::rules::fingerprinting::fingerprinting;
 use crate::rules::identifier::suspicious_call_name;
 use crate::rules::literal::{check_int_literals, check_literal};
+use crate::rules::screenshot::screenshot_capture;
 use crate::rules::write::suspicious_write;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -23,6 +24,7 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
             env_access(checker, call);
             fingerprinting(checker, call);
             clipboard_read(checker, call);
+            screenshot_capture(checker, call);
             data_exfiltration(checker, call);
             suspicious_call(checker, call);
             binary_download(checker, call);
