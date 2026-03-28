@@ -46,6 +46,11 @@ DEFAULT_POLL_SECONDS = 300
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+EXCLUDED_PATH_SUBSTRINGS = [
+    "lib/site-packages/pip/_vendor/pkg_resources/__init__.py",
+    "tests/",
+    "test_",
+]
 
 
 @dataclass(frozen=True)
@@ -225,6 +230,21 @@ def get_confidence_items(
     return high_items
 
 
+def should_exclude_result(audit_result: dict[str, Any]) -> bool:
+    path_candidates: list[str] = []
+    for key in ("path", "archive_path"):
+        value = audit_result.get(key)
+        if isinstance(value, str) and value:
+            normalized = value.replace("\\", "/").lower()
+            path_candidates.append(normalized)
+
+    for candidate in path_candidates:
+        if any(fragment in candidate for fragment in EXCLUDED_PATH_SUBSTRINGS):
+            return True
+
+    return False
+
+
 def log_confidence_items(entry: FeedEntry, items: list[dict[str, Any]]) -> None:
     if not items:
         return
@@ -364,14 +384,26 @@ def process_entry(
         return
 
     high_or_higher_items: list[dict[str, Any]] = []
+    excluded_file_results = 0
     for per_file_result in audit_result:
+        if should_exclude_result(per_file_result):
+            excluded_file_results += 1
+            continue
         high_or_higher_items.extend(
             get_confidence_items(per_file_result, HIGH_OR_HIGHER_LEVELS)
+        )
+    if excluded_file_results:
+        logging.info(
+            "Excluded %d file-level results for %s based on path filters",
+            excluded_file_results,
+            entry.key,
         )
     log_confidence_items(entry, high_or_higher_items)
 
     very_high_items: list[dict[str, Any]] = []
     for per_file_result in audit_result:
+        if should_exclude_result(per_file_result):
+            continue
         very_high_items.extend(get_confidence_items(per_file_result, {VERY_HIGH_LEVEL}))
     if not very_high_items:
         logging.info("No very-high findings for %s", entry.key)
