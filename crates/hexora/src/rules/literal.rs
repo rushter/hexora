@@ -1,6 +1,8 @@
+use crate::audit::parse::audit_source;
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::model::Transformation;
+use hexora_io::encoding::{base64_decode, unescape_to_bytes};
 use hexora_io::macros::es;
 
 use crate::indexer::resolver::{ListLike, string_from_expr};
@@ -355,6 +357,10 @@ fn is_base64_string(literal: &str) -> bool {
     BASE64_REGEX.is_match(literal)
 }
 
+fn is_base64_candidate(literal: &str) -> bool {
+    literal.len() >= 8 && BASE64_REGEX.is_match(literal)
+}
+
 fn literal_preview(value: &str, max_length: usize) -> String {
     if value.len() > max_length {
         format!(
@@ -364,6 +370,44 @@ fn literal_preview(value: &str, max_length: usize) -> String {
         )
     } else {
         value.to_string()
+    }
+}
+
+fn audit_nested_python_from_source(checker: &mut Checker, expr: &ast::Expr, source: &str) {
+    if let Ok(mut sub_results) = audit_source(source.to_string()) {
+        for item in &mut sub_results {
+            item.location = Some(expr.range());
+        }
+        checker.audit_results.extend(sub_results);
+    }
+}
+
+fn audit_nested_python_from_decoded_base64(checker: &mut Checker, expr: &ast::Expr, literal: &str) {
+    let Some(bytes) = unescape_to_bytes(literal) else {
+        return;
+    };
+    if let Ok(source) = String::from_utf8(bytes) {
+        audit_nested_python_from_source(checker, expr, &source);
+    }
+}
+
+fn audit_nested_python_from_base64_literal(checker: &mut Checker, expr: &ast::Expr, literal: &str) {
+    let mut decoded_sources = Vec::new();
+    for url_safe in [false, true] {
+        let Some(bytes) = base64_decode(literal, url_safe) else {
+            continue;
+        };
+        let Ok(source) = String::from_utf8(bytes) else {
+            continue;
+        };
+        if decoded_sources.contains(&source) {
+            continue;
+        }
+        decoded_sources.push(source);
+    }
+
+    for source in decoded_sources {
+        audit_nested_python_from_source(checker, expr, &source);
     }
 }
 
@@ -381,6 +425,7 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
                 if let Some(t) = transformation {
                     match t {
                         Transformation::Base64 => {
+                            audit_nested_python_from_decoded_base64(checker, expr, &literal);
                             let confidence = if literal.len() > ELEVATED_BASE64_STRING_LENGTH {
                                 AuditConfidence::High
                             } else {
@@ -413,6 +458,9 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
                     }
                 }
             }
+        }
+        if is_base64_candidate(&literal) {
+            audit_nested_python_from_base64_literal(checker, expr, &literal);
         }
         if is_hexed_string(&literal) {
             checker.audit_results.push(AuditItem {
@@ -552,6 +600,7 @@ mod tests {
     #[test_case("literal_07.py", Rule::SuspiciousLiteral, vec![".aws/credentials"])]
     #[test_case("literal_08.py", Rule::SuspiciousLiteral, vec!["/dev/tcp"])]
     #[test_case("literal_08.py", Rule::IntLiterals, vec![])]
+    #[test_case("literal_10.py", Rule::ShellExec, vec!["os.system"])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
