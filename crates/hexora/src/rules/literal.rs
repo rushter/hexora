@@ -17,6 +17,7 @@ const MAX_PREVIEW_LENGTH: usize = 16;
 const LITERALS_PREVIEW_MAX_COUNT: usize = 5;
 const MIN_HEXED_STRING_LENGTH: usize = 100;
 const MIN_BASE64_STRING_LENGTH: usize = 100;
+const ELEVATED_BASE64_STRING_LENGTH: usize = 200;
 const MIN_HEXED_LITERALS: u16 = 10;
 const MIN_INT_LITERALS: u16 = 20;
 const MIN_LITERAL_LENGTH: usize = 8;
@@ -380,13 +381,18 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
                 if let Some(t) = transformation {
                     match t {
                         Transformation::Base64 => {
+                            let confidence = if literal.len() > ELEVATED_BASE64_STRING_LENGTH {
+                                AuditConfidence::High
+                            } else {
+                                AuditConfidence::Medium
+                            };
                             checker.audit_results.push(AuditItem {
                                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
                                 rule: Rule::Base64String,
                                 description:
                                     "Base64 encoded string found, potentially obfuscated code."
                                         .to_string(),
-                                confidence: AuditConfidence::Medium,
+                                confidence,
                                 location: Some(expr.range()),
                             });
                             return;
@@ -420,12 +426,17 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
             return;
         }
         if is_base64_string(&literal) {
+            let confidence = if literal.len() > ELEVATED_BASE64_STRING_LENGTH {
+                AuditConfidence::High
+            } else {
+                AuditConfidence::Medium
+            };
             checker.audit_results.push(AuditItem {
                 label: literal_preview(&literal, MAX_PREVIEW_LENGTH),
                 rule: Rule::Base64String,
                 description: "Base64 encoded string found, potentially obfuscated code."
                     .to_string(),
-                confidence: AuditConfidence::Medium,
+                confidence,
                 location: Some(expr.range()),
             });
             return;
@@ -543,6 +554,18 @@ mod tests {
     #[test_case("literal_08.py", Rule::IntLiterals, vec![])]
     fn test_literal(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_base64_confidence_elevation() {
+        use crate::audit::result::AuditConfidence;
+        let result = test_path("literal_02.py").unwrap();
+        let high_base64 = result
+            .items
+            .iter()
+            .find(|i| i.rule == Rule::Base64String)
+            .expect("Base64 string not found");
+        assert_eq!(high_base64.confidence, AuditConfidence::High);
     }
 
     #[test]
