@@ -431,7 +431,6 @@ fn is_obfuscated(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
         || label.contains("locals")
         || label.contains("vars")
         || label == "map"
-        || get_python_exec_c_code(checker, call).is_some()
         || contains_suspicious_expr(checker, &call.func)
         || call
             .arguments
@@ -525,6 +524,7 @@ fn push_report(
     if is_py_exec {
         rule = Rule::CodeExec;
         description = "Suspicious Python code execution using subprocess".to_string();
+        confidence = confidence.max(AuditConfidence::High);
         if let Some(code_expr) = py_exec_code {
             audit_nested_code_expr(checker, call, code_expr);
         }
