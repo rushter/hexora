@@ -26,6 +26,78 @@ impl<'a> Default for NodeIndexer<'a> {
 }
 
 impl<'a> NodeIndexer<'a> {
+    fn is_open_for_writing_call(&self, call: &ExprCall) -> bool {
+        let mut mode = "r".to_string();
+
+        if let Some(arg) = call.arguments.args.get(1)
+            && let Some(m) = crate::indexer::resolver::string_from_expr(arg, self)
+        {
+            mode = m;
+        }
+
+        for kw in &call.arguments.keywords {
+            if matches!(kw.arg.as_ref().map(|a| a.as_str()), Some("mode"))
+                && let Some(m) = crate::indexer::resolver::string_from_expr(&kw.value, self)
+            {
+                mode = m;
+            }
+        }
+
+        mode.chars().any(|c| matches!(c, 'w' | 'a' | 'x' | '+'))
+    }
+
+    fn handle_file_write_taint(&mut self, call: &ExprCall, expr: &'a Expr) {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return;
+        };
+        if attr.attr.as_str() != "write" {
+            return;
+        }
+
+        let Expr::Name(handle_name) = attr.value.as_ref() else {
+            return;
+        };
+
+        let mut taint = TaintState::new();
+        for arg in &call.arguments.args {
+            taint.extend(self.get_taint(arg));
+        }
+        for kw in &call.arguments.keywords {
+            taint.extend(self.get_taint(&kw.value));
+        }
+        if taint.is_empty() {
+            return;
+        }
+
+        let Some(binding) = self.lookup_binding(handle_name.id.as_str()) else {
+            return;
+        };
+        let Some(value_expr) = binding.value_expr else {
+            return;
+        };
+        let Expr::Call(open_call) = value_expr else {
+            return;
+        };
+
+        let is_open = self
+            .resolve_qualified_name(&open_call.func)
+            .is_some_and(|qn| qn.is_exact(&["open"]) || qn.is_exact(&["builtins", "open"]));
+        if !is_open || !self.is_open_for_writing_call(open_call) {
+            return;
+        }
+
+        let Some(path_expr) = open_call.arguments.args.first() else {
+            return;
+        };
+
+        if let Expr::Name(path_name) = path_expr {
+            if let Some(symbol) = self.lookup_binding_mut(path_name.id.as_str()) {
+                symbol.add_assigned_expression(expr);
+                symbol.taint.extend(taint);
+            }
+        }
+    }
+
     pub fn new() -> Self {
         let mut this = Self {
             index: AtomicU32::new(0),
@@ -141,6 +213,8 @@ impl<'a> NodeIndexer<'a> {
     fn handle_expr_stmt(&mut self, _expr_stmt: &'a StmtExpr) {}
 
     pub(crate) fn handle_method_call_mutation(&mut self, expr: &'a Expr, call: &ExprCall) {
+        self.handle_file_write_taint(call, expr);
+
         if let Some((receiver, taint)) =
             crate::indexer::taint::get_method_mutation_taint(call, |e| self.get_taint(e))
         {

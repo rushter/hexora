@@ -279,6 +279,55 @@ fn get_python_exec_c_code<'a>(checker: &Checker, call: &'a ast::ExprCall) -> Opt
     None
 }
 
+fn get_python_exec_script_path<'a>(
+    checker: &Checker,
+    call: &'a ast::ExprCall,
+) -> Option<&'a ast::Expr> {
+    let check_list = |elts: &'a [ast::Expr]| -> Option<&'a ast::Expr> {
+        if elts.len() < 2 {
+            return None;
+        }
+        let first_is_sys_exec = checker
+            .indexer
+            .resolve_qualified_name(&elts[0])
+            .is_some_and(|qn| qn.as_str() == "sys.executable");
+        if !first_is_sys_exec {
+            return None;
+        }
+        let second = &elts[1];
+        let second_is_dash_c =
+            string_from_expr(second, &checker.indexer).is_some_and(|s| s == "-c");
+        if second_is_dash_c {
+            return None;
+        }
+        Some(second)
+    };
+
+    for arg in &call.arguments.args {
+        if let Some(path) = match arg {
+            ast::Expr::List(l) => check_list(&l.elts),
+            ast::Expr::Tuple(t) => check_list(&t.elts),
+            _ => None,
+        } {
+            return Some(path);
+        }
+    }
+
+    for kw in &call.arguments.keywords {
+        if kw.arg.as_ref().is_some_and(|a| a.as_str() == "args") {
+            if let Some(path) = match &kw.value {
+                ast::Expr::List(l) => check_list(&l.elts),
+                ast::Expr::Tuple(t) => check_list(&t.elts),
+                _ => None,
+            } {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
 fn get_direct_code_exec_source<'a>(
     checker: &Checker,
     call: &'a ast::ExprCall,
@@ -393,7 +442,8 @@ fn push_report(
     record_execution_leak(checker, call, &label);
 
     let py_exec_code = get_python_exec_c_code(checker, call);
-    let is_py_exec = py_exec_code.is_some();
+    let py_exec_script = get_python_exec_script_path(checker, call);
+    let is_py_exec = py_exec_code.is_some() || py_exec_script.is_some();
 
     if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
         let is_obf = get_call_suspicious_taint(checker, call).is_some()
@@ -428,6 +478,14 @@ fn push_report(
         description = "Suspicious Python code execution using subprocess".to_string();
         if let Some(code_expr) = py_exec_code {
             audit_nested_code_expr(checker, call, code_expr);
+        }
+        if let Some(script_path) = py_exec_script {
+            if let Some(taint) = get_suspicious_taint(checker, script_path) {
+                let (conf, _, c) = get_taint_metadata(taint);
+                rule = Rule::ObfuscatedCodeExec;
+                confidence = conf;
+                description = format!("Execution of {} via Python subprocess script path.", c);
+            }
         }
     } else if !is_shell {
         if let Some(code_expr) = get_direct_code_exec_source(checker, call) {
@@ -651,6 +709,7 @@ mod tests {
     #[test_case("exec_25.py", Rule::CodeExec, vec!["exec"])]
     #[test_case("exec_25.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     #[test_case("exec_26.py", Rule::ShellExec, vec!["execfile"])]
+    #[test_case("exec_27.py", Rule::ObfuscatedCodeExec, vec!["subprocess.run", "exec"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
