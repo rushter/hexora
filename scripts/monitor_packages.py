@@ -48,6 +48,7 @@ VERY_HIGH_LEVEL = "very_high"
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 EXCLUDED_PATH_SUBSTRINGS = [
     "lib/site-packages/pip/_vendor/pkg_resources/__init__.py",
+    "lib/site-packages/pkg_resources/__init__.py",
     "tests/",
     "test_",
 ]
