@@ -650,6 +650,7 @@ mod tests {
     #[test_case("exec_24.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     #[test_case("exec_25.py", Rule::CodeExec, vec!["exec"])]
     #[test_case("exec_25.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
+    #[test_case("exec_26.py", Rule::ShellExec, vec!["execfile"])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }

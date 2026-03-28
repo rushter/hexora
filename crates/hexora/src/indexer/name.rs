@@ -74,6 +74,7 @@ impl QualifiedName {
     #[inline]
     pub fn is_shell_command(&self) -> bool {
         match self.segments_slice() {
+            [only] if only == "execfile" => true,
             [os, submodule] if os == "os" => matches!(
                 submodule.as_str(),
                 "execl"
