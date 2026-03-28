@@ -43,6 +43,7 @@ PYPI_JSON_URL = "https://pypi.org/pypi/{name}/{version}/json"
 USER_AGENT = "hexora-pypi-monitor/1.0 (+https://github.com/rushter/hexora)"
 DEFAULT_TIMEOUT = 30
 DEFAULT_POLL_SECONDS = 300
+MAX_STORED_PACKAGES = 99
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
@@ -181,6 +182,25 @@ def make_download_path(
         safe_name = package_name.replace("/", "-")
         file_name = f"{safe_name}-{version}.tar.gz"
     return output_dir / file_name
+
+
+def enforce_package_quota(
+    output_dir: Path, max_packages: int = MAX_STORED_PACKAGES
+) -> None:
+    package_files = [path for path in output_dir.iterdir() if path.is_file()]
+    if len(package_files) <= max_packages:
+        return
+
+    package_files.sort(key=lambda path: (path.stat().st_mtime, path.name))
+    files_to_remove = package_files[: len(package_files) - max_packages]
+    for package_file in files_to_remove:
+        try:
+            package_file.unlink()
+            logging.info("Removed old package archive due to quota: %s", package_file)
+        except Exception as exc:
+            logging.error(
+                "Failed to remove %s while enforcing quota: %s", package_file, exc
+            )
 
 
 def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
@@ -470,6 +490,7 @@ def monitor(
                 finally:
                     processed.add(entry.key)
                     save_cache(cache_path, processed)
+                    enforce_package_quota(output_dir)
         except Exception as exc:
             logging.error("Monitoring cycle failed: %s", exc)
 
