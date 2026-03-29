@@ -135,6 +135,15 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
         return false;
     }
 
+    if checker
+        .indexer
+        .get_taint(expr)
+        .iter()
+        .any(|taint| matches!(taint, TaintKind::Decoded | TaintKind::Deobfuscated))
+    {
+        return true;
+    }
+
     if let Some(id) = expr.node_index().load().as_u32() {
         if let Some(Transformation::Base64 | Transformation::Hex | Transformation::Other) =
             checker.indexer.model.decoded_nodes.borrow().get(&id)
@@ -185,22 +194,81 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
         ast::Expr::Lambda(lambda) => {
             contains_suspicious_expr_limited(checker, &lambda.body, depth + 1)
         }
+        ast::Expr::List(list) => list
+            .elts
+            .iter()
+            .any(|elt| contains_suspicious_expr_limited(checker, elt, depth + 1)),
+        ast::Expr::Tuple(tuple) => tuple
+            .elts
+            .iter()
+            .any(|elt| contains_suspicious_expr_limited(checker, elt, depth + 1)),
         _ => false,
     }
 }
 
 fn is_highly_suspicious_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
+    contains_suspicious_exec_arguments(checker, call)
+}
+
+fn is_builtin_named(qn: &crate::indexer::name::QualifiedName, name: &str) -> bool {
+    qn.is_exact(&[name]) || qn.is_exact(&["builtins", name]) || qn.is_exact(&["__builtins__", name])
+}
+
+fn is_builtin_call_named(checker: &Checker, expr: &ast::Expr, name: &str) -> bool {
+    let ast::Expr::Call(call) = expr else {
+        return false;
+    };
+    checker
+        .indexer
+        .resolve_qualified_name(&call.func)
+        .is_some_and(|qn| is_builtin_named(&qn, name))
+}
+
+fn is_exec_eval_call(checker: &Checker, call: &ast::ExprCall) -> bool {
+    checker
+        .indexer
+        .resolve_qualified_name(&call.func)
+        .is_some_and(|qn| qn.is_code_exec())
+}
+
+fn is_relaxed_exec_arg(
+    checker: &Checker,
+    call: &ast::ExprCall,
+    arg: &ast::Expr,
+    position: Option<usize>,
+    keyword: Option<&str>,
+) -> bool {
+    if !is_exec_eval_call(checker, call) {
+        return false;
+    }
+
+    if is_builtin_call_named(checker, arg, "compile") {
+        return position == Some(0)
+            || keyword.is_some_and(|name| matches!(name, "source" | "object" | "expression"));
+    }
+
+    if is_builtin_call_named(checker, arg, "globals")
+        || is_builtin_call_named(checker, arg, "locals")
+        || is_builtin_call_named(checker, arg, "vars")
+    {
+        return position.is_some_and(|idx| idx >= 1)
+            || keyword.is_some_and(|name| matches!(name, "globals" | "locals"));
+    }
+
+    false
+}
+
+fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -> bool {
     contains_suspicious_expr(checker, &call.func)
-        || call
-            .arguments
-            .args
-            .iter()
-            .any(|arg| contains_suspicious_expr(checker, arg))
-        || call
-            .arguments
-            .keywords
-            .iter()
-            .any(|kw| contains_suspicious_expr(checker, &kw.value))
+        || call.arguments.args.iter().enumerate().any(|(idx, arg)| {
+            !is_relaxed_exec_arg(checker, call, arg, Some(idx), None)
+                && contains_suspicious_expr(checker, arg)
+        })
+        || call.arguments.keywords.iter().any(|kw| {
+            let kw_name = kw.arg.as_ref().map(|arg| arg.as_str());
+            !is_relaxed_exec_arg(checker, call, &kw.value, None, kw_name)
+                && contains_suspicious_expr(checker, &kw.value)
+        })
 }
 
 fn get_python_exec_c_code<'a>(checker: &Checker, call: &'a ast::ExprCall) -> Option<&'a ast::Expr> {
@@ -425,23 +493,7 @@ fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &st
 }
 
 fn is_obfuscated(checker: &Checker, call: &ast::ExprCall, label: &str) -> bool {
-    label.contains("builtins.")
-        || label.contains("__builtins__.")
-        || label.contains("globals")
-        || label.contains("locals")
-        || label.contains("vars")
-        || label == "map"
-        || contains_suspicious_expr(checker, &call.func)
-        || call
-            .arguments
-            .args
-            .iter()
-            .any(|arg| contains_suspicious_expr(checker, arg))
-        || call
-            .arguments
-            .keywords
-            .iter()
-            .any(|kw| contains_suspicious_expr(checker, &kw.value))
+    label == "map" || contains_suspicious_exec_arguments(checker, call)
 }
 
 fn get_audit_info(
@@ -768,6 +820,16 @@ mod tests {
     #[test_case("exec_25.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
     #[test_case("exec_26.py", Rule::ShellExec, vec!["execfile"])]
     #[test_case("exec_27.py", Rule::ObfuscatedCodeExec, vec!["exec", "subprocess.run", "exec"])]
+    #[test_case(
+        "exec_28.py",
+        Rule::CodeExec,
+        vec!["exec", "eval", "exec", "exec", "exec", "builtins.exec"]
+    )]
+    #[test_case(
+        "exec_28.py",
+        Rule::ObfuscatedCodeExec,
+        vec!["exec", "builtins.exec"]
+    )]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
@@ -797,17 +859,25 @@ mod tests {
                         | Rule::ObfuscatedCodeExec
                 )
             })
+            .map(|item| (item.label.clone(), item.rule, item.confidence))
             .collect();
 
-        assert!(!suspicious_items.is_empty());
-        for item in suspicious_items {
-            assert_eq!(
-                item.confidence,
+        let expected = vec![
+            (
+                "os.system".to_string(),
+                Rule::ObfuscatedShellExec,
                 AuditConfidence::VeryHigh,
-                "Item {} should have VeryHigh confidence",
-                item.label
-            );
-        }
+            ),
+            (
+                "exec".to_string(),
+                Rule::ObfuscatedCodeExec,
+                AuditConfidence::VeryHigh,
+            ),
+            ("exec".to_string(), Rule::CodeExec, AuditConfidence::Medium),
+            ("eval".to_string(), Rule::CodeExec, AuditConfidence::Medium),
+        ];
+
+        assert_eq!(suspicious_items, expected);
     }
 
     #[test]
@@ -829,6 +899,18 @@ mod tests {
                 panic!("test failed: {:?}", e);
             }
         }
+    }
+
+    #[test]
+    fn test_exec_03_subprocess_run_confidence() {
+        let result = test_path("exec_03.py").unwrap();
+        let item = result
+            .items
+            .iter()
+            .find(|item| item.rule == Rule::ObfuscatedShellExec && item.label == "subprocess.run")
+            .expect("Expected subprocess.run obfuscated shell exec finding");
+
+        assert_eq!(item.confidence, AuditConfidence::VeryHigh);
     }
 
     #[test_case(Rule::DangerousExec, vec!["os.system"])]
