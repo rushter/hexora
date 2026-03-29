@@ -210,26 +210,23 @@ def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
         logging.error("Hexora audit failed for %s: %s", package_file, exc)
         return None
 
-    if isinstance(result, dict):
-        return [result]
+    if not isinstance(result, list):
+        logging.warning(
+            "Unexpected audit result type for %s: %s", package_file, type(result)
+        )
+        return None
 
-    if isinstance(result, list):
-        normalized: list[dict[str, Any]] = []
-        for item in result:
-            if isinstance(item, dict):
-                normalized.append(item)
-            else:
-                logging.warning(
-                    "Unexpected audit entry type for %s: %s",
-                    package_file,
-                    type(item),
-                )
-        return normalized
-
-    logging.warning(
-        "Unexpected audit result type for %s: %s", package_file, type(result)
-    )
-    return None
+    normalized: list[dict[str, Any]] = []
+    for item in result:
+        if isinstance(item, dict):
+            normalized.append(item)
+        else:
+            logging.warning(
+                "Unexpected audit entry type for %s: %s",
+                package_file,
+                type(item),
+            )
+    return normalized
 
 
 def get_confidence_items(

@@ -97,25 +97,23 @@ fn audit_path(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
 /// --
 #[pyfunction]
 #[pyo3(signature = (input_path))]
-fn audit_file(input_path: PathBuf) -> PyResult<Py<PyAny>> {
+fn audit_file(input_path: PathBuf) -> PyResult<Vec<Py<PyAny>>> {
     if is_archive_path(&input_path) {
         let results = parse::audit_path(&input_path, None)
             .map_err(|e| PyRuntimeError::new_err(format!("Audit failed: {}", e)))?;
 
         return Python::attach(|py| {
-            let items: Vec<AuditResult> = results.map(map_audit_result).collect();
-            pythonize(py, &items)
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize result: {}", e)))?
-                .extract()
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to extract Python object: {}", e))
-                })
+            let mut items = Vec::new();
+            for r in results {
+                items.push(to_py_audit_result(py, r)?);
+            }
+            Ok(items)
         });
     }
 
     let result = parse::audit_file(&input_path)
         .map_err(|e| PyRuntimeError::new_err(format!("Audit failed: {}", e)))?;
-    Python::attach(|py| to_py_audit_result(py, result))
+    Python::attach(|py| Ok(vec![to_py_audit_result(py, result)?]))
 }
 
 #[pymodule]
