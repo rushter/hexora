@@ -770,78 +770,236 @@ mod tests {
     use crate::rules::test::*;
     use test_case::test_case;
 
-    #[test_case("exec_01.py", Rule::ShellExec, vec!["subprocess.call", "os.popen", "subprocess.check_output"])]
-    #[test_case("exec_02.py", Rule::CodeExec, vec!["eval", "builtins.exec", "exec", "eval", "exec", "eval", "exec"])]
-    #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.exec"])]
-    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system", "subprocess.run"])]
+
+    #[test_case(
+        "exec_01.py",
+        Rule::ShellExec,
+        vec![
+            ("subprocess.call", AuditConfidence::Medium),
+            ("os.popen", AuditConfidence::Medium),
+            ("subprocess.check_output", AuditConfidence::Medium),
+        ]
+    )]
+    #[test_case(
+        "exec_02.py",
+        Rule::CodeExec,
+        vec![
+            ("eval", AuditConfidence::Medium),
+            ("builtins.exec", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("eval", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("eval", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+        ]
+    )]
+    #[test_case(
+        "exec_03.py",
+        Rule::ObfuscatedCodeExec,
+        vec![
+            ("builtins.exec", AuditConfidence::VeryHigh),
+            ("builtins.exec", AuditConfidence::VeryHigh),
+        ]
+    )]
+    #[test_case(
+        "exec_03.py",
+        Rule::ObfuscatedShellExec,
+        vec![
+            ("os.system", AuditConfidence::VeryHigh),
+            ("os.system", AuditConfidence::VeryHigh),
+            ("subprocess.run", AuditConfidence::VeryHigh),
+        ]
+    )]
     #[test_case(
         "exec_04.py",
         Rule::ObfuscatedShellExec,
         vec![
-            "os.system",
-            "subprocess.Popen",
-            "subprocess.check_output",
-            "commands.getstatusoutput",
+            ("os.system", AuditConfidence::VeryHigh),
+            ("subprocess.Popen", AuditConfidence::VeryHigh),
+            ("subprocess.check_output", AuditConfidence::VeryHigh),
+            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
         ]
     )]
     #[test_case(
         "exec_05.py",
         Rule::ObfuscatedShellExec,
         vec![
-            "commands.getstatusoutput",
-            "commands.getstatusoutput"
+            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
+            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
         ]
     )]
-    #[test_case("exec_06.py", Rule::DangerousExec, vec!["subprocess.run", "os.system"])]
-    #[test_case("exec_07.py", Rule::ObfuscatedCodeExec, vec!["exec", "builtins.exec", "exec"])]
-    #[test_case("exec_08.py", Rule::ShellExec, vec!["subprocess.call"])]
-    #[test_case("exec_09.py", Rule::ObfuscatedCodeExec, vec!["__builtins__.eval"])]
-    #[test_case("exec_10.py", Rule::ObfuscatedCodeExec, vec!["eval"])]
-    #[test_case("exec_11.py", Rule::ObfuscatedCodeExec, vec!["exec", "exec"])]
-    #[test_case("exec_12.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
-    #[test_case("exec_14.py", Rule::ShellExec, vec!["subprocess.Popen"])]
-    #[test_case("exec_15.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system"])]
-    #[test_case("exec_16.py", Rule::DangerousExec, vec!["os.system", "subprocess.run"])]
-    #[test_case("exec_17.py", Rule::ObfuscatedShellExec, vec!["os.system"])]
-    #[test_case("exec_19.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
-    #[test_case("exec_20.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
+    #[test_case(
+        "exec_06.py",
+        Rule::DangerousExec,
+        vec![
+            ("subprocess.run", AuditConfidence::High),
+            ("os.system", AuditConfidence::High),
+        ]
+    )]
+    #[test_case(
+        "exec_07.py",
+        Rule::ObfuscatedCodeExec,
+        vec![
+            ("exec", AuditConfidence::VeryHigh),
+            ("builtins.exec", AuditConfidence::VeryHigh),
+            ("exec", AuditConfidence::VeryHigh),
+        ]
+    )]
+    #[test_case(
+        "exec_08.py",
+        Rule::ShellExec,
+        vec![("subprocess.call", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_09.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("__builtins__.eval", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_10.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("eval", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_11.py",
+        Rule::ObfuscatedCodeExec,
+        vec![
+            ("exec", AuditConfidence::VeryHigh),
+            ("exec", AuditConfidence::VeryHigh),
+        ]
+    )]
+    #[test_case(
+        "exec_12.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("exec", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_14.py",
+        Rule::ShellExec,
+        vec![("subprocess.Popen", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_15.py",
+        Rule::ObfuscatedShellExec,
+        vec![
+            ("os.system", AuditConfidence::Medium),
+            ("os.system", AuditConfidence::Medium),
+        ]
+    )]
+    #[test_case(
+        "exec_16.py",
+        Rule::DangerousExec,
+        vec![
+            ("os.system", AuditConfidence::High),
+            ("subprocess.run", AuditConfidence::High),
+        ]
+    )]
+    #[test_case(
+        "exec_17.py",
+        Rule::ObfuscatedShellExec,
+        vec![("os.system", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_19.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("exec", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_20.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("exec", AuditConfidence::VeryHigh)]
+    )]
     #[test_case(
         "exec_21.py",
         Rule::ObfuscatedShellExec,
-        vec!["os.system", "os.system", "os.system"]
+        vec![
+            ("os.system", AuditConfidence::VeryHigh),
+            ("os.system", AuditConfidence::VeryHigh),
+            ("os.system", AuditConfidence::VeryHigh),
+        ]
     )]
-    #[test_case("exec_21.py", Rule::DangerousExec, vec!["os.posix_spawn"])]
-    #[test_case("exec_21.py", Rule::ShellExec, vec!["os.system"])]
-    #[test_case("exec_22.py", Rule::DangerousExec, vec!["os.system", "os.system"])]
-    #[test_case("exec_23.py", Rule::ShellExec, vec!["subprocess.Popen"])]
-    #[test_case("exec_24.py", Rule::CodeExec, vec!["subprocess.Popen"])]
-    #[test_case("exec_24.py", Rule::ObfuscatedCodeExec, vec!["exec", "subprocess.run"])]
-    #[test_case("exec_25.py", Rule::CodeExec, vec!["exec"])]
-    #[test_case("exec_25.py", Rule::ObfuscatedCodeExec, vec!["exec"])]
-    #[test_case("exec_26.py", Rule::ShellExec, vec!["execfile"])]
-    #[test_case("exec_27.py", Rule::ObfuscatedCodeExec, vec!["exec", "subprocess.run", "exec"])]
+    #[test_case(
+        "exec_21.py",
+        Rule::DangerousExec,
+        vec![("os.posix_spawn", AuditConfidence::High)]
+    )]
+    #[test_case(
+        "exec_21.py",
+        Rule::ShellExec,
+        vec![("os.system", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_22.py",
+        Rule::DangerousExec,
+        vec![
+            ("os.system", AuditConfidence::High),
+            ("os.system", AuditConfidence::High),
+        ]
+    )]
+    #[test_case(
+        "exec_23.py",
+        Rule::ShellExec,
+        vec![("subprocess.Popen", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_24.py",
+        Rule::CodeExec,
+        vec![("subprocess.Popen", AuditConfidence::High)]
+    )]
+    #[test_case(
+        "exec_24.py",
+        Rule::ObfuscatedCodeExec,
+        vec![
+            ("exec", AuditConfidence::VeryHigh),
+            ("subprocess.run", AuditConfidence::VeryHigh),
+        ]
+    )]
+    #[test_case(
+        "exec_25.py",
+        Rule::CodeExec,
+        vec![("exec", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_25.py",
+        Rule::ObfuscatedCodeExec,
+        vec![("exec", AuditConfidence::VeryHigh)]
+    )]
+    #[test_case(
+        "exec_26.py",
+        Rule::ShellExec,
+        vec![("execfile", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_27.py",
+        Rule::ObfuscatedCodeExec,
+        vec![
+            ("exec", AuditConfidence::VeryHigh),
+            ("subprocess.run", AuditConfidence::VeryHigh),
+            ("exec", AuditConfidence::VeryHigh),
+        ]
+    )]
     #[test_case(
         "exec_28.py",
         Rule::CodeExec,
-        vec!["exec", "eval", "exec", "exec", "exec", "builtins.exec"]
+        vec![
+            ("exec", AuditConfidence::Medium),
+            ("eval", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("builtins.exec", AuditConfidence::Medium),
+        ]
     )]
     #[test_case(
         "exec_28.py",
         Rule::ObfuscatedCodeExec,
-        vec!["exec", "builtins.exec"]
-    )]
-    fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
-        assert_audit_results_by_name(path, rule, expected_names);
-    }
-
-    #[test]
-    fn test_exec_confidence() {
-        let result = test_path("exec_15.py").unwrap();
-        for item in &result.items {
-            if item.rule == Rule::ObfuscatedShellExec {
-                assert_eq!(item.confidence, AuditConfidence::Medium);
-            }
-        }
+        vec![
+            ("exec", AuditConfidence::VeryHigh),
+            ("builtins.exec", AuditConfidence::VeryHigh),
+        ]
+)]
+    fn test_exec(path: &str, rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
+        assert_audit_results(path, rule, expected);
     }
 
     #[test]
@@ -901,23 +1059,27 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_exec_03_subprocess_run_confidence() {
-        let result = test_path("exec_03.py").unwrap();
-        let item = result
-            .items
-            .iter()
-            .find(|item| item.rule == Rule::ObfuscatedShellExec && item.label == "subprocess.run")
-            .expect("Expected subprocess.run obfuscated shell exec finding");
-
-        assert_eq!(item.confidence, AuditConfidence::VeryHigh);
-    }
-
-    #[test_case(Rule::DangerousExec, vec!["os.system"])]
-    #[test_case(Rule::ShellExec, vec!["os.system", "subprocess.call"])]
-    #[test_case(Rule::CodeExec, vec!["eval"])]
-    #[test_case(Rule::ObfuscatedShellExec, vec!["os.system", "os.system", "os.system"])]
-    fn test_bypasses(rule: Rule, expected_names: Vec<&str>) {
-        assert_audit_results_by_name("exec_bypass.py", rule, expected_names);
+    #[test_case(
+        Rule::DangerousExec,
+        vec![("os.system", AuditConfidence::High)]
+    )]
+    #[test_case(
+        Rule::ShellExec,
+        vec![
+            ("os.system", AuditConfidence::VeryHigh),
+            ("subprocess.call", AuditConfidence::VeryHigh),
+        ]
+    )]
+    #[test_case(Rule::CodeExec, vec![("eval", AuditConfidence::Medium)])]
+    #[test_case(
+        Rule::ObfuscatedShellExec,
+        vec![
+            ("os.system", AuditConfidence::VeryHigh),
+            ("os.system", AuditConfidence::VeryHigh),
+            ("os.system", AuditConfidence::VeryHigh),
+        ]
+    )]
+    fn test_bypasses(rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
+        assert_audit_results("exec_bypass.py", rule, expected);
     }
 }

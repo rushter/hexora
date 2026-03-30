@@ -31,3 +31,24 @@ pub fn assert_audit_results_by_name(path: &str, category: Rule, expected_names: 
         }
     }
 }
+
+pub fn assert_audit_results(
+    path: &str,
+    category: Rule,
+    expected: Vec<(&str, crate::audit::result::AuditConfidence)>,
+) {
+    match test_path(path) {
+        Ok(result) => {
+            let actual = result
+                .items
+                .iter()
+                .filter(|r| r.rule == category)
+                .map(|r| (r.label.as_str(), r.confidence))
+                .collect::<Vec<(&str, crate::audit::result::AuditConfidence)>>();
+            assert_eq!(actual, expected);
+        }
+        Err(e) => {
+            panic!("test failed: {:?}", e);
+        }
+    }
+}
