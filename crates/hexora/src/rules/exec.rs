@@ -231,6 +231,58 @@ fn is_exec_eval_call(checker: &Checker, call: &ast::ExprCall) -> bool {
         .is_some_and(|qn| qn.is_code_exec())
 }
 
+fn is_aliased_code_exec_call(checker: &Checker, call: &ast::ExprCall) -> bool {
+    let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) else {
+        return false;
+    };
+    if !qn.is_code_exec() {
+        return false;
+    }
+
+    match call.func.as_ref() {
+        ast::Expr::Name(name) => {
+            let target = name.id.as_str();
+            target != "exec" && target != "eval"
+        }
+        ast::Expr::Attribute(attr) => {
+            let target = attr.attr.as_str();
+            if target != "exec" && target != "eval" {
+                return true;
+            }
+
+            !matches!(
+                attr.value.as_ref(),
+                ast::Expr::Name(base)
+                    if {
+                        let base_name = base.id.as_str();
+                        base_name == "builtins" || base_name == "__builtins__"
+                    }
+            )
+        }
+        _ => true,
+    }
+}
+
+fn is_explicit_builtin_code_exec_call(call: &ast::ExprCall) -> bool {
+    let ast::Expr::Attribute(attr) = call.func.as_ref() else {
+        return false;
+    };
+
+    let target = attr.attr.as_str();
+    if target != "exec" && target != "eval" {
+        return false;
+    }
+
+    matches!(
+        attr.value.as_ref(),
+        ast::Expr::Name(base)
+            if {
+                let base_name = base.id.as_str();
+                base_name == "builtins" || base_name == "__builtins__"
+            }
+    )
+}
+
 fn is_relaxed_exec_arg(
     checker: &Checker,
     call: &ast::ExprCall,
@@ -601,6 +653,10 @@ fn push_report(
         if let Some(code_expr) = get_direct_code_exec_source(checker, call) {
             audit_nested_code_expr(checker, call, code_expr);
         }
+
+        if is_aliased_code_exec_call(checker, call) || is_explicit_builtin_code_exec_call(call) {
+            confidence = confidence.max(AuditConfidence::High);
+        }
     }
 
     if is_obfuscated(checker, call, &label) {
@@ -770,7 +826,6 @@ mod tests {
     use crate::rules::test::*;
     use test_case::test_case;
 
-
     #[test_case(
         "exec_01.py",
         Rule::ShellExec,
@@ -785,12 +840,12 @@ mod tests {
         Rule::CodeExec,
         vec![
             ("eval", AuditConfidence::Medium),
-            ("builtins.exec", AuditConfidence::Medium),
+            ("builtins.exec", AuditConfidence::High),
             ("exec", AuditConfidence::Medium),
-            ("eval", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("eval", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
+            ("eval", AuditConfidence::High),
+            ("exec", AuditConfidence::High),
+            ("eval", AuditConfidence::High),
+            ("exec", AuditConfidence::High),
         ]
     )]
     #[test_case(
@@ -987,7 +1042,7 @@ mod tests {
             ("exec", AuditConfidence::Medium),
             ("exec", AuditConfidence::Medium),
             ("exec", AuditConfidence::Medium),
-            ("builtins.exec", AuditConfidence::Medium),
+            ("builtins.exec", AuditConfidence::High),
         ]
     )]
     #[test_case(
