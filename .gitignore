@@ -59,3 +59,4 @@ resources/test/test.py
 samples/
 pypi
 dumped/
+pypi_packages/
