@@ -120,7 +120,7 @@ pub fn dump_package(path: &Path, filter: Option<&str>) -> Result<(), std::io::Er
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    println!("=== Dumping package: {} ===", path_filename);
+    println!("#=== Dumping package: {} ===", path_filename);
     for file in list_python_files(path, None) {
         if file.archive_path.is_some() {
             if let Some(f) = filter {
@@ -128,9 +128,9 @@ pub fn dump_package(path: &Path, filter: Option<&str>) -> Result<(), std::io::Er
                     continue;
                 }
             }
-            println!("--- File: {:?} ---", file.file_path);
+            println!("#--- File: {:?} ---", file.file_path);
             println!("{}", file.content);
-            println!("-----------------------");
+            println!("#-----------------------");
         }
     }
     Ok(())
