@@ -590,7 +590,8 @@ fn get_audit_info(
     taint: Option<TaintKind>,
     is_highly_suspicious: bool,
 ) -> (Rule, String, AuditConfidence) {
-    let is_obf = taint.is_some() || is_highly_suspicious;
+    let has_obfuscation_taint = taint.is_some_and(|t| t != TaintKind::EnvVariables);
+    let is_obf = has_obfuscation_taint || is_highly_suspicious;
     let rule = match (is_shell, is_obf) {
         (true, true) => Rule::ObfuscatedShellExec,
         (false, true) => Rule::ObfuscatedCodeExec,
@@ -633,6 +634,7 @@ fn push_report(
     let py_exec_script = get_python_exec_script_path(checker, call);
     let py_exec_stdin = get_python_exec_stdin_code(checker, call);
     let is_py_exec = py_exec_code.is_some() || py_exec_script.is_some() || py_exec_stdin.is_some();
+    let call_taint = get_call_suspicious_taint(checker, call);
 
     if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
         let is_obf = get_call_suspicious_taint(checker, call).is_some()
@@ -658,7 +660,7 @@ fn push_report(
 
     let (mut rule, mut description, mut confidence) = get_audit_info(
         is_shell && !is_py_exec,
-        get_call_suspicious_taint(checker, call),
+        call_taint,
         is_highly_suspicious_exec(checker, call),
     );
 
@@ -696,7 +698,7 @@ fn push_report(
         }
     }
 
-    if is_obfuscated(checker, call, &label) {
+    if is_obfuscated(checker, call, &label) && call_taint != Some(TaintKind::EnvVariables) {
         confidence = AuditConfidence::VeryHigh;
     }
     if let Some(extra) = extra_confidence {
@@ -731,9 +733,10 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
 
         if matched {
             if let Some(arg) = call.arguments.args.get(param_idx) {
+                let arg_taint = get_suspicious_taint(checker, arg);
                 let (rule, mut description, mut confidence) = get_audit_info(
                     is_shell,
-                    get_suspicious_taint(checker, arg),
+                    arg_taint,
                     is_highly_suspicious_exec(checker, call),
                 );
                 confidence = confidence.max(AuditConfidence::High);
@@ -743,7 +746,9 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
                     name,
                     sink_name
                 );
-                if is_obfuscated(checker, call, &name) {
+                if is_obfuscated(checker, call, &name)
+                    && arg_taint.is_some_and(|t| t != TaintKind::EnvVariables)
+                {
                     confidence = AuditConfidence::VeryHigh;
                 }
                 checker.audit_results.push(AuditItem {
@@ -974,10 +979,12 @@ mod tests {
     #[test_case(
         "exec_15.py",
         Rule::ObfuscatedShellExec,
-        vec![
-            ("os.system", AuditConfidence::Medium),
-            ("os.system", AuditConfidence::Medium),
-        ]
+        vec![("os.system", AuditConfidence::Medium)]
+    )]
+    #[test_case(
+        "exec_15.py",
+        Rule::ShellExec,
+        vec![("os.system", AuditConfidence::Medium)]
     )]
     #[test_case(
         "exec_16.py",
