@@ -294,31 +294,68 @@ fn is_relaxed_exec_arg(
         return false;
     }
 
+    if position.is_some_and(|idx| idx >= 1)
+        || keyword.is_some_and(|name| matches!(name, "globals" | "locals"))
+    {
+        return true;
+    }
+
     if is_builtin_call_named(checker, arg, "compile") {
         return position == Some(0)
             || keyword.is_some_and(|name| matches!(name, "source" | "object" | "expression"));
     }
 
-    if is_builtin_call_named(checker, arg, "globals")
-        || is_builtin_call_named(checker, arg, "locals")
-        || is_builtin_call_named(checker, arg, "vars")
-    {
-        return position.is_some_and(|idx| idx >= 1)
-            || keyword.is_some_and(|name| matches!(name, "globals" | "locals"));
+    false
+}
+
+fn is_relaxed_exec_arg_with_mapping(
+    checker: &Checker,
+    call: &ast::ExprCall,
+    arg: &ast::Expr,
+    position: Option<usize>,
+    keyword: Option<&str>,
+    depth: u32,
+) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
     }
 
-    false
+    if is_relaxed_exec_arg(checker, call, arg, position, keyword) {
+        return true;
+    }
+
+    let Some(id) = arg.node_index().load().as_u32() else {
+        return false;
+    };
+
+    checker
+        .indexer
+        .model
+        .expr_mapping
+        .get(&id)
+        .is_some_and(|exprs| {
+            exprs.iter().any(|mapped| {
+                is_relaxed_exec_arg_with_mapping(
+                    checker,
+                    call,
+                    mapped,
+                    position,
+                    keyword,
+                    depth + 1,
+                )
+            })
+        })
 }
 
 fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -> bool {
     contains_suspicious_expr(checker, &call.func)
         || call.arguments.args.iter().enumerate().any(|(idx, arg)| {
-            !is_relaxed_exec_arg(checker, call, arg, Some(idx), None)
+            !is_relaxed_exec_arg_with_mapping(checker, call, arg, Some(idx), None, 0)
                 && contains_suspicious_expr(checker, arg)
         })
         || call.arguments.keywords.iter().any(|kw| {
             let kw_name = kw.arg.as_ref().map(|arg| arg.as_str());
-            !is_relaxed_exec_arg(checker, call, &kw.value, None, kw_name)
+            !is_relaxed_exec_arg_with_mapping(checker, call, &kw.value, None, kw_name, 0)
                 && contains_suspicious_expr(checker, &kw.value)
         })
 }
@@ -1040,6 +1077,8 @@ mod tests {
         vec![
             ("exec", AuditConfidence::Medium),
             ("eval", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
+            ("exec", AuditConfidence::Medium),
             ("exec", AuditConfidence::Medium),
             ("exec", AuditConfidence::Medium),
             ("exec", AuditConfidence::Medium),

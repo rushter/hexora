@@ -4,6 +4,14 @@ import builtins
 exec(compile("print(1)", "test.py", "exec"))
 eval(compile("1+1", "test.py", "eval"))
 
+# False positive case: compile result stored in a variable, then executed
+compiled_code = compile("print(1)", "test.py", "exec")
+exec(compiled_code, globals(), locals())
+
+# False positive case: non-call globals/locals namespace variables
+namespace = {"__builtins__": __builtins__}
+exec(compiled_code, namespace, namespace)
+
 # Should NOT be treated as obfuscated
 exec("print(1)", globals())
 exec("print(1)", globals(), locals())
