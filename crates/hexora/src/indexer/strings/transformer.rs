@@ -11,6 +11,41 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 impl<'a> NodeTransformer<'a> {
+    #[inline]
+    fn is_suspicious_dynamic_attr(attr_name: &str) -> bool {
+        matches!(
+            attr_name,
+            "__import__"
+                | "eval"
+                | "exec"
+                | "system"
+                | "popen"
+                | "Popen"
+                | "run"
+                | "call"
+                | "check_output"
+                | "getstatusoutput"
+                | "getoutput"
+                | "posix_spawn"
+                | "execl"
+                | "execle"
+                | "execlp"
+                | "execlpe"
+                | "execv"
+                | "execve"
+                | "execvp"
+                | "execvpe"
+                | "spawnl"
+                | "spawnle"
+                | "spawnlp"
+                | "spawnlpe"
+                | "spawnv"
+                | "spawnve"
+                | "spawnvp"
+                | "spawnvpe"
+        )
+    }
+
     /// "".join(...)
     #[inline]
     pub(crate) fn handle_join_operation(
@@ -256,7 +291,9 @@ impl<'a> NodeTransformer<'a> {
             self.indexer.get_atomic_index(),
         );
 
-        self.add_deobfuscated_taint(&attr_id);
+        if Self::is_suspicious_dynamic_attr(&attr_name) {
+            self.add_deobfuscated_taint(&attr_id);
+        }
 
         Some(ast::Expr::Attribute(ast::ExprAttribute {
             node_index: attr_id,

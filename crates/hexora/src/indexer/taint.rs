@@ -58,7 +58,7 @@ pub fn get_call_taint(segments: &[&str], call: &ExprCall) -> Option<TaintKind> {
         | ["marshal", "loads"]
         | ["pickle", "loads"] => Some(TaintKind::Decoded),
 
-        ["__import__"] | ["getattr"] | ["builtins" | "__builtins__", "__import__" | "getattr"] => {
+        ["__import__"] | ["builtins" | "__builtins__", "__import__"] => {
             Some(TaintKind::Deobfuscated)
         }
 

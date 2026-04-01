@@ -699,6 +699,7 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
                     get_suspicious_taint(checker, arg),
                     is_highly_suspicious_exec(checker, call),
                 );
+                confidence = confidence.max(AuditConfidence::High);
                 description = format!(
                     "{} (via local function {} leaking to {}).",
                     &description[..description.len() - 1],
@@ -1053,6 +1054,15 @@ mod tests {
             ("builtins.exec", AuditConfidence::VeryHigh),
         ]
 )]
+    #[test_case(
+        "exec_29.py",
+        Rule::ShellExec,
+        vec![
+            ("subprocess.run", AuditConfidence::Medium),
+            ("worker", AuditConfidence::High),
+            ("run", AuditConfidence::High),
+        ]
+    )]
     fn test_exec(path: &str, rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
         assert_audit_results(path, rule, expected);
     }

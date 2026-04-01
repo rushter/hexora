@@ -527,7 +527,6 @@ mod tests {
     #[test]
     fn test_is_suspicious_builtin() {
         assert!(QualifiedName::new("eval").is_suspicious_builtin());
-        assert!(QualifiedName::new("getattr").is_suspicious_builtin());
         assert!(QualifiedName::new("__import__").is_suspicious_builtin());
         assert!(QualifiedName::new("builtins.compile").is_suspicious_builtin());
         assert!(!QualifiedName::new("os.system").is_suspicious_builtin());
