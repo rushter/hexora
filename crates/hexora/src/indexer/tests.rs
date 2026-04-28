@@ -166,8 +166,8 @@ fn test_resolve_builtin_direct_and_module() {
         let resolved0 = resolve_call_at_index(indexer, suite, 0);
         let got = resolved0.expect("expected qualified name");
         assert_eq!(
-            got, "1+2",
-            "expected builtin eval qualified name to be '1+2', got {got}"
+            got, "eval",
+            "expected builtin eval qualified name to be 'eval', got {got}"
         );
 
         let resolved2 = resolve_call_at_index(indexer, suite, 2);
@@ -351,6 +351,20 @@ fn test_resolve_importlib() {
     );
     with_indexer(&source, |indexer, suite| {
         let resolved = resolve_call_at_index(indexer, suite, 2);
+        assert_eq!(resolved.as_deref(), Some("os.system"));
+    });
+}
+
+#[test]
+fn test_resolve_eval_assigned_callable() {
+    let source = unindent(
+        r#"
+            f = eval("os.system")
+            f("ls")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 1);
         assert_eq!(resolved.as_deref(), Some("os.system"));
     });
 }

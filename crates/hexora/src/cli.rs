@@ -262,6 +262,16 @@ impl AuditOutput {
     }
 }
 
+fn filter_audit_items(result: &AuditResult, opts: &AuditOptions) -> Vec<AuditItem> {
+    result
+        .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
+        .collect()
+}
+
+fn audit_items_score(items: &[AuditItem]) -> u32 {
+    items.iter().map(|item| item.confidence as u32).sum()
+}
+
 fn audit_python_files(opts: &AuditOptions) {
     let mut output = match AuditOutput::new(opts) {
         Ok(output) => output,
@@ -287,13 +297,10 @@ fn audit_python_files(opts: &AuditOptions) {
     match audit_path(&opts.input_path, None) {
         Ok(results) => {
             for result in results {
-                if result.file_score() < opts.min_score {
+                let filtered = filter_audit_items(&result, opts);
+                if audit_items_score(&filtered) < opts.min_score {
                     continue;
                 }
-
-                let filtered: Vec<AuditItem> = result
-                    .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
-                    .collect();
 
                 output.write_result(&result, &filtered);
 
@@ -357,4 +364,56 @@ pub fn run_cli(start_arg: usize) {
     let end = Instant::now();
     let duration = end.duration_since(start);
     info!("Total execution time: {duration:?}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ruff_text_size::TextRange;
+
+    fn item(rule: Rule, confidence: AuditConfidence) -> AuditItem {
+        AuditItem {
+            label: rule.code().to_string(),
+            rule,
+            description: rule.description().to_string(),
+            confidence,
+            location: Some(TextRange::default()),
+        }
+    }
+
+    fn audit_options() -> AuditOptions {
+        AuditOptions {
+            input_path: PathBuf::from("."),
+            output_path: None,
+            output_format: OutputFormat::Terminal,
+            output_annotations: false,
+            dump_annotated: None,
+            exclude: Vec::new(),
+            include: Vec::new(),
+            min_confidence: AuditConfidence::Low,
+            min_score: 0,
+        }
+    }
+
+    #[test]
+    fn test_min_score_is_based_on_filtered_items() {
+        let result = AuditResult {
+            items: vec![
+                item(Rule::SuspiciousLiteral, AuditConfidence::High),
+                item(Rule::EnvAccess, AuditConfidence::Low),
+            ],
+            path: PathBuf::from("sample.py"),
+            archive_path: None,
+            source_code: "print('x')".to_string(),
+        };
+
+        let mut opts = audit_options();
+        opts.exclude = vec![Rule::SuspiciousLiteral.code().to_string()];
+        opts.min_score = 2;
+
+        let filtered = filter_audit_items(&result, &opts);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(audit_items_score(&filtered), AuditConfidence::Low as u32);
+        assert!(result.file_score() > audit_items_score(&filtered));
+    }
 }

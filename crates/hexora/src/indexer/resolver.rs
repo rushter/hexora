@@ -107,6 +107,31 @@ pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Optio
 }
 
 impl<'a> NodeIndexer<'a> {
+    fn expr_to_identifier_path(
+        &self,
+        expr: &Expr,
+        context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
+    ) -> Option<Vec<Name>> {
+        let path = self.resolve_expr_import_path_internal(expr, context)?;
+        let joined = path.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("");
+        let segments: Vec<_> = joined.split('.').collect();
+
+        if segments.is_empty() || segments.iter().any(|segment| {
+            segment.is_empty()
+                || !segment
+                    .chars()
+                    .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+                || segment
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_digit())
+        }) {
+            return None;
+        }
+
+        Some(segments.into_iter().map(Name::from).collect())
+    }
+
     pub fn resolve_expr_import_path(&self, expr: &Expr) -> Option<Vec<Name>> {
         self.resolve_expr_import_path_internal(expr, None)
     }
@@ -200,6 +225,16 @@ impl<'a> NodeIndexer<'a> {
             .and_then(|exprs| exprs.last());
 
         if let Some(last_expr) = last_expr {
+            if let Expr::Call(call) = last_expr
+                && self
+                    .resolve_qualified_name_internal(&call.func)
+                    .is_some_and(|qn| qn.is_eval())
+                && let Some(first_arg) = call.arguments.args.first()
+                && let Some(path) = self.expr_to_identifier_path(first_arg, context)
+            {
+                return Some(path);
+            }
+
             self.resolve_expr_import_path_internal(last_expr, context)
         } else {
             self.resolve_binding_import_path(name.id.as_str())
@@ -283,19 +318,8 @@ impl<'a> NodeIndexer<'a> {
             return Some(vec![Name::from(qn.first()?)]);
         }
 
-        if qn.is_eval() && !call.arguments.args.is_empty() {
-            let arg_path =
-                self.resolve_expr_import_path_internal(&call.arguments.args[0], context)?;
-            return Some(
-                arg_path
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join("")
-                    .split('.')
-                    .map(Name::from)
-                    .collect(),
-            );
+        if qn.is_eval() {
+            return Some(qn.segments_slice().to_vec());
         }
 
         if qn.last() == Some("get") && !call.arguments.args.is_empty() {
@@ -362,6 +386,16 @@ impl<'a> NodeIndexer<'a> {
 
     fn resolve_assignment_binding(&self, binding: &SymbolBinding) -> Option<Vec<Name>> {
         if let Some(value_expr) = binding.value_expr {
+            if let Expr::Call(call) = value_expr
+                && self
+                    .resolve_qualified_name_internal(&call.func)
+                    .is_some_and(|qn| qn.is_eval())
+                && let Some(first_arg) = call.arguments.args.first()
+                && let Some(path) = self.expr_to_identifier_path(first_arg, None)
+            {
+                return Some(path);
+            }
+
             self.resolve_expr_import_path(value_expr)
         } else {
             None

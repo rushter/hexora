@@ -2,6 +2,7 @@ use crate::audit::result::{AuditConfidence, AuditItem, AuditResult, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::index::NodeIndexer;
 use crate::indexer::node_transformer::NodeTransformer;
+use crate::rules::dunder::collect_importlib_imports;
 use hexora_io::list_python_files;
 use hexora_io::locator::Locator;
 use log::{debug, error};
@@ -66,6 +67,7 @@ pub fn audit_source(source: String, file_path: Option<&Path>) -> Result<Vec<Audi
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
     indexer.index_comments(parsed.tokens());
+    let mut audit_results = collect_importlib_imports(python_ast, &indexer);
 
     let mut transformed_ast = python_ast.to_vec();
     let transformer = NodeTransformer::new(&locator, indexer);
@@ -77,7 +79,7 @@ pub fn audit_source(source: String, file_path: Option<&Path>) -> Result<Vec<Audi
     checker.check_comments();
     checker.visit_body(&transformed_ast);
 
-    let mut audit_results = checker.audit_results;
+    audit_results.extend(checker.audit_results);
     elevate_setup_py_confidence(&mut audit_results, file_path);
     Ok(audit_results)
 }

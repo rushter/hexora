@@ -4,7 +4,7 @@ use crate::indexer::index::NodeIndexer;
 use crate::indexer::resolver::string_from_expr;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
-use ruff_python_ast::Expr;
+use ruff_python_ast::visitor::Visitor;
 
 static IGNORED_DUNDER_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["typing", "pkg_resources", "pkgutil"]);
@@ -17,11 +17,8 @@ fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String
 }
 
 fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
-    let Expr::Name(name_expr) = &*call.func else {
-        return None;
-    };
-
-    if name_expr.id.as_str() != "__import__" {
+    let qn = indexer.resolve_qualified_name(&call.func)?;
+    if !qn.is_import_call() {
         return None;
     }
 
@@ -33,12 +30,52 @@ fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<Stri
     Some(imported_module)
 }
 
+struct ImportCallCollector<'a, 'b> {
+    indexer: &'b NodeIndexer<'a>,
+    items: Vec<AuditItem>,
+}
+
+impl<'a, 'b> Visitor<'a> for ImportCallCollector<'a, 'b> {
+    fn visit_expr(&mut self, expr: &'a ast::Expr) {
+        if let ast::Expr::Call(call) = expr {
+            let is_importlib_call = self
+                .indexer
+                .resolve_qualified_name(&call.func)
+                .is_some_and(|qn| qn.is_exact(&["importlib", "import_module"]));
+
+            if is_importlib_call && let Some(name) = get_dunder_import(call, self.indexer) {
+                self.items.push(AuditItem {
+                    label: format!("__import__(\"{}\")", name),
+                    rule: Rule::DunderImport,
+                    description: "Suspicious dynamic import".to_string(),
+                    confidence: AuditConfidence::Medium,
+                    location: Some(call.range),
+                });
+            }
+        }
+
+        ast::visitor::walk_expr(self, expr);
+    }
+}
+
+pub(crate) fn collect_importlib_imports<'a>(
+    body: &'a [ast::Stmt],
+    indexer: &NodeIndexer<'a>,
+) -> Vec<AuditItem> {
+    let mut collector = ImportCallCollector {
+        indexer,
+        items: Vec::new(),
+    };
+    collector.visit_body(body);
+    collector.items
+}
+
 pub fn dunder_import(checker: &mut Checker, call: &ast::ExprCall) {
     if let Some(name) = get_dunder_import(call, &checker.indexer) {
         checker.audit_results.push(AuditItem {
             label: format!("__import__(\"{}\")", name),
             rule: Rule::DunderImport,
-            description: "Suspicious __import__ call".to_string(),
+            description: "Suspicious dynamic import".to_string(),
             confidence: AuditConfidence::Medium,
             location: Some(call.range),
         });
@@ -60,5 +97,31 @@ mod tests {
     #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.exec"])]
     fn test_dunder(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_builtins_dunder_import() {
+        let source = r#"import builtins
+builtins.__import__("os")"#;
+        let result = crate::audit::parse::audit_source(source.to_string(), None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DunderImport)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["__import__(\"os\")"]);
+    }
+
+    #[test]
+    fn test_importlib_import_module() {
+        let source = r#"import importlib
+importlib.import_module("os")"#;
+        let result = crate::audit::parse::audit_source(source.to_string(), None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DunderImport)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["__import__(\"os\")"]);
     }
 }

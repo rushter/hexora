@@ -3,7 +3,7 @@ mod call;
 mod clipboard;
 mod dll_injection;
 mod download;
-mod dunder;
+pub(crate) mod dunder;
 mod env;
 mod exec;
 mod fingerprinting;
