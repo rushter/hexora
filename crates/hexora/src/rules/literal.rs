@@ -558,6 +558,26 @@ fn normalize_literal(literal: &str) -> String {
     literal.replace("\\\\", "/").replace('\\', "/")
 }
 
+fn is_doc_like_literal(literal: &str) -> bool {
+    let lowered = literal.to_ascii_lowercase();
+    [
+        "example:",
+        "for example",
+        "e.g.",
+        "usage:",
+        "tutorial",
+        "documentation",
+        "docs",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
+fn should_skip_suspicious_literal(pattern: &str, literal: &str) -> bool {
+    let is_import_example = pattern.starts_with("import ") || pattern.starts_with("from ");
+    is_import_example && is_doc_like_literal(literal)
+}
+
 pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast::Expr) {
     let normalized_literal = normalize_literal(literal);
     if normalized_literal.len() < MIN_LITERAL_LENGTH
@@ -568,6 +588,9 @@ pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast
     for suspicious_literal in SUSPICIOUS_LITERALS.iter() {
         let name = &suspicious_literal.pattern;
         if memmem::find(normalized_literal.as_bytes(), name.as_bytes()).is_some() {
+            if should_skip_suspicious_literal(name, &normalized_literal) {
+                continue;
+            }
             checker.audit_results.push(AuditItem {
                 label: suspicious_literal.pattern.clone(),
                 rule: suspicious_literal.rule,
@@ -627,5 +650,32 @@ mod tests {
             normalize_literal("C:\\\\Users\\\\admin\\\\Desktop\\\\test.txt"),
             "C:/Users/admin/Desktop/test.txt"
         );
+    }
+
+    #[test]
+    fn test_doc_example_import_not_flagged() {
+        let source = r#"
+def help_text():
+    return "Example: import requests and call requests.get(url)"
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousLiteral)
+            .map(|item| item.label)
+            .collect();
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_plain_import_literal_still_flagged() {
+        let source = r#"x = "import requests""#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousLiteral)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["import requests"]);
     }
 }
