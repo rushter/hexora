@@ -24,7 +24,7 @@ fn audit_file_with_content(
     archive_path: Option<PathBuf>,
     source_code: String,
 ) -> Result<AuditResult, String> {
-    let audit_items = audit_source(source_code.clone(), Some(&file_path))?;
+    let audit_items = audit_source(&source_code, Some(&file_path))?;
     Ok(AuditResult {
         path: file_path,
         archive_path,
@@ -38,10 +38,11 @@ pub fn audit_path(
     file_path: &Path,
     exclude_names: Option<&HashSet<String>>,
 ) -> Result<impl Iterator<Item = AuditResult>, &'static str> {
-    let files = list_python_files(file_path, exclude_names);
-    let results: Vec<AuditResult> = files
-        .into_iter()
-        .filter_map(|file| {
+    let files: Vec<_> = list_python_files(file_path, exclude_names).collect();
+    if files.is_empty() {
+        Err("No Python files found")
+    } else {
+        Ok(files.into_iter().filter_map(|file| {
             debug!("Auditing file: {}", file.full_path());
             match audit_file_with_content(file.file_path, file.archive_path, file.content) {
                 Ok(result) => Some(result),
@@ -50,18 +51,13 @@ pub fn audit_path(
                     None
                 }
             }
-        })
-        .collect();
-    if results.is_empty() {
-        Err("No Python files found")
-    } else {
-        Ok(results.into_iter())
+        }))
     }
 }
 
-pub fn audit_source(source: String, file_path: Option<&Path>) -> Result<Vec<AuditItem>, String> {
-    let parsed = ruff_python_parser::parse_unchecked_source(&source, ast::PySourceType::Python);
-    let locator = Locator::new(&source);
+pub fn audit_source(source: &str, file_path: Option<&Path>) -> Result<Vec<AuditItem>, String> {
+    let parsed = ruff_python_parser::parse_unchecked_source(source, ast::PySourceType::Python);
+    let locator = Locator::new(source);
     let python_ast = parsed.suite();
 
     let mut indexer = NodeIndexer::new();

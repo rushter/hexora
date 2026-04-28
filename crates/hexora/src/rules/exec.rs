@@ -557,7 +557,7 @@ fn get_direct_code_exec_source<'a>(
 
 fn audit_nested_code_expr(checker: &mut Checker, call: &ast::ExprCall, code_expr: &ast::Expr) {
     if let Some(code_str) = string_from_expr(code_expr, &checker.indexer) {
-        if let Ok(mut sub_results) = audit_source(code_str, None) {
+        if let Ok(mut sub_results) = audit_source(&code_str, None) {
             for item in &mut sub_results {
                 item.location = Some(call.range);
             }

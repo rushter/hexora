@@ -103,7 +103,7 @@ mod tests {
     fn test_builtins_dunder_import() {
         let source = r#"import builtins
 builtins.__import__("os")"#;
-        let result = crate::audit::parse::audit_source(source.to_string(), None).unwrap();
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
         let matches: Vec<_> = result
             .into_iter()
             .filter(|item| item.rule == Rule::DunderImport)
@@ -116,7 +116,7 @@ builtins.__import__("os")"#;
     fn test_importlib_import_module() {
         let source = r#"import importlib
 importlib.import_module("os")"#;
-        let result = crate::audit::parse::audit_source(source.to_string(), None).unwrap();
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
         let matches: Vec<_> = result
             .into_iter()
             .filter(|item| item.rule == Rule::DunderImport)

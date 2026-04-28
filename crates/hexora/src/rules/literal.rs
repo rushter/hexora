@@ -374,7 +374,7 @@ fn literal_preview(value: &str, max_length: usize) -> String {
 }
 
 fn audit_nested_python_from_source(checker: &mut Checker, expr: &ast::Expr, source: &str) {
-    if let Ok(mut sub_results) = audit_source(source.to_string(), None) {
+    if let Ok(mut sub_results) = audit_source(source, None) {
         for item in &mut sub_results {
             item.location = Some(expr.range());
         }

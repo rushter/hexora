@@ -6,6 +6,7 @@ use crate::benchmark::run_benchmark;
 use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 use log::{error, info};
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -234,7 +235,7 @@ impl AuditOutput {
         })
     }
 
-    fn write_result(&mut self, result: &AuditResult, items: &[AuditItem]) {
+    fn write_result(&mut self, result: &AuditResult, items: &[&AuditItem]) {
         for item in items {
             match self.format {
                 OutputFormat::Terminal => {
@@ -262,13 +263,18 @@ impl AuditOutput {
     }
 }
 
-fn filter_audit_items(result: &AuditResult, opts: &AuditOptions) -> Vec<AuditItem> {
+fn filter_audit_items<'a>(
+    result: &'a AuditResult,
+    include: &'a HashSet<String>,
+    exclude: &'a HashSet<String>,
+    min_confidence: AuditConfidence,
+) -> Vec<&'a AuditItem> {
     result
-        .filter_items(&opts.include, &opts.exclude, &opts.min_confidence)
+        .filter_items(include, exclude, min_confidence)
         .collect()
 }
 
-fn audit_items_score(items: &[AuditItem]) -> u32 {
+fn audit_items_score(items: &[&AuditItem]) -> u32 {
     items.iter().map(|item| item.confidence as u32).sum()
 }
 
@@ -293,11 +299,13 @@ fn audit_python_files(opts: &AuditOptions) {
     } else {
         None
     };
+    let include: HashSet<_> = opts.include.iter().cloned().collect();
+    let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
 
     match audit_path(&opts.input_path, None) {
         Ok(results) => {
             for result in results {
-                let filtered = filter_audit_items(&result, opts);
+                let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
                 if audit_items_score(&filtered) < opts.min_score {
                     continue;
                 }
@@ -320,7 +328,7 @@ pub fn run_cli(start_arg: usize) {
     let cli = Cli::parse_from(std::env::args().skip(start_arg));
 
     let env = Env::default().default_filter_or(cli.logging_level);
-    env_logger::Builder::from_env(env).init();
+    let _ = env_logger::Builder::from_env(env).try_init();
 
     match cli.command {
         Commands::Audit { opts } => {
@@ -411,7 +419,9 @@ mod tests {
         opts.exclude = vec![Rule::SuspiciousLiteral.code().to_string()];
         opts.min_score = 2;
 
-        let filtered = filter_audit_items(&result, &opts);
+        let include: HashSet<_> = opts.include.iter().cloned().collect();
+        let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
+        let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
         assert_eq!(filtered.len(), 1);
         assert_eq!(audit_items_score(&filtered), AuditConfidence::Low as u32);
         assert!(result.file_score() > audit_items_score(&filtered));

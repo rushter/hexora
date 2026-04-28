@@ -1,8 +1,9 @@
-use crate::audit::annotate::{annotate_result, annotate_results};
+use crate::audit::annotate::annotate_results;
 use log::error;
 use ruff_text_size::TextRange;
 use serde::{Serialize, Serializer};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -365,40 +366,36 @@ impl AuditResult {
 
     pub fn filter_items<'a>(
         &'a self,
-        include_codes: &'a [String],
-        exclude_codes: &'a [String],
-        min_confidence: &'a AuditConfidence,
-    ) -> impl Iterator<Item = AuditItem> + 'a {
-        // TODO: this is very inefficient, ignored codes should not be checked in the first place.
-        self.items
-            .iter()
-            .filter(|item| {
-                if &item.confidence < min_confidence {
-                    return false;
-                }
+        include_codes: &'a HashSet<String>,
+        exclude_codes: &'a HashSet<String>,
+        min_confidence: AuditConfidence,
+    ) -> impl Iterator<Item = &'a AuditItem> + 'a {
+        self.items.iter().filter(move |item| {
+            if item.confidence < min_confidence {
+                return false;
+            }
 
-                let code = item.rule.code();
+            let code = item.rule.code();
 
-                if !include_codes.is_empty() && !include_codes.contains(&code.to_string()) {
-                    return false;
-                }
+            if !include_codes.is_empty() && !include_codes.contains(code) {
+                return false;
+            }
 
-                if exclude_codes.contains(&code.to_string()) {
-                    return false;
-                }
+            if exclude_codes.contains(code) {
+                return false;
+            }
 
-                true
-            })
-            .cloned()
+            true
+        })
     }
-    pub fn annotate_to_file(self, items: &[AuditItem], dest_folder: &Path) {
+    pub fn annotate_to_file(&self, items: &[&AuditItem], dest_folder: &Path) {
         if items.is_empty() {
             return;
         }
         let file_name = format!("audit_{}.py", sha256_path(&self.path));
         let dest_path = dest_folder.join(file_name);
         let annotations = annotate_results(
-            items,
+            items.iter().copied(),
             &self.path,
             self.archive_path.as_deref(),
             &self.source_code,
@@ -442,7 +439,7 @@ impl<'a> AuditItemJSON<'a> {
         annotate: bool,
     ) -> Self {
         let annotation = if annotate {
-            annotate_result(item, path, archive_path, source_code, false)
+            crate::audit::annotate::annotation_preview(item, path, archive_path, source_code, 2)
                 .inspect_err(|err| error!("Failed to annotate result: {}", err))
                 .ok()
         } else {
