@@ -323,10 +323,8 @@ pub fn compute_expr_taint(
         Expr::Starred(s) => {
             taints.extend(get_taint(&s.value));
         }
-        Expr::Name(name) => {
-            if name.id.as_str() == "__builtins__" {
-                taints.insert(TaintKind::Deobfuscated);
-            }
+        Expr::Name(name) if name.id.as_str() == "__builtins__" => {
+            taints.insert(TaintKind::Deobfuscated);
         }
         _ => {}
     }
