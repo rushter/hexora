@@ -5,7 +5,7 @@ use crate::rules::clipboard::clipboard_read;
 use crate::rules::dll_injection::dll_injection;
 use crate::rules::download::binary_download;
 use crate::rules::dunder::dunder_import;
-use crate::rules::env::env_access;
+use crate::rules::env::{env_access, env_access_subscript};
 use crate::rules::exec::{code_exec, shell_exec};
 use crate::rules::fingerprinting::fingerprinting;
 use crate::rules::identifier::suspicious_call_name;
@@ -41,6 +41,7 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
         Expr::Tuple(tuple) => {
             check_int_literals(checker, tuple);
         }
+        Expr::Subscript(subscript) => env_access_subscript(checker, subscript),
         Expr::StringLiteral(_) | Expr::BytesLiteral(_) | Expr::FString(_) => {
             check_literal(checker, expr)
         }

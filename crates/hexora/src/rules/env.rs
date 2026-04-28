@@ -1,5 +1,6 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::resolver::string_from_expr;
 
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
@@ -94,6 +95,30 @@ pub fn env_access(checker: &mut Checker, call: &ast::ExprCall) {
     }
 }
 
+pub fn env_access_subscript(checker: &mut Checker, subscript: &ast::ExprSubscript) {
+    let is_env_access = checker
+        .indexer
+        .resolve_qualified_name(&subscript.value)
+        .is_some_and(|qualified_name| qualified_name.is_exact(&["os", "environ"]));
+    if !is_env_access {
+        return;
+    }
+
+    let Some(var_name) = string_from_expr(&subscript.slice, &checker.indexer) else {
+        return;
+    };
+
+    if ENV_VARS.contains(var_name.as_str()) {
+        checker.audit_results.push(AuditItem {
+            label: var_name,
+            rule: Rule::EnvAccess,
+            description: "Access to sensitive environment variable".to_string(),
+            confidence: AuditConfidence::Medium,
+            location: Some(subscript.range),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::audit::result::Rule;
@@ -109,6 +134,20 @@ mod tests {
     fn test_env_string_expression() {
         let source = r#"import os
 os.getenv("AWS_" + "ACCESS_KEY_ID")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::EnvAccess)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["AWS_ACCESS_KEY_ID"]);
+    }
+
+    #[test]
+    fn test_env_subscript_expression() {
+        let source = r#"import os
+os.environ["AWS_ACCESS_KEY_ID"]
 "#;
         let result = crate::audit::parse::audit_source(source, None).unwrap();
         let matches: Vec<_> = result
