@@ -22,6 +22,26 @@ static DANGEROUS_COMMANDS: &[&str] = &[
 static DANGEROUS_COMMAND_PREFIXES: &[&str] = &["start "];
 const MAX_DEPTH: u32 = 10;
 
+fn contains_shell_token(command: &str, token: &str) -> bool {
+    command.match_indices(token).any(|(idx, _)| {
+        let before = command[..idx].chars().next_back();
+        let after = command[idx + token.len()..].chars().next();
+        let is_boundary = |ch: Option<char>| match ch {
+            None => true,
+            Some(c) => c.is_whitespace() || matches!(c, '|' | '&' | ';' | '(' | ')' | '<' | '>'),
+        };
+        is_boundary(before) && is_boundary(after)
+    })
+}
+
+fn is_dangerous_command_match(command: &str, token: &str) -> bool {
+    if token == "base64" && command.trim() == token {
+        return false;
+    }
+
+    contains_shell_token(command, token)
+}
+
 pub fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<TaintKind> {
     let taints = checker.indexer.get_taint(expr);
     [
@@ -62,7 +82,9 @@ pub fn get_call_suspicious_taint(checker: &Checker, call: &ast::ExprCall) -> Opt
 
 fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
     if let Some(s) = string_from_expr(expr, &checker.indexer) {
-        DANGEROUS_COMMANDS.iter().any(|&c| s.contains(c))
+        DANGEROUS_COMMANDS
+            .iter()
+            .any(|&c| is_dangerous_command_match(&s, c))
             || DANGEROUS_COMMAND_PREFIXES.iter().any(|&c| s.starts_with(c))
     } else {
         match expr {
@@ -1192,5 +1214,19 @@ mod tests {
     )]
     fn test_bypasses(rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
         assert_audit_results("exec_bypass.py", rule, expected);
+    }
+
+    #[test]
+    fn test_dangerous_exec_ignores_plain_argument_mentions() {
+        let source = r#"import subprocess
+subprocess.run(["echo", "base64"])
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DangerousExec)
+            .map(|item| item.label)
+            .collect();
+        assert!(matches.is_empty());
     }
 }
