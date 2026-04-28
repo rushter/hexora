@@ -100,6 +100,10 @@ fn get_exfil_confidence(taint: &TaintKind) -> Option<AuditConfidence> {
     }
 }
 
+fn should_ignore_exfil_keyword(name: &str) -> bool {
+    matches!(name, "headers" | "auth" | "cookies")
+}
+
 pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
     let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) else {
         return;
@@ -144,6 +148,13 @@ fn check_direct_exfiltration(checker: &mut Checker, call: &ast::ExprCall, name: 
         process_taints(&mut checker.indexer, &taints);
     }
     for kw in &call.arguments.keywords {
+        if kw
+            .arg
+            .as_ref()
+            .is_some_and(|arg| should_ignore_exfil_keyword(arg.as_str()))
+        {
+            continue;
+        }
         let taints = checker.indexer.get_taint(&kw.value);
         process_taints(&mut checker.indexer, &taints);
     }
@@ -314,5 +325,43 @@ wrapper(data=os.getenv(\"AWS_ACCESS_KEY_ID\"))
             .map(|item| item.label)
             .collect();
         assert_eq!(matches, vec!["wrapper"]);
+    }
+
+    #[test]
+    fn test_requests_auth_header_not_exfiltration() {
+        let source = r#"import os
+import requests
+
+requests.get(
+    "https://api.github.com/user",
+    headers={"Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"}
+)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DataExfiltration)
+            .map(|item| item.label)
+            .collect();
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_requests_auth_tuple_not_exfiltration() {
+        let source = r#"import os
+import requests
+
+requests.get(
+    "https://api.github.com/user",
+    auth=("user", os.getenv("GITHUB_TOKEN"))
+)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DataExfiltration)
+            .map(|item| item.label)
+            .collect();
+        assert!(matches.is_empty());
     }
 }
