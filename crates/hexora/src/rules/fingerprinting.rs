@@ -17,7 +17,7 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
             .first()
             .and_then(|arg| checker.indexer.resolve_qualified_name(arg));
 
-        if !matched && (name == "dict" || name == "str") {
+        if !matched && name == "str" {
             if let Some(ref arg_qn) = arg_qn {
                 if arg_qn.is_exact(&["os", "environ"]) {
                     matched = true;
@@ -28,7 +28,7 @@ pub fn fingerprinting(checker: &mut Checker, call: &ast::ExprCall) {
         if matched {
             let (label, confidence) = if qualified_name.as_str() == "os.environ.copy" {
                 (name, AuditConfidence::Medium)
-            } else if name == "dict" || name == "str" {
+            } else if name == "str" {
                 let label = arg_qn.map(|qn| qn.to_string()).unwrap_or(name);
                 (label, AuditConfidence::High)
             } else {
@@ -71,8 +71,6 @@ mod tests {
         "os.environ.copy",
         "os.environ.copy",
         "os.environ",
-        "os.environ",
-        "os.environ",
         "os.environ"
     ])]
     #[test_case("fingerprinting_03.py", Rule::OSFingerprint, vec![
@@ -81,5 +79,19 @@ mod tests {
     ])]
     fn test_fingerprinting(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_dict_os_environ_not_flagged() {
+        let source = r#"import os
+env = dict(os.environ)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::OSFingerprint)
+            .map(|item| item.label)
+            .collect();
+        assert!(matches.is_empty());
     }
 }
