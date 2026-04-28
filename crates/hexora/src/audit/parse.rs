@@ -32,7 +32,7 @@ fn audit_file_with_content(
     })
 }
 
-/// Audit multiple files in parallel
+/// Audit multiple files in the provided directory or a file
 pub fn audit_path(
     file_path: &Path,
     exclude_names: Option<&HashSet<String>>,
