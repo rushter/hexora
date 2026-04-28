@@ -40,8 +40,10 @@ static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
 pub fn check_comments(checker: &mut Checker) {
     for comment in checker.indexer.model.comments.iter() {
         let text = checker.locator.slice(*comment);
+        let text_lower = text.to_ascii_lowercase();
         for comment_rule in COMMENTS.iter() {
-            if memmem::find(text.as_bytes(), comment_rule.name.as_bytes()).is_some() {
+            let pattern = comment_rule.name.to_ascii_lowercase();
+            if memmem::find(text_lower.as_bytes(), pattern.as_bytes()).is_some() {
                 checker.audit_results.push(AuditItem {
                     label: comment_rule.name.to_string(),
                     rule: comment_rule.rule,
@@ -63,5 +65,17 @@ mod tests {
     #[test_case("comments_01.py", Rule::SuspiciousComment, vec!["BlankOBF", "BlankOBF", "obfuscated by", "Pyarmor"])]
     fn test_comment(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_comment_lowercase_match() {
+        let source = "# pyarmor protected\n";
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousComment)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["Pyarmor"]);
     }
 }
