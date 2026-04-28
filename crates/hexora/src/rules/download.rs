@@ -8,10 +8,15 @@ use ruff_python_ast as ast;
 static EXTENSIONS: Lazy<Vec<&'static str>> =
     Lazy::new(|| vec![".exe", ".dll", ".so", ".dylib", ".bin"]);
 
+fn strip_url_suffixes(text: &str) -> &str {
+    let cutoff = text.find(['?', '#']).unwrap_or(text.len());
+    &text[..cutoff]
+}
+
 fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Option<String> {
     for arg in &call.arguments.args {
         if let Some(text) = string_from_expr(arg, &checker.indexer) {
-            let lowered = text.to_ascii_lowercase();
+            let lowered = strip_url_suffixes(&text).to_ascii_lowercase();
             for ext in EXTENSIONS.iter() {
                 if lowered.ends_with(ext) {
                     return Some(text);
@@ -21,7 +26,7 @@ fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Optio
     }
     for kw in &call.arguments.keywords {
         if let Some(text) = string_from_expr(&kw.value, &checker.indexer) {
-            let lowered = text.to_ascii_lowercase();
+            let lowered = strip_url_suffixes(&text).to_ascii_lowercase();
             for ext in EXTENSIONS.iter() {
                 if lowered.ends_with(ext) {
                     return Some(text);
@@ -79,5 +84,22 @@ requests.get("https://www.example.com/BEACON.EXE")
             .map(|item| item.label)
             .collect();
         assert_eq!(matches, vec!["https://www.example.com/BEACON.EXE"]);
+    }
+
+    #[test]
+    fn test_binary_download_query_string_extension() {
+        let source = r#"import requests
+requests.get("https://www.example.com/beacon.exe?download=1")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::BinaryDownload)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(
+            matches,
+            vec!["https://www.example.com/beacon.exe?download=1"]
+        );
     }
 }
