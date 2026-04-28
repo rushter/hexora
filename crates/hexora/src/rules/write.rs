@@ -1,7 +1,11 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
 use crate::indexer::resolver::string_from_expr;
+use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
+
+static SUSPICIOUS_WRITE_EXTENSIONS: Lazy<Vec<&'static str>> =
+    Lazy::new(|| vec![".exe", ".py", ".pyw", ".ps1", ".bat", ".cmd", ".sh"]);
 
 fn is_open_for_writing(checker: &Checker, call: &ast::ExprCall) -> bool {
     let mut mode = "r".to_string();
@@ -66,9 +70,15 @@ pub fn suspicious_write(checker: &mut Checker, call: &ast::ExprCall) {
         None
     };
 
-    if let Some(filename) = filename
-        && (filename.ends_with(".exe") || filename.ends_with(".py"))
-    {
+    if let Some(filename) = filename {
+        let lowered = filename.to_ascii_lowercase();
+        if !SUSPICIOUS_WRITE_EXTENSIONS
+            .iter()
+            .any(|ext| lowered.ends_with(ext))
+        {
+            return;
+        }
+
         checker.audit_results.push(AuditItem {
             label: filename,
             rule: Rule::SuspiciousWrite,
@@ -88,5 +98,18 @@ mod tests {
     #[test_case("write_01.py", Rule::SuspiciousWrite, vec!["payload.exe", "script.py", "bad.exe", "other_bad.py"])]
     fn test_write(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_suspicious_write_uppercase_extension() {
+        let source = r#"open("PAYLOAD.EXE", "wb").write("x")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousWrite)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["PAYLOAD.EXE"]);
     }
 }

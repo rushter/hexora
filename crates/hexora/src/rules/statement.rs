@@ -30,9 +30,14 @@ pub fn analyze(stmt: &ast::Stmt, checker: &mut Checker) {
             name, parameters, ..
         }) => {
             suspicious_function_name(checker, name);
-            let args = &parameters.args;
-            for arg in args {
+            for arg in parameters.iter_non_variadic_params() {
                 suspicious_function_parameter(checker, arg.parameter.name());
+            }
+            if let Some(arg) = &parameters.vararg {
+                suspicious_function_parameter(checker, arg.name());
+            }
+            if let Some(arg) = &parameters.kwarg {
+                suspicious_function_parameter(checker, arg.name());
             }
         }
 

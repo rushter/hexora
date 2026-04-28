@@ -11,8 +11,9 @@ static EXTENSIONS: Lazy<Vec<&'static str>> =
 fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Option<String> {
     for arg in &call.arguments.args {
         if let Some(text) = string_from_expr(arg, &checker.indexer) {
+            let lowered = text.to_ascii_lowercase();
             for ext in EXTENSIONS.iter() {
-                if text.ends_with(ext) {
+                if lowered.ends_with(ext) {
                     return Some(text);
                 }
             }
@@ -20,8 +21,9 @@ fn contains_download_extension(checker: &Checker, call: &ast::ExprCall) -> Optio
     }
     for kw in &call.arguments.keywords {
         if let Some(text) = string_from_expr(&kw.value, &checker.indexer) {
+            let lowered = text.to_ascii_lowercase();
             for ext in EXTENSIONS.iter() {
-                if text.ends_with(ext) {
+                if lowered.ends_with(ext) {
                     return Some(text);
                 }
             }
@@ -63,5 +65,19 @@ mod tests {
     #[test_case("download_02.py", Rule::BinaryDownload, vec![])]
     fn test_exec(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
+    }
+
+    #[test]
+    fn test_binary_download_uppercase_extension() {
+        let source = r#"import requests
+requests.get("https://www.example.com/BEACON.EXE")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::BinaryDownload)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["https://www.example.com/BEACON.EXE"]);
     }
 }

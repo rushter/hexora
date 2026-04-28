@@ -9,7 +9,6 @@ static SUSPICIOUS_SUBSTRINGS: Lazy<Vec<(&str, AuditConfidence)>> = Lazy::new(|| 
     vec![
         ("shellcode", AuditConfidence::Medium),
         ("payload", AuditConfidence::Low),
-        ("reverse_shell", AuditConfidence::Medium),
         ("exploit", AuditConfidence::Medium),
         ("webshell", AuditConfidence::Medium),
         ("_obfuscator_", AuditConfidence::VeryHigh),

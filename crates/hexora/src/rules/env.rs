@@ -104,4 +104,18 @@ mod tests {
     fn test_env(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
+
+    #[test]
+    fn test_env_string_expression() {
+        let source = r#"import os
+os.getenv("AWS_" + "ACCESS_KEY_ID")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::EnvAccess)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["AWS_ACCESS_KEY_ID"]);
+    }
 }

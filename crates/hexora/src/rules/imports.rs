@@ -111,6 +111,19 @@ pub fn check_import(stmt: &Stmt, checker: &mut Checker) {
                         name.range,
                     );
                 }
+
+                let bound_name = name.asname.as_ref().unwrap_or(&name.name);
+                if let Some(confidence) =
+                    crate::rules::identifier::is_suspicious_variable(bound_name.as_str())
+                {
+                    checker.audit_results.push(AuditItem {
+                        label: bound_name.as_str().to_string(),
+                        rule: Rule::SuspiciousVariable,
+                        description: format!("Suspicious variable name: {}", bound_name.as_str()),
+                        confidence,
+                        location: Some(name.identifier()),
+                    });
+                }
             }
         }
         Stmt::ImportFrom(ast::StmtImportFrom { module, names, .. }) => {
@@ -168,5 +181,18 @@ mod tests {
                 assert_eq!(item.confidence, AuditConfidence::Low);
             }
         }
+    }
+
+    #[test]
+    fn test_import_alias_suspicious_variable() {
+        let source = r#"import socket as payload
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousVariable)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["payload"]);
     }
 }
