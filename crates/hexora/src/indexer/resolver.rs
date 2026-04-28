@@ -106,6 +106,45 @@ pub(crate) fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Optio
     }
 }
 
+pub(crate) fn resolve_argument_for_parameter<'a>(
+    call: &'a ExprCall,
+    func: &'a StmtFunctionDef,
+    name: &str,
+) -> Option<&'a Expr> {
+    if let Some(value) = call
+        .arguments
+        .keywords
+        .iter()
+        .find(|kw| kw.arg.as_ref().is_some_and(|arg| arg.as_str() == name))
+        .map(|kw| &kw.value)
+    {
+        return Some(value);
+    }
+
+    let positional_index = func
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&func.parameters.args)
+        .position(|param| param.name().as_str() == name);
+    if let Some(index) = positional_index {
+        if let Some(value) = call.arguments.args.get(index) {
+            return Some(value);
+        }
+    }
+
+    func.parameters.find(name).and_then(|param| param.default())
+}
+
+pub(crate) fn resolve_argument_for_parameter_index<'a>(
+    call: &'a ExprCall,
+    func: &'a StmtFunctionDef,
+    index: usize,
+) -> Option<&'a Expr> {
+    let param = func.parameters.iter_non_variadic_params().nth(index)?;
+    resolve_argument_for_parameter(call, func, param.name().as_str())
+}
+
 impl<'a> NodeIndexer<'a> {
     fn expr_to_identifier_path(
         &self,
@@ -116,16 +155,15 @@ impl<'a> NodeIndexer<'a> {
         let joined = path.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("");
         let segments: Vec<_> = joined.split('.').collect();
 
-        if segments.is_empty() || segments.iter().any(|segment| {
-            segment.is_empty()
-                || !segment
-                    .chars()
-                    .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-                || segment
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch.is_ascii_digit())
-        }) {
+        if segments.is_empty()
+            || segments.iter().any(|segment| {
+                segment.is_empty()
+                    || !segment
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+                    || segment.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+            })
+        {
             return None;
         }
 
@@ -210,10 +248,8 @@ impl<'a> NodeIndexer<'a> {
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<Name>> {
         if let Some((call, func)) = context {
-            for (i, param) in func.parameters.args.iter().enumerate() {
-                if param.name() == name.id.as_str() && i < call.arguments.args.len() {
-                    return self.resolve_expr_import_path_internal(&call.arguments.args[i], None);
-                }
+            if let Some(argument) = resolve_argument_for_parameter(call, func, name.id.as_str()) {
+                return self.resolve_expr_import_path_internal(argument, None);
             }
         }
 
@@ -362,10 +398,12 @@ impl<'a> NodeIndexer<'a> {
                 let mut visitor = ruff_python_ast::helpers::ReturnStatementVisitor::default();
                 visitor.visit_body(&func.body);
 
-                let return_expr = visitor.returns.first().and_then(|r| r.value.as_deref());
-
-                if let Some(ret_expr) = return_expr {
-                    return self.resolve_expr_import_path_internal(ret_expr, Some((call, func)));
+                for return_expr in visitor.returns.iter().filter_map(|r| r.value.as_deref()) {
+                    if let Some(path) =
+                        self.resolve_expr_import_path_internal(return_expr, Some((call, func)))
+                    {
+                        return Some(path);
+                    }
                 }
             }
         }

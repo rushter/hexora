@@ -1,5 +1,6 @@
 use crate::audit::result::{AuditConfidence, AuditItem, Rule};
 use crate::indexer::checker::Checker;
+use crate::indexer::resolver::resolve_argument_for_parameter_index;
 use crate::indexer::taint::TaintKind;
 use once_cell::sync::Lazy;
 
@@ -109,7 +110,7 @@ pub fn data_exfiltration(checker: &mut Checker, call: &ast::ExprCall) {
         check_direct_exfiltration(checker, call, &name);
     } else if let Some(binding) = checker.indexer.lookup_binding(&name) {
         let leaks = binding.parameter_leaks.clone();
-        check_leaked_exfiltration(checker, call, &name, &leaks);
+        check_leaked_exfiltration(checker, call, binding.function_def, &name, &leaks);
     }
 }
 
@@ -165,11 +166,15 @@ fn check_direct_exfiltration(checker: &mut Checker, call: &ast::ExprCall, name: 
 fn check_leaked_exfiltration(
     checker: &mut Checker,
     call: &ast::ExprCall,
+    func: Option<&ast::StmtFunctionDef>,
     name: &str,
     leaks: &[(usize, String)],
 ) {
     for (param_idx, sink_name) in leaks {
-        let Some(arg) = call.arguments.args.get(*param_idx) else {
+        let Some(func) = func else {
+            continue;
+        };
+        let Some(arg) = resolve_argument_for_parameter_index(call, func, *param_idx) else {
             continue;
         };
 
@@ -290,5 +295,24 @@ mod tests {
             .collect();
         assert_eq!(exfil_results.len(), 1);
         assert_eq!(exfil_results[0].confidence, AuditConfidence::High);
+    }
+
+    #[test]
+    fn test_wrapper_exfiltration_keyword_argument() {
+        let source = r#"import os
+import requests
+
+def wrapper(data=None):
+    requests.get(data)
+
+wrapper(data=os.getenv(\"AWS_ACCESS_KEY_ID\"))
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::DataExfiltration)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["wrapper"]);
     }
 }

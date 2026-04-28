@@ -370,6 +370,54 @@ fn test_resolve_eval_assigned_callable() {
 }
 
 #[test]
+fn test_resolve_function_return_keyword_argument() {
+    let source = unindent(
+        r#"
+            import os
+            def get_mod(m):
+                return m
+            get_mod(m=os).system("ls")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 2);
+        assert_eq!(resolved.as_deref(), Some("os.system"));
+    });
+}
+
+#[test]
+fn test_resolve_function_return_default_argument() {
+    let source = unindent(
+        r#"
+            import os
+            def get_mod(m=os):
+                return m
+            get_mod().system("ls")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 2);
+        assert_eq!(resolved.as_deref(), Some("os.system"));
+    });
+}
+
+#[test]
+fn test_resolve_function_return_kwonly_default_argument() {
+    let source = unindent(
+        r#"
+            import os
+            def get_mod(*, m=os):
+                return m
+            get_mod().system("ls")
+            "#,
+    );
+    with_indexer(&source, |indexer, suite| {
+        let resolved = resolve_call_at_index(indexer, suite, 2);
+        assert_eq!(resolved.as_deref(), Some("os.system"));
+    });
+}
+
+#[test]
 fn test_resolve_getattr() {
     let source = unindent(
         r#"

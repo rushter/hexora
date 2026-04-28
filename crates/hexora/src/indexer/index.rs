@@ -159,7 +159,7 @@ impl<'a> NodeIndexer<'a> {
             }
             Stmt::FunctionDef(func) => {
                 self.push_scope(ScopeKind::Function);
-                for (i, param) in func.parameters.args.iter().enumerate() {
+                for (i, param) in func.parameters.iter_non_variadic_params().enumerate() {
                     let mut binding = SymbolBinding::assignment(None);
                     binding.taint.insert(TaintKind::InternalParameter(i));
                     self.current_scope_mut()
