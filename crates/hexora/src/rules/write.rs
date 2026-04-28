@@ -7,10 +7,10 @@ use ruff_python_ast as ast;
 static SUSPICIOUS_WRITE_EXTENSIONS: Lazy<Vec<&'static str>> =
     Lazy::new(|| vec![".exe", ".py", ".pyw", ".ps1", ".bat", ".cmd", ".sh"]);
 
-fn is_open_for_writing(checker: &Checker, call: &ast::ExprCall) -> bool {
+fn is_open_for_writing(checker: &Checker, call: &ast::ExprCall, mode_arg_index: usize) -> bool {
     let mut mode = "r".to_string();
 
-    if let Some(arg) = call.arguments.args.get(1) {
+    if let Some(arg) = call.arguments.args.get(mode_arg_index) {
         if let Some(m) = string_from_expr(arg, &checker.indexer) {
             mode = m;
         }
@@ -35,7 +35,7 @@ fn get_filename(checker: &Checker, expr: &ast::Expr) -> Option<String> {
     match expr {
         ast::Expr::Call(call) => {
             let qn = checker.indexer.resolve_qualified_name(expr)?;
-            if qn.is_exact(&["pathlib", "Path"]) {
+            if qn.is_exact(&["pathlib", "Path"]) || qn.is_exact(&["Path"]) {
                 string_from_expr(call.arguments.args.first()?, &checker.indexer)
             } else {
                 None
@@ -49,14 +49,28 @@ fn get_filename(checker: &Checker, expr: &ast::Expr) -> Option<String> {
     }
 }
 
+fn get_path_constructor_filename(checker: &Checker, expr: &ast::Expr) -> Option<String> {
+    let qn = checker.indexer.resolve_qualified_name(expr)?;
+    if qn.is_exact(&["pathlib", "Path"]) || qn.is_exact(&["Path"]) {
+        if let ast::Expr::Call(call) = expr {
+            return call
+                .arguments
+                .args
+                .first()
+                .and_then(|arg| string_from_expr(arg, &checker.indexer));
+        }
+    }
+    None
+}
+
 pub fn suspicious_write(checker: &mut Checker, call: &ast::ExprCall) {
-    let Some(qualified_name) = checker.indexer.get_qualified_name(call) else {
+    let Some(qualified_name) = checker.indexer.resolve_qualified_name(&call.func) else {
         return;
     };
 
     let filename = if (qualified_name.is_exact(&["open"])
         || qualified_name.is_exact(&["builtins", "open"]))
-        && is_open_for_writing(checker, call)
+        && is_open_for_writing(checker, call, 1)
     {
         call.arguments
             .args
@@ -66,6 +80,18 @@ pub fn suspicious_write(checker: &mut Checker, call: &ast::ExprCall) {
         call.func
             .as_attribute_expr()
             .and_then(|attr| get_filename(checker, &attr.value))
+    } else if (qualified_name.is_exact(&["pathlib", "Path", "open"])
+        || qualified_name.is_exact(&["Path", "open"]))
+        && is_open_for_writing(checker, call, 0)
+    {
+        call.func
+            .as_attribute_expr()
+            .and_then(|attr| get_path_constructor_filename(checker, &attr.value))
+            .or_else(|| {
+                call.func
+                    .as_attribute_expr()
+                    .and_then(|attr| get_filename(checker, &attr.value))
+            })
     } else {
         None
     };
@@ -111,5 +137,20 @@ mod tests {
             .map(|item| item.label)
             .collect();
         assert_eq!(matches, vec!["PAYLOAD.EXE"]);
+    }
+
+    #[test]
+    fn test_suspicious_write_path_open() {
+        let source = r#"from pathlib import Path
+with Path("payload.exe").open("wb") as f:
+    f.write(b"x")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::SuspiciousWrite)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["payload.exe"]);
     }
 }
