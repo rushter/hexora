@@ -589,3 +589,57 @@ fn test_complex_obfuscation() {
     assert!(actual.iter().any(|it| it.string == "home"));
     assert!(actual.iter().any(|it| it.string == ".profile"));
 }
+
+#[test]
+fn test_strip_no_args() {
+    let source = r#"a = "  hello  ".strip()"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "hello"));
+}
+
+#[test]
+fn test_strip_with_chars() {
+    let source = r#"a = "xhelloy".strip("xy")"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "hello"));
+}
+
+#[test]
+fn test_lstrip_with_chars() {
+    let source = r#"a = "xhello".lstrip("x")"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "hello"));
+}
+
+#[test]
+fn test_lstrip_no_args() {
+    let source = r#"a = "  hello  ".lstrip()"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "hello  "));
+}
+
+#[test]
+fn test_rstrip_with_chars() {
+    let source = r#"a = "hellox".rstrip("x")"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "hello"));
+}
+
+#[test]
+fn test_rstrip_no_args() {
+    let source = r#"a = "  hello  ".rstrip()"#;
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "  hello"));
+}
+
+#[test]
+fn test_strip_with_variable_chars() {
+    let source = unindent(
+        r#"
+        chars = "xy"
+        a = "xhelloy".strip(chars)
+    "#,
+    );
+    let actual = get_strings(&source);
+    assert!(actual.iter().any(|it| it.string == "hello"));
+}

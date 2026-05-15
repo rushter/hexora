@@ -200,14 +200,20 @@ impl<'a> NodeTransformer<'a> {
             "__getattr__" | "__getattribute__" | "getattr" => {
                 self.handle_getattr_call(call, Some(attr.value.as_ref()))
             }
-            "replace" | "strip" | "lower" | "upper" => {
+            "replace" | "strip" | "lstrip" | "rstrip" | "lower" | "upper" => {
                 self.handle_string_method_call(method, attr, call)
             }
             _ => None,
         }
     }
 
-    #[inline]
+    fn strip_chars(&self, call: &ast::ExprCall) -> Option<String> {
+        call.arguments
+            .args
+            .first()
+            .and_then(|arg| self.resolve_expr_to_string(arg))
+    }
+
     fn handle_string_method_call(
         &self,
         method: &str,
@@ -221,7 +227,27 @@ impl<'a> NodeTransformer<'a> {
                 let new = self.resolve_expr_to_string(&call.arguments.args[1])?;
                 s.replace(&old, &new)
             }
-            "strip" => s.trim().to_string(),
+            "strip" => match self.strip_chars(call) {
+                Some(chars) => {
+                    let chars_vec: Vec<char> = chars.chars().collect();
+                    s.trim_matches(chars_vec.as_slice()).to_string()
+                }
+                None => s.trim().to_string(),
+            },
+            "lstrip" => match self.strip_chars(call) {
+                Some(chars) => {
+                    let chars_vec: Vec<char> = chars.chars().collect();
+                    s.trim_start_matches(chars_vec.as_slice()).to_string()
+                }
+                None => s.trim_start().to_string(),
+            },
+            "rstrip" => match self.strip_chars(call) {
+                Some(chars) => {
+                    let chars_vec: Vec<char> = chars.chars().collect();
+                    s.trim_end_matches(chars_vec.as_slice()).to_string()
+                }
+                None => s.trim_end().to_string(),
+            },
             "lower" => s.to_lowercase(),
             "upper" => s.to_uppercase(),
             _ => return None,
