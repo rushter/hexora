@@ -112,6 +112,10 @@ impl QualifiedName {
                     | "getoutput"
                     | "getstatusoutput"
             ),
+            [asyncio, submodule] if asyncio == "asyncio" => matches!(
+                submodule.as_str(),
+                "create_subprocess_shell" | "create_subprocess_exec"
+            ),
             [popen2, submodule] if popen2 == "popen2" => matches!(
                 submodule.as_str(),
                 "popen2" | "popen3" | "popen4" | "Popen3" | "Popen4"
@@ -494,7 +498,11 @@ mod tests {
         assert!(QualifiedName::new("subprocess.run").is_shell_command());
         assert!(QualifiedName::new("commands.getoutput").is_shell_command());
         assert!(QualifiedName::new("popen2.popen2").is_shell_command());
+        assert!(QualifiedName::new("asyncio.create_subprocess_shell").is_shell_command());
+        assert!(QualifiedName::new("asyncio.create_subprocess_exec").is_shell_command());
         assert!(!QualifiedName::new("os.path.join").is_shell_command());
+        assert!(!QualifiedName::new("asyncio.sleep").is_shell_command());
+        assert!(!QualifiedName::new("asyncio.gather").is_shell_command());
     }
 
     #[test]

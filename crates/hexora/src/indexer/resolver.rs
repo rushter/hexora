@@ -351,6 +351,15 @@ impl<'a> NodeIndexer<'a> {
         }
 
         if qn.is_vars_function() {
+            if !call.arguments.args.is_empty() {
+                if let Some(arg_path) =
+                    self.resolve_expr_import_path_internal(&call.arguments.args[0], context)
+                {
+                    let mut path = arg_path;
+                    path.push(Name::from("__dict__"));
+                    return Some(path);
+                }
+            }
             return Some(vec![Name::from(qn.first()?)]);
         }
 
@@ -391,18 +400,29 @@ impl<'a> NodeIndexer<'a> {
 
     fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<Name>> {
         if let Expr::Name(func_name) = call.func.as_ref() {
-            if let Some(binding) = self.lookup_binding(func_name.id.as_str())
-                && let BindingKind::Function = binding.kind
-                && let Some(func) = binding.function_def
-            {
-                let mut visitor = ruff_python_ast::helpers::ReturnStatementVisitor::default();
-                visitor.visit_body(&func.body);
+            if let Some(binding) = self.lookup_binding(func_name.id.as_str()) {
+                if let BindingKind::Function = binding.kind {
+                    if let Some(func) = binding.function_def {
+                        let mut visitor =
+                            ruff_python_ast::helpers::ReturnStatementVisitor::default();
+                        visitor.visit_body(&func.body);
 
-                for return_expr in visitor.returns.iter().filter_map(|r| r.value.as_deref()) {
-                    if let Some(path) =
-                        self.resolve_expr_import_path_internal(return_expr, Some((call, func)))
-                    {
-                        return Some(path);
+                        for return_expr in visitor.returns.iter().filter_map(|r| r.value.as_deref())
+                        {
+                            if let Some(path) = self
+                                .resolve_expr_import_path_internal(return_expr, Some((call, func)))
+                            {
+                                return Some(path);
+                            }
+                        }
+                    }
+                } else if let Some(value_expr) = binding.value_expr {
+                    if let Expr::Lambda(lambda) = value_expr {
+                        if let Some(path) =
+                            self.resolve_expr_import_path_internal(&lambda.body, None)
+                        {
+                            return Some(path);
+                        }
                     }
                 }
             }
@@ -432,6 +452,10 @@ impl<'a> NodeIndexer<'a> {
                 && let Some(path) = self.expr_to_identifier_path(first_arg, None)
             {
                 return Some(path);
+            }
+
+            if let Expr::Lambda(lambda) = value_expr {
+                return self.resolve_expr_import_path_internal(&lambda.body, None);
             }
 
             self.resolve_expr_import_path(value_expr)

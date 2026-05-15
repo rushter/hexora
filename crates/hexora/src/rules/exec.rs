@@ -1229,4 +1229,74 @@ subprocess.run(["echo", "base64"])
             .collect();
         assert!(matches.is_empty());
     }
+
+    #[test]
+    fn test_vars_dict_shell_exec() {
+        let source = r#"import os
+vars(os)["system"]("whoami")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(matches.contains(&"os.system".to_string()));
+    }
+
+    #[test]
+    fn test_asyncio_create_subprocess_shell() {
+        let source = r#"import asyncio
+asyncio.create_subprocess_shell("whoami")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::ShellExec || item.rule == Rule::DangerousExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(matches.contains(&"asyncio.create_subprocess_shell".to_string()));
+    }
+
+    #[test]
+    fn test_asyncio_create_subprocess_exec() {
+        let source = r#"import asyncio
+asyncio.create_subprocess_exec("ls", "-la")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::ShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(matches.contains(&"asyncio.create_subprocess_exec".to_string()));
+    }
+
+    #[test]
+    fn test_asyncio_from_import_subprocess() {
+        let source = r#"from asyncio import create_subprocess_shell as start_proc
+start_proc("whoami")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::ShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(matches.contains(&"asyncio.create_subprocess_shell".to_string()));
+    }
+
+    #[test]
+    fn test_vars_dict_with_no_args() {
+        let source = r#"import os
+vars()["os"].system("whoami")
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(matches.contains(&"os.system".to_string()));
+    }
 }
