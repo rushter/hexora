@@ -7,7 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95.0"
+          components: rustfmt, clippy
       - run: cargo check --workspace
 
   test:
