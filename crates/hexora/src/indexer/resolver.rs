@@ -416,13 +416,9 @@ impl<'a> NodeIndexer<'a> {
                             }
                         }
                     }
-                } else if let Some(value_expr) = binding.value_expr {
-                    if let Expr::Lambda(lambda) = value_expr {
-                        if let Some(path) =
-                            self.resolve_expr_import_path_internal(&lambda.body, None)
-                        {
-                            return Some(path);
-                        }
+                } else if let Some(Expr::Lambda(lambda)) = binding.value_expr {
+                    if let Some(path) = self.resolve_expr_import_path_internal(&lambda.body, None) {
+                        return Some(path);
                     }
                 }
             }
