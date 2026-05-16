@@ -77,6 +77,11 @@ fn push_execution_subjects_from_argv<'a>(
     expr: &'a ast::Expr,
     subjects: &mut Vec<&'a ast::Expr>,
 ) {
+    if let ast::Expr::Starred(starred) = expr {
+        push_execution_subjects_from_argv(checker, &starred.value, subjects);
+        return;
+    }
+
     let elts = match expr {
         ast::Expr::List(list) => Some(&list.elts[..]),
         ast::Expr::Tuple(tuple) => Some(&tuple.elts[..]),
@@ -111,6 +116,134 @@ fn push_execution_subjects_from_argv<'a>(
     }
 }
 
+fn push_execution_subjects_from_parts<'a>(
+    checker: &'a Checker<'a>,
+    parts: &[&'a ast::Expr],
+    subjects: &mut Vec<&'a ast::Expr>,
+) {
+    let Some(first) = parts.first().copied() else {
+        return;
+    };
+    subjects.push(first);
+
+    let second = parts.get(1).copied();
+    let second_flag = second.and_then(|expr| string_from_expr(expr, &checker.indexer));
+    if second_flag.as_deref() == Some("-c") {
+        if let Some(code) = parts.get(2).copied() {
+            subjects.push(code);
+        }
+        return;
+    }
+
+    let first_name = string_from_expr(first, &checker.indexer);
+    if first_name.as_deref().is_some_and(is_python_like_command)
+        && !matches!(second_flag.as_deref(), Some("-"))
+        && let Some(script_path) = second
+    {
+        subjects.push(script_path);
+    }
+}
+
+fn expr_sequence_parts<'a>(
+    checker: &'a Checker<'a>,
+    expr: &'a ast::Expr,
+    depth: u32,
+) -> Option<Vec<&'a ast::Expr>> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
+
+    match expr {
+        ast::Expr::Starred(starred) => expr_sequence_parts(checker, &starred.value, depth + 1),
+        ast::Expr::List(list) => Some(list.elts.iter().collect()),
+        ast::Expr::Tuple(tuple) => Some(tuple.elts.iter().collect()),
+        _ => mapped_sequence_parts(checker, expr, depth + 1),
+    }
+}
+
+fn insert_sequence_part<'a>(
+    parts: &mut Vec<&'a ast::Expr>,
+    idx_expr: &ast::Expr,
+    value: &'a ast::Expr,
+) {
+    let Some(idx) = (match idx_expr {
+        ast::Expr::NumberLiteral(num) => num.value.as_int().and_then(|int| int.as_u32()),
+        _ => None,
+    }) else {
+        return;
+    };
+
+    let idx = (idx as usize).min(parts.len());
+    parts.insert(idx, value);
+}
+
+fn mapped_sequence_parts<'a>(
+    checker: &'a Checker<'a>,
+    expr: &'a ast::Expr,
+    depth: u32,
+) -> Option<Vec<&'a ast::Expr>> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
+
+    let node_id = expr.node_index().load().as_u32()?;
+    let mapped = checker.indexer.model.expr_mapping.get(&node_id)?;
+    let mut parts: Option<Vec<&'a ast::Expr>> = None;
+
+    for mapped_expr in mapped {
+        match mapped_expr {
+            ast::Expr::List(list) => {
+                if parts.is_none() {
+                    parts = Some(list.elts.iter().collect());
+                }
+            }
+            ast::Expr::Tuple(tuple) => {
+                if parts.is_none() {
+                    parts = Some(tuple.elts.iter().collect());
+                }
+            }
+            ast::Expr::Call(call) => {
+                let Some(attr) = call.func.as_attribute_expr() else {
+                    continue;
+                };
+
+                let Some(current_parts) = parts.as_mut() else {
+                    continue;
+                };
+
+                match attr.attr.as_str() {
+                    "append" if !call.arguments.args.is_empty() => {
+                        current_parts.push(&call.arguments.args[0]);
+                    }
+                    "extend" if !call.arguments.args.is_empty() => {
+                        if let Some(extra_parts) =
+                            expr_sequence_parts(checker, &call.arguments.args[0], depth + 1)
+                        {
+                            current_parts.extend(extra_parts);
+                        }
+                    }
+                    "insert" if call.arguments.args.len() >= 2 => {
+                        insert_sequence_part(
+                            current_parts,
+                            &call.arguments.args[0],
+                            &call.arguments.args[1],
+                        );
+                    }
+                    "reverse" => current_parts.reverse(),
+                    _ => {}
+                }
+            }
+            _ => {
+                if parts.is_none() {
+                    parts = expr_sequence_parts(checker, mapped_expr, depth + 1);
+                }
+            }
+        }
+    }
+
+    parts
+}
+
 fn collect_execution_subjects<'a>(
     checker: &'a Checker<'a>,
     expr: &'a ast::Expr,
@@ -118,6 +251,11 @@ fn collect_execution_subjects<'a>(
     depth: u32,
 ) {
     if depth > MAX_DEPTH {
+        return;
+    }
+
+    if let Some(parts) = expr_sequence_parts(checker, expr, depth + 1) {
+        push_execution_subjects_from_parts(checker, &parts, subjects);
         return;
     }
 
@@ -160,7 +298,33 @@ fn get_execution_subjects<'a>(
         return subjects;
     }
 
-    if let Some(arg) = call.arguments.args.first() {
+    let first_subject_idx = checker
+        .indexer
+        .resolve_qualified_name(&call.func)
+        .and_then(|qn| match qn.segments_slice() {
+            [os, name]
+                if os == "os"
+                    && matches!(
+                        name.as_str(),
+                        "execv"
+                            | "execve"
+                            | "execvp"
+                            | "execvpe"
+                            | "spawnv"
+                            | "spawnve"
+                            | "spawnvp"
+                            | "spawnvpe"
+                            | "posix_spawn"
+                            | "posix_spawnp"
+                    ) =>
+            {
+                Some(1)
+            }
+            _ => None,
+        })
+        .unwrap_or(0);
+
+    if let Some(arg) = call.arguments.args.get(first_subject_idx) {
         collect_execution_subjects(checker, arg, &mut subjects, 0);
     }
 
@@ -255,6 +419,16 @@ fn get_taint_metadata(taint: TaintKind) -> (AuditConfidence, &'static str, &'sta
 
 fn contains_suspicious_expr(checker: &Checker, expr: &ast::Expr) -> bool {
     contains_suspicious_expr_limited(checker, expr, 0)
+}
+
+fn is_benign_exec_subject(checker: &Checker, expr: &ast::Expr) -> bool {
+    checker
+        .indexer
+        .resolve_qualified_name(expr)
+        .is_some_and(|qn| qn.as_str() == "sys.executable")
+        || string_from_expr(expr, &checker.indexer)
+            .as_deref()
+            .is_some_and(is_python_like_command)
 }
 
 fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
@@ -491,6 +665,7 @@ fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -
     contains_suspicious_expr(checker, &call.func)
         || get_execution_subjects(checker, call)
             .into_iter()
+            .filter(|expr| !is_benign_exec_subject(checker, expr))
             .any(|expr| contains_suspicious_expr(checker, expr))
 }
 
@@ -622,6 +797,39 @@ fn get_python_exec_script_path<'a>(
     }
 
     None
+}
+
+fn is_python_exec_shell_invocation(checker: &Checker, call: &ast::ExprCall) -> bool {
+    let check_list = |elts: &[ast::Expr]| -> bool {
+        if elts.len() < 2 {
+            return false;
+        }
+
+        let first_is_sys_exec = checker
+            .indexer
+            .resolve_qualified_name(&elts[0])
+            .is_some_and(|qn| qn.as_str() == "sys.executable");
+        if !first_is_sys_exec {
+            return false;
+        }
+
+        string_from_expr(&elts[1], &checker.indexer)
+            .as_deref()
+            .is_some_and(|s| s == "-m")
+    };
+
+    call.arguments.args.iter().any(|arg| match arg {
+        ast::Expr::List(l) => check_list(&l.elts),
+        ast::Expr::Tuple(t) => check_list(&t.elts),
+        _ => false,
+    }) || call.arguments.keywords.iter().any(|kw| {
+        kw.arg.as_ref().is_some_and(|a| a.as_str() == "args")
+            && match &kw.value {
+                ast::Expr::List(l) => check_list(&l.elts),
+                ast::Expr::Tuple(t) => check_list(&t.elts),
+                _ => false,
+            }
+    })
 }
 
 fn get_python_exec_stdin_code<'a>(
@@ -767,7 +975,10 @@ fn push_report(
     let py_exec_code = get_python_exec_c_code(checker, call);
     let py_exec_script = get_python_exec_script_path(checker, call);
     let py_exec_stdin = get_python_exec_stdin_code(checker, call);
-    let is_py_exec = py_exec_code.is_some() || py_exec_script.is_some() || py_exec_stdin.is_some();
+    let is_py_exec_shell = is_python_exec_shell_invocation(checker, call);
+    let is_py_exec = py_exec_code.is_some()
+        || py_exec_stdin.is_some()
+        || (py_exec_script.is_some() && !is_py_exec_shell);
     let call_taint = get_call_suspicious_taint(checker, call);
 
     if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
@@ -1451,6 +1662,65 @@ run_fix_iteration({"status": "FAIL"})
             .map(|item| item.label.clone())
             .collect();
         assert!(obfuscated_shell_exec.is_empty());
+    }
+
+    #[test]
+    fn test_execvpe_with_fixed_argv_variable_is_not_obfuscated() {
+        let source = r#"import os
+import sys
+
+def preview(name):
+    env = {**os.environ, "APP_THEME": name}
+    cmd = [sys.executable, "-m", "dazzle", "serve", "--local"]
+    os.execvpe(cmd[0], cmd, env)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let obfuscated_shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(obfuscated_shell_exec.is_empty());
+
+        let shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ShellExec)
+            .map(|item| (item.label.clone(), item.confidence))
+            .collect();
+        assert_eq!(
+            shell_exec,
+            vec![("os.execvpe".to_string(), AuditConfidence::Medium)]
+        );
+    }
+
+    #[test]
+    fn test_popen_with_fixed_argv_variable_is_not_obfuscated() {
+        let source = r#"import subprocess
+
+def open_folder(project_wdir):
+    cmd = ["open"]
+    cmd.append(project_wdir)
+    subprocess.Popen(cmd, cwd=project_wdir)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let obfuscated_shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(obfuscated_shell_exec.is_empty());
+
+        let shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ShellExec)
+            .map(|item| (item.label.clone(), item.confidence))
+            .collect();
+        assert_eq!(
+            shell_exec,
+            vec![("subprocess.Popen".to_string(), AuditConfidence::Medium)]
+        );
     }
 
     #[test]

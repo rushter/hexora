@@ -114,7 +114,7 @@ impl<'a> NodeTransformer<'a> {
                                 .borrow_mut()
                                 .insert(id, Transformation::Subscript);
                         }
-                        self.add_deobfuscated_taint(res.node_index());
+                        self.maybe_add_indirect_lookup_taint(&res);
                         return Some(res);
                     }
                 }
@@ -136,7 +136,7 @@ impl<'a> NodeTransformer<'a> {
                                     .borrow_mut()
                                     .insert(id, Transformation::Subscript);
                             }
-                            self.add_deobfuscated_taint(res.node_index());
+                            self.maybe_add_indirect_lookup_taint(&res);
                             return Some(res);
                         }
                     }

@@ -103,6 +103,20 @@ impl<'a> NodeTransformer<'a> {
         }
     }
 
+    pub(crate) fn maybe_add_indirect_lookup_taint(&self, expr: &ast::Expr) {
+        let should_taint = self.indexer.resolve_qualified_name(expr).is_some_and(|qn| {
+            qn.is_shell_command()
+                || qn.is_code_exec()
+                || qn.is_suspicious_builtin()
+                || qn.is_import_call()
+                || qn.is_module_registry()
+        });
+
+        if should_taint {
+            self.add_deobfuscated_taint(expr.node_index());
+        }
+    }
+
     pub(crate) fn make_string_expr(
         &self,
         range: TextRange,
