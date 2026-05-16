@@ -72,6 +72,41 @@ fn is_python_like_command(command: &str) -> bool {
     lowered.starts_with("python")
 }
 
+fn expr_list_parts(expr: &ast::Expr) -> Option<&[ast::Expr]> {
+    match expr {
+        ast::Expr::List(list) => Some(&list.elts),
+        ast::Expr::Tuple(tuple) => Some(&tuple.elts),
+        _ => None,
+    }
+}
+
+fn push_python_execution_subjects<'a>(
+    checker: &'a Checker<'a>,
+    first: &'a ast::Expr,
+    second: Option<&'a ast::Expr>,
+    third: Option<&'a ast::Expr>,
+    subjects: &mut Vec<&'a ast::Expr>,
+) {
+    subjects.push(first);
+
+    let second_flag = second.and_then(|expr| string_from_expr(expr, &checker.indexer));
+    if second_flag.as_deref() == Some("-c") {
+        if let Some(code) = third {
+            subjects.push(code);
+        }
+        return;
+    }
+
+    if string_from_expr(first, &checker.indexer)
+        .as_deref()
+        .is_some_and(is_python_like_command)
+        && !matches!(second_flag.as_deref(), Some("-"))
+        && let Some(script_path) = second
+    {
+        subjects.push(script_path);
+    }
+}
+
 fn push_execution_subjects_from_argv<'a>(
     checker: &'a Checker<'a>,
     expr: &'a ast::Expr,
@@ -82,38 +117,16 @@ fn push_execution_subjects_from_argv<'a>(
         return;
     }
 
-    let elts = match expr {
-        ast::Expr::List(list) => Some(&list.elts[..]),
-        ast::Expr::Tuple(tuple) => Some(&tuple.elts[..]),
-        _ => None,
-    };
-
-    let Some(elts) = elts else {
+    let Some(parts) = expr_list_parts(expr) else {
         subjects.push(expr);
         return;
     };
 
-    let Some(first) = elts.first() else {
+    let Some(first) = parts.first() else {
         return;
     };
-    subjects.push(first);
 
-    let second = elts.get(1);
-    let second_flag = second.and_then(|expr| string_from_expr(expr, &checker.indexer));
-    if second_flag.as_deref() == Some("-c") {
-        if let Some(code) = elts.get(2) {
-            subjects.push(code);
-        }
-        return;
-    }
-
-    let first_name = string_from_expr(first, &checker.indexer);
-    if first_name.as_deref().is_some_and(is_python_like_command)
-        && !matches!(second_flag.as_deref(), Some("-"))
-        && let Some(script_path) = second
-    {
-        subjects.push(script_path);
-    }
+    push_python_execution_subjects(checker, first, parts.get(1), parts.get(2), subjects);
 }
 
 fn push_execution_subjects_from_parts<'a>(
@@ -124,24 +137,14 @@ fn push_execution_subjects_from_parts<'a>(
     let Some(first) = parts.first().copied() else {
         return;
     };
-    subjects.push(first);
 
-    let second = parts.get(1).copied();
-    let second_flag = second.and_then(|expr| string_from_expr(expr, &checker.indexer));
-    if second_flag.as_deref() == Some("-c") {
-        if let Some(code) = parts.get(2).copied() {
-            subjects.push(code);
-        }
-        return;
-    }
-
-    let first_name = string_from_expr(first, &checker.indexer);
-    if first_name.as_deref().is_some_and(is_python_like_command)
-        && !matches!(second_flag.as_deref(), Some("-"))
-        && let Some(script_path) = second
-    {
-        subjects.push(script_path);
-    }
+    push_python_execution_subjects(
+        checker,
+        first,
+        parts.get(1).copied(),
+        parts.get(2).copied(),
+        subjects,
+    );
 }
 
 fn expr_sequence_parts<'a>(
@@ -274,31 +277,23 @@ fn collect_execution_subjects<'a>(
     }
 }
 
-fn get_execution_subjects<'a>(
-    checker: &'a Checker<'a>,
-    call: &'a ast::ExprCall,
-) -> Vec<&'a ast::Expr> {
-    let mut subjects = Vec::new();
+fn keyword_value<'a>(call: &'a ast::ExprCall, name: &str) -> Option<&'a ast::Expr> {
+    call.arguments
+        .keywords
+        .iter()
+        .find(|kw| kw.arg.as_ref().is_some_and(|arg| arg.as_str() == name))
+        .map(|kw| &kw.value)
+}
 
-    if let Some(source) = get_direct_code_exec_source(checker, call) {
-        subjects.push(source);
-        return subjects;
-    }
+fn primary_arg_or_keyword<'a>(call: &'a ast::ExprCall, keyword: &str) -> Option<&'a ast::Expr> {
+    call.arguments
+        .args
+        .first()
+        .or_else(|| keyword_value(call, keyword))
+}
 
-    if let Some(code) = get_python_exec_c_code(checker, call) {
-        subjects.push(code);
-    }
-    if let Some(code) = get_python_exec_stdin_code(checker, call) {
-        subjects.push(code);
-    }
-    if let Some(path) = get_python_exec_script_path(checker, call) {
-        subjects.push(path);
-    }
-    if !subjects.is_empty() {
-        return subjects;
-    }
-
-    let first_subject_idx = checker
+fn exec_subject_position(checker: &Checker, call: &ast::ExprCall) -> usize {
+    checker
         .indexer
         .resolve_qualified_name(&call.func)
         .and_then(|qn| match qn.segments_slice() {
@@ -322,9 +317,128 @@ fn get_execution_subjects<'a>(
             }
             _ => None,
         })
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
 
-    if let Some(arg) = call.arguments.args.get(first_subject_idx) {
+fn is_sys_executable_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+    checker
+        .indexer
+        .resolve_qualified_name(expr)
+        .is_some_and(|qn| qn.as_str() == "sys.executable")
+}
+
+#[derive(Default)]
+struct PythonExecInfo<'a> {
+    c_code: Option<&'a ast::Expr>,
+    stdin_code: Option<&'a ast::Expr>,
+    script_path: Option<&'a ast::Expr>,
+    is_module_invocation: bool,
+    uses_stdin: bool,
+}
+
+fn merge_python_exec_info<'a>(into: &mut PythonExecInfo<'a>, next: PythonExecInfo<'a>) {
+    into.c_code = into.c_code.or(next.c_code);
+    into.stdin_code = into.stdin_code.or(next.stdin_code);
+    into.script_path = into.script_path.or(next.script_path);
+    into.is_module_invocation |= next.is_module_invocation;
+    into.uses_stdin |= next.uses_stdin;
+}
+
+fn inspect_python_argv<'a>(
+    checker: &Checker,
+    parts: &'a [ast::Expr],
+    executable: Option<&ast::Expr>,
+) -> Option<PythonExecInfo<'a>> {
+    let args = if let Some(executable) = executable {
+        if !is_sys_executable_expr(checker, executable) {
+            return None;
+        }
+        parts
+    } else {
+        let (program, args) = parts.split_first()?;
+        if !is_sys_executable_expr(checker, program) {
+            return None;
+        }
+        args
+    };
+
+    let mut info = PythonExecInfo::default();
+    let Some(first_arg) = args.first() else {
+        return Some(info);
+    };
+
+    match string_from_expr(first_arg, &checker.indexer).as_deref() {
+        Some("-c") => info.c_code = args.get(1),
+        Some("-") => info.uses_stdin = true,
+        Some("-m") => info.is_module_invocation = true,
+        _ => info.script_path = Some(first_arg),
+    }
+
+    Some(info)
+}
+
+fn get_python_exec_info<'a>(checker: &Checker, call: &'a ast::ExprCall) -> PythonExecInfo<'a> {
+    let mut info = PythonExecInfo::default();
+
+    for expr in call
+        .arguments
+        .args
+        .iter()
+        .chain(keyword_value(call, "args"))
+    {
+        let Some(parts) = expr_list_parts(expr) else {
+            continue;
+        };
+        if let Some(parsed) = inspect_python_argv(checker, parts, None) {
+            merge_python_exec_info(&mut info, parsed);
+        }
+    }
+
+    if let Some(executable) = keyword_value(call, "executable")
+        && let Some(args_expr) = primary_arg_or_keyword(call, "args")
+        && let Some(parts) = expr_list_parts(args_expr)
+        && let Some(parsed) = inspect_python_argv(checker, parts, Some(executable))
+    {
+        merge_python_exec_info(&mut info, parsed);
+    }
+
+    if info.uses_stdin {
+        info.stdin_code = keyword_value(call, "input");
+    }
+
+    info
+}
+
+fn get_execution_subjects<'a>(
+    checker: &'a Checker<'a>,
+    call: &'a ast::ExprCall,
+) -> Vec<&'a ast::Expr> {
+    let mut subjects = Vec::new();
+
+    if let Some(source) = get_direct_code_exec_source(checker, call) {
+        subjects.push(source);
+        return subjects;
+    }
+
+    let python_exec = get_python_exec_info(checker, call);
+    if let Some(code) = python_exec.c_code {
+        subjects.push(code);
+    }
+    if let Some(code) = python_exec.stdin_code {
+        subjects.push(code);
+    }
+    if let Some(path) = python_exec.script_path {
+        subjects.push(path);
+    }
+    if !subjects.is_empty() {
+        return subjects;
+    }
+
+    if let Some(arg) = call
+        .arguments
+        .args
+        .get(exec_subject_position(checker, call))
+    {
         collect_execution_subjects(checker, arg, &mut subjects, 0);
     }
 
@@ -356,17 +470,11 @@ fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
             .any(|&c| is_dangerous_command_match(&s, c))
             || DANGEROUS_COMMAND_PREFIXES.iter().any(|&c| s.starts_with(c))
     } else {
-        match expr {
-            ast::Expr::List(l) => l
-                .elts
+        expr_list_parts(expr).is_some_and(|parts| {
+            parts
                 .iter()
-                .any(|e| contains_dangerous_exec_expr(checker, e)),
-            ast::Expr::Tuple(t) => t
-                .elts
-                .iter()
-                .any(|e| contains_dangerous_exec_expr(checker, e)),
-            _ => false,
-        }
+                .any(|part| contains_dangerous_exec_expr(checker, part))
+        })
     }
 }
 
@@ -699,212 +807,6 @@ fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -
             .any(|expr| contains_suspicious_expr(checker, expr))
 }
 
-fn get_python_exec_c_code<'a>(checker: &Checker, call: &'a ast::ExprCall) -> Option<&'a ast::Expr> {
-    let check_list = |elts: &'a [ast::Expr]| -> Option<&'a ast::Expr> {
-        if elts.len() < 2 {
-            return None;
-        }
-        let first_is_sys_exec = checker
-            .indexer
-            .resolve_qualified_name(&elts[0])
-            .is_some_and(|qn| qn.as_str() == "sys.executable");
-        let second_is_c = string_from_expr(&elts[1], &checker.indexer).is_some_and(|s| s == "-c");
-
-        if first_is_sys_exec && second_is_c {
-            elts.get(2)
-        } else {
-            None
-        }
-    };
-
-    for arg in &call.arguments.args {
-        if let Some(code) = match arg {
-            ast::Expr::List(l) => check_list(&l.elts),
-            ast::Expr::Tuple(t) => check_list(&t.elts),
-            _ => None,
-        } {
-            return Some(code);
-        }
-    }
-
-    for kw in &call.arguments.keywords {
-        if kw.arg.as_ref().is_some_and(|a| a.as_str() == "args") {
-            if let Some(code) = match &kw.value {
-                ast::Expr::List(l) => check_list(&l.elts),
-                ast::Expr::Tuple(t) => check_list(&t.elts),
-                _ => None,
-            } {
-                return Some(code);
-            }
-        }
-    }
-
-    let has_executable_sys_exec = call.arguments.keywords.iter().any(|kw| {
-        kw.arg.as_ref().is_some_and(|a| a.as_str() == "executable")
-            && checker
-                .indexer
-                .resolve_qualified_name(&kw.value)
-                .is_some_and(|qn| qn.as_str() == "sys.executable")
-    });
-
-    if has_executable_sys_exec {
-        let args_val = call.arguments.args.first().or_else(|| {
-            call.arguments
-                .keywords
-                .iter()
-                .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == "args"))
-                .map(|kw| &kw.value)
-        });
-
-        if let Some(args) = args_val {
-            let elts = match args {
-                ast::Expr::List(l) => Some(&l.elts[..]),
-                ast::Expr::Tuple(t) => Some(&t.elts[..]),
-                _ => None,
-            };
-
-            if let Some(elts) = elts {
-                if elts
-                    .first()
-                    .and_then(|e| string_from_expr(e, &checker.indexer))
-                    .is_some_and(|s| s == "-c")
-                {
-                    return elts.get(1);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn get_python_exec_script_path<'a>(
-    checker: &Checker,
-    call: &'a ast::ExprCall,
-) -> Option<&'a ast::Expr> {
-    let check_list = |elts: &'a [ast::Expr]| -> Option<&'a ast::Expr> {
-        if elts.len() < 2 {
-            return None;
-        }
-        let first_is_sys_exec = checker
-            .indexer
-            .resolve_qualified_name(&elts[0])
-            .is_some_and(|qn| qn.as_str() == "sys.executable");
-        if !first_is_sys_exec {
-            return None;
-        }
-        let second = &elts[1];
-        let second_flag = string_from_expr(second, &checker.indexer);
-        if second_flag
-            .as_deref()
-            .is_some_and(|s| matches!(s, "-c" | "-"))
-        {
-            return None;
-        }
-        Some(second)
-    };
-
-    for arg in &call.arguments.args {
-        if let Some(path) = match arg {
-            ast::Expr::List(l) => check_list(&l.elts),
-            ast::Expr::Tuple(t) => check_list(&t.elts),
-            _ => None,
-        } {
-            return Some(path);
-        }
-    }
-
-    for kw in &call.arguments.keywords {
-        if kw.arg.as_ref().is_some_and(|a| a.as_str() == "args") {
-            if let Some(path) = match &kw.value {
-                ast::Expr::List(l) => check_list(&l.elts),
-                ast::Expr::Tuple(t) => check_list(&t.elts),
-                _ => None,
-            } {
-                return Some(path);
-            }
-        }
-    }
-
-    None
-}
-
-fn is_python_exec_shell_invocation(checker: &Checker, call: &ast::ExprCall) -> bool {
-    let check_list = |elts: &[ast::Expr]| -> bool {
-        if elts.len() < 2 {
-            return false;
-        }
-
-        let first_is_sys_exec = checker
-            .indexer
-            .resolve_qualified_name(&elts[0])
-            .is_some_and(|qn| qn.as_str() == "sys.executable");
-        if !first_is_sys_exec {
-            return false;
-        }
-
-        string_from_expr(&elts[1], &checker.indexer)
-            .as_deref()
-            .is_some_and(|s| s == "-m")
-    };
-
-    call.arguments.args.iter().any(|arg| match arg {
-        ast::Expr::List(l) => check_list(&l.elts),
-        ast::Expr::Tuple(t) => check_list(&t.elts),
-        _ => false,
-    }) || call.arguments.keywords.iter().any(|kw| {
-        kw.arg.as_ref().is_some_and(|a| a.as_str() == "args")
-            && match &kw.value {
-                ast::Expr::List(l) => check_list(&l.elts),
-                ast::Expr::Tuple(t) => check_list(&t.elts),
-                _ => false,
-            }
-    })
-}
-
-fn get_python_exec_stdin_code<'a>(
-    checker: &Checker,
-    call: &'a ast::ExprCall,
-) -> Option<&'a ast::Expr> {
-    let has_stdin_python = {
-        let check_list = |elts: &'a [ast::Expr]| -> bool {
-            if elts.len() < 2 {
-                return false;
-            }
-            let first_is_sys_exec = checker
-                .indexer
-                .resolve_qualified_name(&elts[0])
-                .is_some_and(|qn| qn.as_str() == "sys.executable");
-            let second_is_stdin =
-                string_from_expr(&elts[1], &checker.indexer).is_some_and(|s| s == "-");
-            first_is_sys_exec && second_is_stdin
-        };
-
-        call.arguments.args.iter().any(|arg| match arg {
-            ast::Expr::List(l) => check_list(&l.elts),
-            ast::Expr::Tuple(t) => check_list(&t.elts),
-            _ => false,
-        }) || call.arguments.keywords.iter().any(|kw| {
-            kw.arg.as_ref().is_some_and(|a| a.as_str() == "args")
-                && match &kw.value {
-                    ast::Expr::List(l) => check_list(&l.elts),
-                    ast::Expr::Tuple(t) => check_list(&t.elts),
-                    _ => false,
-                }
-        })
-    };
-
-    if !has_stdin_python {
-        return None;
-    }
-
-    call.arguments
-        .keywords
-        .iter()
-        .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == "input"))
-        .map(|kw| &kw.value)
-}
-
 fn get_direct_code_exec_source<'a>(
     checker: &Checker,
     call: &'a ast::ExprCall,
@@ -1002,22 +904,20 @@ fn push_report(
 ) {
     record_execution_leak(checker, call, &label);
 
-    let py_exec_code = get_python_exec_c_code(checker, call);
-    let py_exec_script = get_python_exec_script_path(checker, call);
-    let py_exec_stdin = get_python_exec_stdin_code(checker, call);
-    let is_py_exec_shell = is_python_exec_shell_invocation(checker, call);
-    let is_py_exec = py_exec_code.is_some()
-        || py_exec_stdin.is_some()
-        || (py_exec_script.is_some() && !is_py_exec_shell);
+    let python_exec = get_python_exec_info(checker, call);
+    let is_py_exec = python_exec.c_code.is_some()
+        || python_exec.stdin_code.is_some()
+        || (python_exec.script_path.is_some() && !python_exec.is_module_invocation);
     let call_taint = get_call_suspicious_taint(checker, call);
+    let is_highly_suspicious = is_highly_suspicious_exec(checker, call);
 
     if is_shell && contains_dangerous_exec(checker, call) && !is_py_exec {
-        let is_obf = get_call_suspicious_taint(checker, call).is_some()
-            || is_highly_suspicious_exec(checker, call);
-        let mut confidence = AuditConfidence::High;
-        if is_obfuscated(checker, call, &label) {
-            confidence = AuditConfidence::VeryHigh;
-        }
+        let is_obf = call_taint.is_some() || is_highly_suspicious;
+        let confidence = if is_obfuscated(checker, call, &label) {
+            AuditConfidence::VeryHigh
+        } else {
+            AuditConfidence::High
+        };
         checker.audit_results.push(AuditItem {
             label,
             rule: Rule::DangerousExec,
@@ -1033,20 +933,17 @@ fn push_report(
         return;
     }
 
-    let (mut rule, mut description, mut confidence) = get_audit_info(
-        is_shell && !is_py_exec,
-        call_taint,
-        is_highly_suspicious_exec(checker, call),
-    );
+    let (mut rule, mut description, mut confidence) =
+        get_audit_info(is_shell && !is_py_exec, call_taint, is_highly_suspicious);
 
     if is_py_exec {
         rule = Rule::CodeExec;
         description = "Suspicious Python code execution using subprocess".to_string();
         confidence = confidence.max(AuditConfidence::High);
-        if let Some(code_expr) = py_exec_code {
+        if let Some(code_expr) = python_exec.c_code {
             audit_nested_code_expr(checker, call, code_expr);
         }
-        if let Some(code_expr) = py_exec_stdin {
+        if let Some(code_expr) = python_exec.stdin_code {
             audit_nested_code_expr(checker, call, code_expr);
             if let Some(taint) = get_suspicious_taint(checker, code_expr) {
                 let (conf, _, c) = get_taint_metadata(taint);
@@ -1055,7 +952,7 @@ fn push_report(
                 description = format!("Execution of {} via Python subprocess stdin.", c);
             }
         }
-        if let Some(script_path) = py_exec_script {
+        if let Some(script_path) = python_exec.script_path {
             if let Some(taint) = get_suspicious_taint(checker, script_path) {
                 let (conf, _, c) = get_taint_metadata(taint);
                 rule = Rule::ObfuscatedCodeExec;
@@ -1121,766 +1018,109 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
             sink_qn.is_code_exec()
         };
 
-        if matched {
-            if let Some(arg) = call.arguments.args.get(param_idx) {
-                let arg_taint = get_suspicious_taint(checker, arg);
-                let (rule, mut description, mut confidence) = get_audit_info(
+        if !matched {
+            continue;
+        }
+
+        let Some(arg) = call.arguments.args.get(param_idx) else {
+            continue;
+        };
+
+        let arg_taint = get_suspicious_taint(checker, arg);
+        let (rule, mut description, mut confidence) = get_audit_info(
+            is_shell,
+            arg_taint,
+            is_highly_suspicious_exec(checker, call),
+        );
+        confidence = confidence.max(AuditConfidence::High);
+        description = format!(
+            "{} (via local function {} leaking to {}).",
+            &description[..description.len() - 1],
+            name,
+            sink_name
+        );
+        if is_obfuscated(checker, call, &name)
+            && arg_taint.is_some_and(|t| t != TaintKind::EnvVariables)
+        {
+            confidence = AuditConfidence::VeryHigh;
+        }
+
+        // Simple passthrough wrappers like test monkeypatch side effects often
+        // forward a plain argv parameter unchanged to subprocess.run/Popen.
+        // Keep those at High unless the argument itself carries obfuscation taint.
+        if is_shell
+            && arg_taint.is_none()
+            && get_execution_subjects(checker, call)
+                .into_iter()
+                .all(|expr| !contains_suspicious_expr(checker, expr))
+        {
+            confidence = confidence.min(AuditConfidence::High);
+        }
+
+        checker.audit_results.push(AuditItem {
+            label: name.clone(),
+            rule,
+            description,
+            confidence,
+            location: Some(call.range),
+        });
+    }
+}
+
+fn matches_exec_kind(qn: &crate::indexer::name::QualifiedName, is_shell: bool) -> bool {
+    if is_shell {
+        qn.is_shell_command()
+    } else {
+        qn.is_code_exec()
+    }
+}
+
+fn handle_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool) {
+    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
+        if matches_exec_kind(&qn, is_shell) {
+            push_report(checker, call, qn.as_str(), is_shell, None);
+            return;
+        }
+
+        if qn.is_indirect_exec() {
+            if let Some(target) = primary_arg_or_keyword(call, "target")
+                && let Some(target_qn) = checker.indexer.resolve_qualified_name(target)
+                && matches_exec_kind(&target_qn, is_shell)
+            {
+                push_report(
+                    checker,
+                    call,
+                    target_qn.as_str(),
                     is_shell,
-                    arg_taint,
-                    is_highly_suspicious_exec(checker, call),
+                    Some(AuditConfidence::VeryHigh),
                 );
-                confidence = confidence.max(AuditConfidence::High);
-                description = format!(
-                    "{} (via local function {} leaking to {}).",
-                    &description[..description.len() - 1],
-                    name,
-                    sink_name
-                );
-                if is_obfuscated(checker, call, &name)
-                    && arg_taint.is_some_and(|t| t != TaintKind::EnvVariables)
-                {
-                    confidence = AuditConfidence::VeryHigh;
-                }
-
-                // Simple passthrough wrappers like test monkeypatch side effects often
-                // forward a plain argv parameter unchanged to subprocess.run/Popen.
-                // Keep those at High unless the argument itself carries obfuscation taint.
-                if is_shell
-                    && arg_taint.is_none()
-                    && get_execution_subjects(checker, call)
-                        .into_iter()
-                        .all(|expr| !contains_suspicious_expr(checker, expr))
-                {
-                    confidence = confidence.min(AuditConfidence::High);
-                }
-
-                checker.audit_results.push(AuditItem {
-                    label: name.clone(),
-                    rule,
-                    description,
-                    confidence,
-                    location: Some(call.range),
-                });
+                return;
             }
         }
+
+        if qn.as_str() == "map"
+            && let Some(func) = call.arguments.args.first()
+            && let Some(func_qn) = checker.indexer.resolve_qualified_name(func)
+            && matches_exec_kind(&func_qn, is_shell)
+        {
+            push_report(
+                checker,
+                call,
+                func_qn.as_str(),
+                is_shell,
+                Some(AuditConfidence::VeryHigh),
+            );
+            return;
+        }
     }
+
+    check_leaked_exec(checker, call, is_shell);
 }
 
 pub fn shell_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
-        if qn.is_shell_command() {
-            push_report(checker, call, qn.as_str(), true, None);
-            return;
-        }
-        if qn.is_indirect_exec() {
-            let target_arg = call.arguments.args.first().or_else(|| {
-                call.arguments
-                    .keywords
-                    .iter()
-                    .find(|kw| kw.arg.as_ref().map(|a| a.as_str()) == Some("target"))
-                    .map(|kw| &kw.value)
-            });
-            if let Some(target) = target_arg {
-                if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
-                    if target_qn.is_shell_command() {
-                        push_report(
-                            checker,
-                            call,
-                            target_qn.as_str(),
-                            true,
-                            Some(AuditConfidence::VeryHigh),
-                        );
-                        return;
-                    }
-                }
-            }
-        }
-        if qn.as_str() == "map" && !call.arguments.args.is_empty() {
-            if let Some(func_qn) = checker
-                .indexer
-                .resolve_qualified_name(&call.arguments.args[0])
-            {
-                if func_qn.is_shell_command() {
-                    push_report(
-                        checker,
-                        call,
-                        func_qn.as_str(),
-                        true,
-                        Some(AuditConfidence::VeryHigh),
-                    );
-                    return;
-                }
-            }
-        }
-    }
-    check_leaked_exec(checker, call, true);
+    handle_exec(checker, call, true);
 }
 
 pub fn code_exec(checker: &mut Checker, call: &ast::ExprCall) {
-    if let Some(qn) = checker.indexer.resolve_qualified_name(&call.func) {
-        if qn.is_code_exec() {
-            push_report(checker, call, qn.as_str(), false, None);
-            return;
-        }
-        if qn.is_indirect_exec() {
-            let target_arg = call.arguments.args.first().or_else(|| {
-                call.arguments
-                    .keywords
-                    .iter()
-                    .find(|kw| kw.arg.as_ref().map(|a| a.as_str()) == Some("target"))
-                    .map(|kw| &kw.value)
-            });
-            if let Some(target) = target_arg {
-                if let Some(target_qn) = checker.indexer.resolve_qualified_name(target) {
-                    if target_qn.is_code_exec() {
-                        push_report(
-                            checker,
-                            call,
-                            target_qn.as_str(),
-                            false,
-                            Some(AuditConfidence::VeryHigh),
-                        );
-                        return;
-                    }
-                }
-            }
-        }
-        if qn.as_str() == "map" && !call.arguments.args.is_empty() {
-            if let Some(func_qn) = checker
-                .indexer
-                .resolve_qualified_name(&call.arguments.args[0])
-            {
-                if func_qn.is_code_exec() {
-                    push_report(
-                        checker,
-                        call,
-                        func_qn.as_str(),
-                        false,
-                        Some(AuditConfidence::VeryHigh),
-                    );
-                    return;
-                }
-            }
-        }
-    }
-    check_leaked_exec(checker, call, false);
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::audit::result::{AuditConfidence, Rule};
-    use crate::rules::test::*;
-    use test_case::test_case;
-
-    #[test_case(
-        "exec_01.py",
-        Rule::ShellExec,
-        vec![
-            ("subprocess.call", AuditConfidence::Medium),
-            ("os.popen", AuditConfidence::Medium),
-            ("subprocess.check_output", AuditConfidence::Medium),
-        ]
-    )]
-    #[test_case(
-        "exec_02.py",
-        Rule::CodeExec,
-        vec![
-            ("eval", AuditConfidence::Medium),
-            ("builtins.exec", AuditConfidence::High),
-            ("exec", AuditConfidence::Medium),
-            ("eval", AuditConfidence::High),
-            ("exec", AuditConfidence::High),
-            ("eval", AuditConfidence::High),
-            ("exec", AuditConfidence::High),
-        ]
-    )]
-    #[test_case(
-        "exec_03.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("builtins.exec", AuditConfidence::VeryHigh),
-            ("builtins.exec", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_03.py",
-        Rule::ObfuscatedShellExec,
-        vec![
-            ("os.system", AuditConfidence::VeryHigh),
-            ("os.system", AuditConfidence::VeryHigh),
-            ("subprocess.run", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_04.py",
-        Rule::ObfuscatedShellExec,
-        vec![
-            ("os.system", AuditConfidence::VeryHigh),
-            ("subprocess.Popen", AuditConfidence::VeryHigh),
-            ("subprocess.check_output", AuditConfidence::VeryHigh),
-            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_05.py",
-        Rule::ObfuscatedShellExec,
-        vec![
-            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
-            ("commands.getstatusoutput", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_06.py",
-        Rule::DangerousExec,
-        vec![
-            ("subprocess.run", AuditConfidence::High),
-            ("os.system", AuditConfidence::High),
-        ]
-    )]
-    #[test_case(
-        "exec_07.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("exec", AuditConfidence::VeryHigh),
-            ("builtins.exec", AuditConfidence::VeryHigh),
-            ("exec", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_08.py",
-        Rule::ShellExec,
-        vec![("subprocess.call", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_09.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("__builtins__.eval", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_10.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("eval", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_11.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("exec", AuditConfidence::VeryHigh),
-            ("exec", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_12.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("exec", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_14.py",
-        Rule::ShellExec,
-        vec![("subprocess.Popen", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_15.py",
-        Rule::ObfuscatedShellExec,
-        vec![("os.system", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_15.py",
-        Rule::ShellExec,
-        vec![("os.system", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_16.py",
-        Rule::DangerousExec,
-        vec![
-            ("os.system", AuditConfidence::High),
-            ("subprocess.run", AuditConfidence::High),
-        ]
-    )]
-    #[test_case(
-        "exec_17.py",
-        Rule::ObfuscatedShellExec,
-        vec![("os.system", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_19.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("exec", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_20.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("exec", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_21.py",
-        Rule::ObfuscatedShellExec,
-        vec![
-            ("os.system", AuditConfidence::VeryHigh),
-            ("os.system", AuditConfidence::VeryHigh),
-            ("os.system", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_21.py",
-        Rule::DangerousExec,
-        vec![("os.posix_spawn", AuditConfidence::High)]
-    )]
-    #[test_case(
-        "exec_21.py",
-        Rule::ShellExec,
-        vec![("os.system", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_22.py",
-        Rule::DangerousExec,
-        vec![
-            ("os.system", AuditConfidence::High),
-            ("os.system", AuditConfidence::High),
-        ]
-    )]
-    #[test_case(
-        "exec_23.py",
-        Rule::ShellExec,
-        vec![("subprocess.Popen", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_24.py",
-        Rule::CodeExec,
-        vec![("subprocess.Popen", AuditConfidence::High)]
-    )]
-    #[test_case(
-        "exec_24.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("exec", AuditConfidence::VeryHigh),
-            ("subprocess.run", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_25.py",
-        Rule::CodeExec,
-        vec![("exec", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_25.py",
-        Rule::ObfuscatedCodeExec,
-        vec![("exec", AuditConfidence::VeryHigh)]
-    )]
-    #[test_case(
-        "exec_26.py",
-        Rule::ShellExec,
-        vec![("execfile", AuditConfidence::Medium)]
-    )]
-    #[test_case(
-        "exec_27.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("exec", AuditConfidence::VeryHigh),
-            ("subprocess.run", AuditConfidence::VeryHigh),
-            ("exec", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(
-        "exec_28.py",
-        Rule::CodeExec,
-        vec![
-            ("exec", AuditConfidence::Medium),
-            ("eval", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("exec", AuditConfidence::Medium),
-            ("builtins.exec", AuditConfidence::High),
-        ]
-    )]
-    #[test_case(
-        "exec_28.py",
-        Rule::ObfuscatedCodeExec,
-        vec![
-            ("exec", AuditConfidence::VeryHigh),
-            ("builtins.exec", AuditConfidence::VeryHigh),
-        ]
-)]
-    #[test_case(
-        "exec_29.py",
-        Rule::ShellExec,
-        vec![
-            ("subprocess.run", AuditConfidence::Medium),
-            ("worker", AuditConfidence::High),
-            ("run", AuditConfidence::High),
-        ]
-    )]
-    fn test_exec(path: &str, rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
-        assert_audit_results(path, rule, expected);
-    }
-
-    #[test]
-    fn test_suspicious_exec_confidence() {
-        let result = test_path("exec_18.py").unwrap();
-        let suspicious_items: Vec<_> = result
-            .items
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.rule,
-                    Rule::ShellExec
-                        | Rule::CodeExec
-                        | Rule::ObfuscatedShellExec
-                        | Rule::ObfuscatedCodeExec
-                )
-            })
-            .map(|item| (item.label.clone(), item.rule, item.confidence))
-            .collect();
-
-        let expected = vec![
-            (
-                "os.system".to_string(),
-                Rule::ObfuscatedShellExec,
-                AuditConfidence::VeryHigh,
-            ),
-            (
-                "exec".to_string(),
-                Rule::ObfuscatedCodeExec,
-                AuditConfidence::VeryHigh,
-            ),
-            ("exec".to_string(), Rule::CodeExec, AuditConfidence::Medium),
-            ("eval".to_string(), Rule::CodeExec, AuditConfidence::Medium),
-        ];
-
-        assert_eq!(suspicious_items, expected);
-    }
-
-    #[test]
-    fn test_exec_13() {
-        match test_path("exec_13.py") {
-            Ok(result) => {
-                let actual = result
-                    .items
-                    .iter()
-                    .map(|r| (r.label.clone(), r.rule))
-                    .collect::<Vec<(String, Rule)>>();
-                let expected = vec![
-                    ("subprocess.run".to_string(), Rule::ShellExec),
-                    ("subprocess.run".to_string(), Rule::DangerousExec),
-                ];
-                assert_eq!(actual, expected);
-            }
-            Err(e) => {
-                panic!("test failed: {:?}", e);
-            }
-        }
-    }
-
-    #[test_case(
-        Rule::DangerousExec,
-        vec![("os.system", AuditConfidence::High)]
-    )]
-    #[test_case(
-        Rule::ShellExec,
-        vec![
-            ("os.system", AuditConfidence::VeryHigh),
-            ("subprocess.call", AuditConfidence::VeryHigh),
-        ]
-    )]
-    #[test_case(Rule::CodeExec, vec![("eval", AuditConfidence::Medium)])]
-    #[test_case(
-        Rule::ObfuscatedShellExec,
-        vec![
-            ("os.system", AuditConfidence::VeryHigh),
-            ("os.system", AuditConfidence::VeryHigh),
-            ("os.system", AuditConfidence::VeryHigh),
-        ]
-    )]
-    fn test_bypasses(rule: Rule, expected: Vec<(&str, AuditConfidence)>) {
-        assert_audit_results("exec_bypass.py", rule, expected);
-    }
-
-    #[test]
-    fn test_dangerous_exec_ignores_plain_argument_mentions() {
-        let source = r#"import subprocess
-subprocess.run(["echo", "base64"])
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::DangerousExec)
-            .map(|item| item.label)
-            .collect();
-        assert!(matches.is_empty());
-    }
-
-    #[test]
-    fn test_vars_dict_shell_exec() {
-        let source = r#"import os
-vars(os)["system"]("whoami")
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(matches.contains(&"os.system".to_string()));
-    }
-
-    #[test]
-    fn test_asyncio_create_subprocess_shell() {
-        let source = r#"import asyncio
-asyncio.create_subprocess_shell("whoami")
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::ShellExec || item.rule == Rule::DangerousExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(matches.contains(&"asyncio.create_subprocess_shell".to_string()));
-    }
-
-    #[test]
-    fn test_asyncio_create_subprocess_exec() {
-        let source = r#"import asyncio
-asyncio.create_subprocess_exec("ls", "-la")
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::ShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(matches.contains(&"asyncio.create_subprocess_exec".to_string()));
-    }
-
-    #[test]
-    fn test_asyncio_from_import_subprocess() {
-        let source = r#"from asyncio import create_subprocess_shell as start_proc
-start_proc("whoami")
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::ShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(matches.contains(&"asyncio.create_subprocess_shell".to_string()));
-    }
-
-    #[test]
-    fn test_subprocess_input_does_not_count_as_exec_obfuscation() {
-        let source = r#"import os
-import subprocess
-
-def run_fix_iteration(scorecard):
-    cmd = ["claude", "-p"]
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        cmd.append("--bare")
-    prompt = open("fixer.md").read().replace("{scorecard}", str(scorecard))
-    subprocess.run(cmd, input=prompt, text=True, check=False)
-
-run_fix_iteration({"status": "FAIL"})
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let obfuscated_shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(obfuscated_shell_exec.is_empty());
-
-        let shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ShellExec)
-            .map(|item| (item.label.clone(), item.confidence))
-            .collect();
-        assert_eq!(
-            shell_exec,
-            vec![("subprocess.run".to_string(), AuditConfidence::Medium)]
-        );
-    }
-
-    #[test]
-    fn test_wrapper_prompt_argument_does_not_leak_as_shell_command() {
-        let source = r#"import subprocess
-
-def run_fix_iteration(scorecard):
-    prompt = "fix " + str(scorecard)
-    cmd = ["claude", "-p", prompt, "--dangerously-skip-permissions"]
-    subprocess.run(cmd, text=True, check=False)
-
-run_fix_iteration({"status": "FAIL"})
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let obfuscated_shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(obfuscated_shell_exec.is_empty());
-    }
-
-    #[test]
-    fn test_execvpe_with_fixed_argv_variable_is_not_obfuscated() {
-        let source = r#"import os
-import sys
-
-def preview(name):
-    env = {**os.environ, "APP_THEME": name}
-    cmd = [sys.executable, "-m", "dazzle", "serve", "--local"]
-    os.execvpe(cmd[0], cmd, env)
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let obfuscated_shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(obfuscated_shell_exec.is_empty());
-
-        let shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ShellExec)
-            .map(|item| (item.label.clone(), item.confidence))
-            .collect();
-        assert_eq!(
-            shell_exec,
-            vec![("os.execvpe".to_string(), AuditConfidence::Medium)]
-        );
-    }
-
-    #[test]
-    fn test_popen_with_fixed_argv_variable_is_not_obfuscated() {
-        let source = r#"import subprocess
-
-def open_folder(project_wdir):
-    cmd = ["open"]
-    cmd.append(project_wdir)
-    subprocess.Popen(cmd, cwd=project_wdir)
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let obfuscated_shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(obfuscated_shell_exec.is_empty());
-
-        let shell_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.rule == Rule::ShellExec)
-            .map(|item| (item.label.clone(), item.confidence))
-            .collect();
-        assert_eq!(
-            shell_exec,
-            vec![("subprocess.Popen".to_string(), AuditConfidence::Medium)]
-        );
-    }
-
-    #[test]
-    fn test_wrapper_passthrough_run_stays_high_not_very_high() {
-        let source = r#"import subprocess
-
-original_run = __import__("subprocess").run
-
-def mock_run(args, **kwargs):
-    if args[0] == "git" and args[1] == "push":
-        class Result:
-            returncode = 1
-            stderr = "No remote"
-        return Result()
-    return original_run(args, **kwargs)
-
-mock_run(["git", "status"])
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let leaked_exec: Vec<_> = result
-            .iter()
-            .filter(|item| {
-                item.description
-                    .contains("via local function mock_run leaking to subprocess.run")
-            })
-            .map(|item| (item.rule.clone(), item.confidence))
-            .collect();
-
-        assert_eq!(leaked_exec, vec![(Rule::ShellExec, AuditConfidence::High)]);
-    }
-
-    #[test]
-    fn test_deobfuscated_shell_alias_with_plain_argv_stays_high() {
-        let source = r#"import subprocess
-
-original_run = __import__("subprocess").run
-original_run(["git", "status"], check=False)
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let direct_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.label == "subprocess.run")
-            .map(|item| (item.rule.clone(), item.confidence))
-            .collect();
-
-        assert_eq!(
-            direct_exec,
-            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
-        );
-    }
-
-    #[test]
-    fn test_inline_deobfuscated_subprocess_run_with_plain_argv_stays_high() {
-        let source = r#"import sys
-
-__import__("subprocess").run([sys.executable, "-m", "cli.main", "--help"], check=False)
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let direct_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.label == "subprocess.run")
-            .map(|item| (item.rule.clone(), item.confidence))
-            .collect();
-
-        assert_eq!(
-            direct_exec,
-            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
-        );
-    }
-
-    #[test]
-    fn test_inline_deobfuscated_subprocess_popen_with_plain_argv_stays_high() {
-        let source = r#"__import__("subprocess").Popen(["git", "status"])
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-
-        let direct_exec: Vec<_> = result
-            .iter()
-            .filter(|item| item.label == "subprocess.Popen")
-            .map(|item| (item.rule.clone(), item.confidence))
-            .collect();
-
-        assert_eq!(
-            direct_exec,
-            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
-        );
-    }
-
-    #[test]
-    fn test_vars_dict_with_no_args() {
-        let source = r#"import os
-vars()["os"].system("whoami")
-"#;
-        let result = crate::audit::parse::audit_source(source, None).unwrap();
-        let matches: Vec<_> = result
-            .into_iter()
-            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
-            .map(|item| item.label.clone())
-            .collect();
-        assert!(matches.contains(&"os.system".to_string()));
-    }
+    handle_exec(checker, call, false);
 }

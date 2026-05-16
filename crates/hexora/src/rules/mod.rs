@@ -6,6 +6,8 @@ mod download;
 pub(crate) mod dunder;
 mod env;
 mod exec;
+#[cfg(test)]
+mod exec_test;
 mod fingerprinting;
 mod identifier;
 mod imports;
