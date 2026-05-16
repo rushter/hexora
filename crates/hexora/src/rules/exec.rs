@@ -431,6 +431,14 @@ fn is_benign_exec_subject(checker: &Checker, expr: &ast::Expr) -> bool {
             .is_some_and(is_python_like_command)
 }
 
+fn has_only_plain_exec_subjects(checker: &Checker, call: &ast::ExprCall) -> bool {
+    get_execution_subjects(checker, call)
+        .into_iter()
+        .all(|expr| {
+            is_benign_exec_subject(checker, expr) || !contains_suspicious_expr(checker, expr)
+        })
+}
+
 fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
     if depth > MAX_DEPTH {
         return false;
@@ -1046,6 +1054,21 @@ fn push_report(
     if is_obfuscated(checker, call, &label) && call_taint != Some(TaintKind::EnvVariables) {
         confidence = AuditConfidence::VeryHigh;
     }
+
+    // Alias bindings like `original_run = __import__("subprocess").run` are deobfuscated,
+    // but if the executed argv itself is plain we should not promote the call to VeryHigh.
+    if is_shell
+        && call_taint == Some(TaintKind::Deobfuscated)
+        && matches!(call.func.as_ref(), ast::Expr::Name(_))
+        && checker
+            .indexer
+            .resolve_qualified_name(&call.func)
+            .is_some_and(|qn| qn.starts_with(&["subprocess"]))
+        && has_only_plain_exec_subjects(checker, call)
+    {
+        confidence = confidence.min(AuditConfidence::High);
+    }
+
     if let Some(extra) = extra_confidence {
         confidence = confidence.max(extra);
     }
@@ -1096,6 +1119,19 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
                 {
                     confidence = AuditConfidence::VeryHigh;
                 }
+
+                // Simple passthrough wrappers like test monkeypatch side effects often
+                // forward a plain argv parameter unchanged to subprocess.run/Popen.
+                // Keep those at High unless the argument itself carries obfuscation taint.
+                if is_shell
+                    && arg_taint.is_none()
+                    && get_execution_subjects(checker, call)
+                        .into_iter()
+                        .all(|expr| !contains_suspicious_expr(checker, expr))
+                {
+                    confidence = confidence.min(AuditConfidence::High);
+                }
+
                 checker.audit_results.push(AuditItem {
                     label: name.clone(),
                     rule,
@@ -1720,6 +1756,57 @@ def open_folder(project_wdir):
         assert_eq!(
             shell_exec,
             vec![("subprocess.Popen".to_string(), AuditConfidence::Medium)]
+        );
+    }
+
+    #[test]
+    fn test_wrapper_passthrough_run_stays_high_not_very_high() {
+        let source = r#"import subprocess
+
+original_run = __import__("subprocess").run
+
+def mock_run(args, **kwargs):
+    if args[0] == "git" and args[1] == "push":
+        class Result:
+            returncode = 1
+            stderr = "No remote"
+        return Result()
+    return original_run(args, **kwargs)
+
+mock_run(["git", "status"])
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let leaked_exec: Vec<_> = result
+            .iter()
+            .filter(|item| {
+                item.description
+                    .contains("via local function mock_run leaking to subprocess.run")
+            })
+            .map(|item| (item.rule.clone(), item.confidence))
+            .collect();
+
+        assert_eq!(leaked_exec, vec![(Rule::ShellExec, AuditConfidence::High)]);
+    }
+
+    #[test]
+    fn test_deobfuscated_shell_alias_with_plain_argv_stays_high() {
+        let source = r#"import subprocess
+
+original_run = __import__("subprocess").run
+original_run(["git", "status"], check=False)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let direct_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.label == "subprocess.run")
+            .map(|item| (item.rule.clone(), item.confidence))
+            .collect();
+
+        assert_eq!(
+            direct_exec,
+            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
         );
     }
 
