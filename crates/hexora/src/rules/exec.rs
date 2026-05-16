@@ -439,6 +439,28 @@ fn has_only_plain_exec_subjects(checker: &Checker, call: &ast::ExprCall) -> bool
         })
 }
 
+fn is_plain_deobfuscated_subprocess_callable(checker: &Checker, expr: &ast::Expr) -> bool {
+    match expr {
+        ast::Expr::Name(_) => true,
+        ast::Expr::Attribute(attr) => {
+            let ast::Expr::Call(import_call) = attr.value.as_ref() else {
+                return false;
+            };
+
+            checker
+                .indexer
+                .resolve_qualified_name(&import_call.func)
+                .is_some_and(|qn| is_builtin_named(&qn, "__import__"))
+                && import_call.arguments.args.len() == 1
+                && import_call.arguments.keywords.is_empty()
+                && import_call.arguments.args[0]
+                    .as_string_literal_expr()
+                    .is_some_and(|name| name.value.to_str() == "subprocess")
+        }
+        _ => false,
+    }
+}
+
 fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
     if depth > MAX_DEPTH {
         return false;
@@ -1059,11 +1081,11 @@ fn push_report(
     // but if the executed argv itself is plain we should not promote the call to VeryHigh.
     if is_shell
         && call_taint == Some(TaintKind::Deobfuscated)
-        && matches!(call.func.as_ref(), ast::Expr::Name(_))
         && checker
             .indexer
             .resolve_qualified_name(&call.func)
             .is_some_and(|qn| qn.starts_with(&["subprocess"]))
+        && is_plain_deobfuscated_subprocess_callable(checker, &call.func)
         && has_only_plain_exec_subjects(checker, call)
     {
         confidence = confidence.min(AuditConfidence::High);
@@ -1801,6 +1823,44 @@ original_run(["git", "status"], check=False)
         let direct_exec: Vec<_> = result
             .iter()
             .filter(|item| item.label == "subprocess.run")
+            .map(|item| (item.rule.clone(), item.confidence))
+            .collect();
+
+        assert_eq!(
+            direct_exec,
+            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
+        );
+    }
+
+    #[test]
+    fn test_inline_deobfuscated_subprocess_run_with_plain_argv_stays_high() {
+        let source = r#"import sys
+
+__import__("subprocess").run([sys.executable, "-m", "cli.main", "--help"], check=False)
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let direct_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.label == "subprocess.run")
+            .map(|item| (item.rule.clone(), item.confidence))
+            .collect();
+
+        assert_eq!(
+            direct_exec,
+            vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
+        );
+    }
+
+    #[test]
+    fn test_inline_deobfuscated_subprocess_popen_with_plain_argv_stays_high() {
+        let source = r#"__import__("subprocess").Popen(["git", "status"])
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let direct_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.label == "subprocess.Popen")
             .map(|item| (item.rule.clone(), item.confidence))
             .collect();
 
