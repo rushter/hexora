@@ -56,28 +56,133 @@ pub fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<Taint
     .find(|kind| taints.contains(kind))
 }
 
+fn is_execution_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "args" | "executable" | "source" | "object" | "expression" | "target"
+    )
+}
+
+fn is_python_like_command(command: &str) -> bool {
+    let lowered = command
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(command)
+        .to_ascii_lowercase();
+    lowered.starts_with("python")
+}
+
+fn push_execution_subjects_from_argv<'a>(
+    checker: &'a Checker<'a>,
+    expr: &'a ast::Expr,
+    subjects: &mut Vec<&'a ast::Expr>,
+) {
+    let elts = match expr {
+        ast::Expr::List(list) => Some(&list.elts[..]),
+        ast::Expr::Tuple(tuple) => Some(&tuple.elts[..]),
+        _ => None,
+    };
+
+    let Some(elts) = elts else {
+        subjects.push(expr);
+        return;
+    };
+
+    let Some(first) = elts.first() else {
+        return;
+    };
+    subjects.push(first);
+
+    let second = elts.get(1);
+    let second_flag = second.and_then(|expr| string_from_expr(expr, &checker.indexer));
+    if second_flag.as_deref() == Some("-c") {
+        if let Some(code) = elts.get(2) {
+            subjects.push(code);
+        }
+        return;
+    }
+
+    let first_name = string_from_expr(first, &checker.indexer);
+    if first_name.as_deref().is_some_and(is_python_like_command)
+        && !matches!(second_flag.as_deref(), Some("-"))
+        && let Some(script_path) = second
+    {
+        subjects.push(script_path);
+    }
+}
+
+fn collect_execution_subjects<'a>(
+    checker: &'a Checker<'a>,
+    expr: &'a ast::Expr,
+    subjects: &mut Vec<&'a ast::Expr>,
+    depth: u32,
+) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+
+    let mut expanded = false;
+    if let Some(id) = expr.node_index().load().as_u32()
+        && let Some(mapped) = checker.indexer.model.expr_mapping.get(&id)
+    {
+        expanded = true;
+        for mapped_expr in mapped {
+            collect_execution_subjects(checker, mapped_expr, subjects, depth + 1);
+        }
+    }
+
+    if !expanded {
+        push_execution_subjects_from_argv(checker, expr, subjects);
+    }
+}
+
+fn get_execution_subjects<'a>(
+    checker: &'a Checker<'a>,
+    call: &'a ast::ExprCall,
+) -> Vec<&'a ast::Expr> {
+    let mut subjects = Vec::new();
+
+    if let Some(source) = get_direct_code_exec_source(checker, call) {
+        subjects.push(source);
+        return subjects;
+    }
+
+    if let Some(code) = get_python_exec_c_code(checker, call) {
+        subjects.push(code);
+    }
+    if let Some(code) = get_python_exec_stdin_code(checker, call) {
+        subjects.push(code);
+    }
+    if let Some(path) = get_python_exec_script_path(checker, call) {
+        subjects.push(path);
+    }
+    if !subjects.is_empty() {
+        return subjects;
+    }
+
+    if let Some(arg) = call.arguments.args.first() {
+        collect_execution_subjects(checker, arg, &mut subjects, 0);
+    }
+
+    for kw in &call.arguments.keywords {
+        if kw
+            .arg
+            .as_ref()
+            .is_some_and(|arg| is_execution_keyword(arg.as_str()))
+        {
+            collect_execution_subjects(checker, &kw.value, &mut subjects, 0);
+        }
+    }
+
+    subjects
+}
+
 pub fn get_call_suspicious_taint(checker: &Checker, call: &ast::ExprCall) -> Option<TaintKind> {
-    get_suspicious_taint(checker, &call.func)
-        .or_else(|| {
-            call.arguments
-                .args
-                .first()
-                .and_then(|arg| get_suspicious_taint(checker, arg))
-        })
-        .or_else(|| {
-            call.arguments
-                .keywords
-                .iter()
-                .find(|kw| {
-                    kw.arg.as_ref().is_some_and(|a| {
-                        matches!(
-                            a.as_str(),
-                            "args" | "executable" | "source" | "object" | "input"
-                        )
-                    })
-                })
-                .and_then(|kw| get_suspicious_taint(checker, &kw.value))
-        })
+    get_suspicious_taint(checker, &call.func).or_else(|| {
+        get_execution_subjects(checker, call)
+            .into_iter()
+            .find_map(|expr| get_suspicious_taint(checker, expr))
+    })
 }
 
 fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
@@ -370,16 +475,23 @@ fn is_relaxed_exec_arg_with_mapping(
 }
 
 fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -> bool {
+    if is_exec_eval_call(checker, call) {
+        return contains_suspicious_expr(checker, &call.func)
+            || call.arguments.args.iter().enumerate().any(|(idx, arg)| {
+                !is_relaxed_exec_arg_with_mapping(checker, call, arg, Some(idx), None, 0)
+                    && contains_suspicious_expr(checker, arg)
+            })
+            || call.arguments.keywords.iter().any(|kw| {
+                let kw_name = kw.arg.as_ref().map(|arg| arg.as_str());
+                !is_relaxed_exec_arg_with_mapping(checker, call, &kw.value, None, kw_name, 0)
+                    && contains_suspicious_expr(checker, &kw.value)
+            });
+    }
+
     contains_suspicious_expr(checker, &call.func)
-        || call.arguments.args.iter().enumerate().any(|(idx, arg)| {
-            !is_relaxed_exec_arg_with_mapping(checker, call, arg, Some(idx), None, 0)
-                && contains_suspicious_expr(checker, arg)
-        })
-        || call.arguments.keywords.iter().any(|kw| {
-            let kw_name = kw.arg.as_ref().map(|arg| arg.as_str());
-            !is_relaxed_exec_arg_with_mapping(checker, call, &kw.value, None, kw_name, 0)
-                && contains_suspicious_expr(checker, &kw.value)
-        })
+        || get_execution_subjects(checker, call)
+            .into_iter()
+            .any(|expr| contains_suspicious_expr(checker, expr))
 }
 
 fn get_python_exec_c_code<'a>(checker: &Checker, call: &'a ast::ExprCall) -> Option<&'a ast::Expr> {
@@ -589,17 +701,17 @@ fn audit_nested_code_expr(checker: &mut Checker, call: &ast::ExprCall, code_expr
 }
 
 fn record_execution_leak(checker: &mut Checker, call: &ast::ExprCall, label: &str) {
-    for expr in call
-        .arguments
-        .args
-        .iter()
-        .chain(call.arguments.keywords.iter().map(|k| &k.value))
-    {
-        for taint in checker.indexer.get_taint(expr) {
-            if let TaintKind::InternalParameter(idx) = taint {
-                checker.indexer.add_parameter_leak(idx, label.to_string());
-            }
-        }
+    let leaked_params: Vec<_> = get_execution_subjects(checker, call)
+        .into_iter()
+        .flat_map(|expr| checker.indexer.get_taint(expr).into_iter())
+        .filter_map(|taint| match taint {
+            TaintKind::InternalParameter(idx) => Some(idx),
+            _ => None,
+        })
+        .collect();
+
+    for idx in leaked_params {
+        checker.indexer.add_parameter_leak(idx, label.to_string());
     }
 }
 
@@ -1284,6 +1396,61 @@ start_proc("whoami")
             .map(|item| item.label.clone())
             .collect();
         assert!(matches.contains(&"asyncio.create_subprocess_shell".to_string()));
+    }
+
+    #[test]
+    fn test_subprocess_input_does_not_count_as_exec_obfuscation() {
+        let source = r#"import os
+import subprocess
+
+def run_fix_iteration(scorecard):
+    cmd = ["claude", "-p"]
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        cmd.append("--bare")
+    prompt = open("fixer.md").read().replace("{scorecard}", str(scorecard))
+    subprocess.run(cmd, input=prompt, text=True, check=False)
+
+run_fix_iteration({"status": "FAIL"})
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let obfuscated_shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(obfuscated_shell_exec.is_empty());
+
+        let shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ShellExec)
+            .map(|item| (item.label.clone(), item.confidence))
+            .collect();
+        assert_eq!(
+            shell_exec,
+            vec![("subprocess.run".to_string(), AuditConfidence::Medium)]
+        );
+    }
+
+    #[test]
+    fn test_wrapper_prompt_argument_does_not_leak_as_shell_command() {
+        let source = r#"import subprocess
+
+def run_fix_iteration(scorecard):
+    prompt = "fix " + str(scorecard)
+    cmd = ["claude", "-p", prompt, "--dangerously-skip-permissions"]
+    subprocess.run(cmd, text=True, check=False)
+
+run_fix_iteration({"status": "FAIL"})
+"#;
+        let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+        let obfuscated_shell_exec: Vec<_> = result
+            .iter()
+            .filter(|item| item.rule == Rule::ObfuscatedShellExec)
+            .map(|item| item.label.clone())
+            .collect();
+        assert!(obfuscated_shell_exec.is_empty());
     }
 
     #[test]
