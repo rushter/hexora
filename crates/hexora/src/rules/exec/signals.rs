@@ -6,6 +6,7 @@ use crate::indexer::taint::TaintKind;
 use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
 
+use super::sequence::expr_sequence_parts;
 use super::subjects::{get_direct_code_exec_source, get_execution_subjects, shell_argv_layout};
 use super::{MAX_DEPTH, is_builtin_named, is_python_like_command};
 
@@ -74,7 +75,7 @@ fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
             .any(|&c| is_dangerous_command_match(&s, c))
             || DANGEROUS_COMMAND_PREFIXES.iter().any(|&c| s.starts_with(c))
     } else {
-        super::expr_list_parts(expr).is_some_and(|parts| {
+        expr_sequence_parts(checker, expr, 0).is_some_and(|parts| {
             parts
                 .iter()
                 .any(|part| contains_dangerous_exec_expr(checker, part))
