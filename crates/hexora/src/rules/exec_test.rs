@@ -601,6 +601,162 @@ fn test_inline_deobfuscated_subprocess_popen_with_plain_argv_stays_high() {
 }
 
 #[test]
+fn test_dynamic_imported_executable_path_stays_high_not_very_high() {
+    let source = r#"import importlib
+import subprocess
+import sys
+
+def install_packages(packages):
+    uv = importlib.import_module("uv")
+    base_command = ["pip", "install", *packages]
+    command = [uv.find_uv_bin(), *base_command]
+    subprocess.check_call(command, stdout=sys.stdout, stderr=sys.stderr)
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let execs: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "subprocess.check_call")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(
+        execs,
+        vec![(Rule::ObfuscatedShellExec, AuditConfidence::High)]
+    );
+}
+
+#[test]
+fn test_joined_executable_path_is_plain_shell_exec() {
+    let source = r#"import os
+import posixpath
+import subprocess
+
+executable = posixpath.join("/tmp", "apachectl")
+subprocess.Popen([executable, "start", "-DFOREGROUND"], preexec_fn=os.setpgrp)
+os.execl(executable, executable, "start", "-DFOREGROUND")
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let popen: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "subprocess.Popen")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+    assert_eq!(popen, vec![(Rule::ShellExec, AuditConfidence::Medium)]);
+
+    let execl: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "os.execl")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+    assert_eq!(execl, vec![(Rule::ShellExec, AuditConfidence::Medium)]);
+}
+
+#[test]
+fn test_wrapper_eval_helper_stays_high_not_very_high() {
+    let source = r#"def eval_type(t, glb, loc):
+    if isinstance(t, str):
+        return eval(t, glb, loc)
+    return t
+
+eval_type("Widget", globals(), locals())
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let leaked_exec: Vec<_> = result
+        .iter()
+        .filter(|item| {
+            item.description
+                .contains("via local function eval_type leaking to eval")
+        })
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(leaked_exec, vec![(Rule::CodeExec, AuditConfidence::High)]);
+}
+
+#[test]
+fn test_forward_annotation_eval_is_plain_code_exec() {
+    let source = r#"def resolve(annotation, globalns, localns):
+    forward_arg = annotation.__forward_arg__.strip("\"'")
+    return eval(forward_arg, globalns, localns)
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let direct_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "eval")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(direct_exec, vec![(Rule::CodeExec, AuditConfidence::Medium)]);
+}
+
+#[test]
+fn test_file_sourced_eval_stays_high_without_obfuscation_signal() {
+    let source = r#"with open("constants.txt") as handle:
+    eval(handle.read())
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let code_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "eval")
+        .map(|item| (item.rule.clone(), item.confidence, item.description.clone()))
+        .collect();
+
+    assert_eq!(
+        code_exec,
+        vec![(
+            Rule::ObfuscatedCodeExec,
+            AuditConfidence::High,
+            "Execution of code from file-sourced data.".to_string(),
+        )]
+    );
+}
+
+#[test]
+fn test_plain_dynamic_attribute_eval_stays_high() {
+    let source = r#"kShowMetaTag = \"drawMeta_\"
+
+class Params:
+    drawMeta_Outline = \"1\"
+    sortedMethodsMeta = [\"Outline\"]
+
+params = Params()
+
+for client_method in params.sortedMethodsMeta:
+    method_name = kShowMetaTag + client_method
+    state = eval(\"params.\" + method_name)
+    eval(state)
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let code_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "eval")
+        .map(|item| (item.rule.clone(), item.confidence, item.description.clone()))
+        .collect();
+
+    assert_eq!(
+        code_exec,
+        vec![
+            (
+                Rule::CodeExec,
+                AuditConfidence::Medium,
+                "Possible execution of unwanted code.".to_string(),
+            ),
+            (
+                Rule::CodeExec,
+                AuditConfidence::Medium,
+                "Possible execution of unwanted code.".to_string(),
+            ),
+        ]
+    );
+}
+
+#[test]
 fn test_vars_dict_with_no_args() {
     let source = r#"import os
 vars()["os"].system("whoami")

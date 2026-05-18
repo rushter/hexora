@@ -547,6 +547,83 @@ fn has_only_plain_exec_subjects(checker: &Checker, call: &ast::ExprCall) -> bool
         })
 }
 
+fn has_hard_obfuscation_signal(checker: &Checker, expr: &ast::Expr) -> bool {
+    checker.indexer.get_taint(expr).iter().any(|taint| {
+        matches!(
+            taint,
+            TaintKind::Decoded | TaintKind::NetworkSourced | TaintKind::FileSourced
+        )
+    }) || expr.node_index().load().as_u32().is_some_and(|id| {
+        checker
+            .indexer
+            .model
+            .decoded_nodes
+            .borrow()
+            .get(&id)
+            .is_some_and(|transformation| {
+                matches!(transformation, Transformation::Base64 | Transformation::Hex)
+            })
+    })
+}
+
+fn is_plain_argv_part(checker: &Checker, expr: &ast::Expr) -> bool {
+    is_benign_exec_subject(checker, expr) || !contains_suspicious_expr(checker, expr)
+}
+
+fn shell_argv_layout<'a>(
+    checker: &'a Checker<'a>,
+    call: &'a ast::ExprCall,
+) -> Option<(Vec<&'a ast::Expr>, usize)> {
+    let qn = checker.indexer.resolve_qualified_name(&call.func)?;
+
+    if qn.starts_with(&["subprocess"]) || qn.is_exact(&["asyncio", "create_subprocess_exec"]) {
+        let argv = primary_arg_or_keyword(call, "args")?;
+        return expr_sequence_parts(checker, argv, 0).map(|parts| (parts, 1));
+    }
+
+    match qn.segments_slice() {
+        [os, name]
+            if os == "os"
+                && matches!(
+                    name.as_str(),
+                    "execl"
+                        | "execle"
+                        | "execlp"
+                        | "execlpe"
+                        | "spawnl"
+                        | "spawnle"
+                        | "spawnlp"
+                        | "spawnlpe"
+                ) =>
+        {
+            Some((call.arguments.args.iter().collect(), 2))
+        }
+        _ => None,
+    }
+}
+
+fn should_cap_plain_argv_shell_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
+    if contains_suspicious_expr(checker, &call.func) {
+        return false;
+    }
+
+    let Some((parts, leading_dynamic_parts)) = shell_argv_layout(checker, call) else {
+        return false;
+    };
+
+    if parts.is_empty() || parts.len() < leading_dynamic_parts {
+        return false;
+    }
+
+    let (dynamic_parts, plain_parts) = parts.split_at(leading_dynamic_parts);
+    dynamic_parts
+        .iter()
+        .all(|expr| !has_hard_obfuscation_signal(checker, expr))
+        && plain_parts
+            .iter()
+            .all(|expr| is_plain_argv_part(checker, expr))
+}
+
 fn is_plain_deobfuscated_subprocess_callable(checker: &Checker, expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Name(_) => true,
@@ -567,6 +644,78 @@ fn is_plain_deobfuscated_subprocess_callable(checker: &Checker, expr: &ast::Expr
         }
         _ => false,
     }
+}
+
+fn is_identifier_segment(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some(ch) if ch == '_' || ch.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn is_dotted_lookup_string(value: &str) -> bool {
+    !value.is_empty() && value.split('.').all(is_identifier_segment)
+}
+
+fn is_plain_lookup_eval_expr(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+
+    if string_from_expr(expr, &checker.indexer)
+        .as_deref()
+        .is_some_and(is_dotted_lookup_string)
+    {
+        return true;
+    }
+
+    if let ast::Expr::Call(call) = expr
+        && checker
+            .indexer
+            .resolve_qualified_name(&call.func)
+            .is_some_and(|qn| is_builtin_named(&qn, "eval"))
+        && call.arguments.args.len() == 1
+        && call.arguments.keywords.is_empty()
+        && string_from_expr(&call.arguments.args[0], &checker.indexer)
+            .as_deref()
+            .is_some_and(is_dotted_lookup_string)
+    {
+        return true;
+    }
+
+    let Some(id) = expr.node_index().load().as_u32() else {
+        return false;
+    };
+
+    checker
+        .indexer
+        .model
+        .expr_mapping
+        .get(&id)
+        .is_some_and(|exprs| {
+            exprs
+                .iter()
+                .any(|mapped| is_plain_lookup_eval_expr(checker, mapped, depth + 1))
+        })
+}
+
+fn is_plain_lookup_exec_source(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+
+    if is_plain_lookup_eval_expr(checker, expr, depth) {
+        return true;
+    }
+
+    let ast::Expr::Name(name) = expr else {
+        return false;
+    };
+
+    checker
+        .indexer
+        .lookup_binding(name.id.as_str())
+        .and_then(|binding| binding.value_expr)
+        .is_some_and(|value_expr| is_plain_lookup_exec_source(checker, value_expr, depth + 1))
 }
 
 fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
@@ -950,6 +1099,9 @@ fn push_report(
                 rule = Rule::ObfuscatedCodeExec;
                 confidence = conf;
                 description = format!("Execution of {} via Python subprocess stdin.", c);
+                if should_promote_exec_confidence(Some(taint), is_highly_suspicious) {
+                    confidence = AuditConfidence::VeryHigh;
+                }
             }
         }
         if let Some(script_path) = python_exec.script_path {
@@ -958,6 +1110,9 @@ fn push_report(
                 rule = Rule::ObfuscatedCodeExec;
                 confidence = conf;
                 description = format!("Execution of {} via Python subprocess script path.", c);
+                if should_promote_exec_confidence(Some(taint), is_highly_suspicious) {
+                    confidence = AuditConfidence::VeryHigh;
+                }
             }
         }
     } else if !is_shell {
@@ -974,6 +1129,9 @@ fn push_report(
         confidence = AuditConfidence::VeryHigh;
     }
 
+    if is_shell && !is_py_exec && should_cap_plain_argv_shell_exec(checker, call) {
+        confidence = confidence.min(AuditConfidence::High);
+    }
     // Alias bindings like `original_run = __import__("subprocess").run` are deobfuscated,
     // but if the executed argv itself is plain we should not promote the call to VeryHigh.
     if is_shell
@@ -984,6 +1142,13 @@ fn push_report(
             .is_some_and(|qn| qn.starts_with(&["subprocess"]))
         && is_plain_deobfuscated_subprocess_callable(checker, &call.func)
         && has_only_plain_exec_subjects(checker, call)
+    {
+        confidence = confidence.min(AuditConfidence::High);
+    }
+
+    if !is_shell
+        && get_direct_code_exec_source(checker, call)
+            .is_some_and(|expr| is_plain_lookup_exec_source(checker, expr, 0))
     {
         confidence = confidence.min(AuditConfidence::High);
     }
