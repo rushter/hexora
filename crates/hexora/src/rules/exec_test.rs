@@ -694,6 +694,70 @@ fn test_forward_annotation_eval_is_plain_code_exec() {
 }
 
 #[test]
+fn test_reflection_eval_call_result_stays_high_not_very_high() {
+    let source = r#"def build_text_clip(clip_teacher):
+    model = eval(clip_teacher)()
+    return model
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let direct_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "eval")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(
+        direct_exec,
+        vec![
+            (Rule::CodeExec, AuditConfidence::Medium),
+            (Rule::ObfuscatedCodeExec, AuditConfidence::High),
+        ]
+    );
+}
+
+#[test]
+fn test_type_resolution_eval_with_cleanup_stays_high_not_very_high() {
+    let source = r#"def resolve(annotation, globalns, localns):
+    if isinstance(getattr(annotation, "__forward_arg__", None), str):
+        forward_arg = annotation.__forward_arg__.strip("\"'")
+        return eval(forward_arg, globalns, localns)
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let direct_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.label == "eval")
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(direct_exec, vec![(Rule::CodeExec, AuditConfidence::Medium)]);
+}
+
+#[test]
+fn test_wrapper_type_resolution_eval_stays_high_not_very_high() {
+    let source = r#"def _create_type_deserializer(field_type, objtype):
+    return eval(field_type, {"ua": objtype})
+
+def build(field_type, objtype):
+    deserialize_field = _create_type_deserializer(field_type, objtype)
+    return deserialize_field
+"#;
+    let result = crate::audit::parse::audit_source(source, None).unwrap();
+
+    let leaked_exec: Vec<_> = result
+        .iter()
+        .filter(|item| {
+            item.description
+                .contains("via local function _create_type_deserializer leaking to eval")
+        })
+        .map(|item| (item.rule.clone(), item.confidence))
+        .collect();
+
+    assert_eq!(leaked_exec, vec![(Rule::CodeExec, AuditConfidence::High)]);
+}
+
+#[test]
 fn test_file_sourced_eval_stays_high_without_obfuscation_signal() {
     let source = r#"with open("constants.txt") as handle:
     eval(handle.read())

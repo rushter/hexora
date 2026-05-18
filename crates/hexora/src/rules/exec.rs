@@ -718,6 +718,77 @@ fn is_plain_lookup_exec_source(checker: &Checker, expr: &ast::Expr, depth: u32) 
         .is_some_and(|value_expr| is_plain_lookup_exec_source(checker, value_expr, depth + 1))
 }
 
+fn is_reflection_string_cleanup_method(name: &str) -> bool {
+    matches!(
+        name,
+        "strip"
+            | "lstrip"
+            | "rstrip"
+            | "replace"
+            | "removeprefix"
+            | "removesuffix"
+            | "lower"
+            | "upper"
+    )
+}
+
+fn is_reflection_like_exec_source(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+
+    if has_hard_obfuscation_signal(checker, expr)
+        || is_plain_lookup_exec_source(checker, expr, depth)
+    {
+        return !has_hard_obfuscation_signal(checker, expr);
+    }
+
+    match expr {
+        ast::Expr::Name(_) | ast::Expr::Attribute(_) | ast::Expr::Subscript(_) => true,
+        ast::Expr::Call(call) => {
+            let Some(attr) = call.func.as_attribute_expr() else {
+                return false;
+            };
+
+            is_reflection_string_cleanup_method(attr.attr.as_str())
+                && is_reflection_like_exec_source(checker, &attr.value, depth + 1)
+                && call
+                    .arguments
+                    .args
+                    .iter()
+                    .all(|arg| string_from_expr(arg, &checker.indexer).is_some())
+                && call
+                    .arguments
+                    .keywords
+                    .iter()
+                    .all(|kw| string_from_expr(&kw.value, &checker.indexer).is_some())
+        }
+        _ => expr
+            .node_index()
+            .load()
+            .as_u32()
+            .and_then(|id| checker.indexer.model.expr_mapping.get(&id))
+            .is_some_and(|exprs| {
+                exprs
+                    .iter()
+                    .any(|mapped| is_reflection_like_exec_source(checker, mapped, depth + 1))
+            }),
+    }
+}
+
+fn is_plain_reflection_call_result(checker: &Checker, expr: &ast::Expr) -> bool {
+    let ast::Expr::Call(call) = expr else {
+        return false;
+    };
+
+    checker
+        .indexer
+        .resolve_qualified_name(&call.func)
+        .is_some_and(|qn| qn.is_code_exec())
+        && get_direct_code_exec_source(checker, call)
+            .is_some_and(|source| is_reflection_like_exec_source(checker, source, 0))
+}
+
 fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: u32) -> bool {
     if depth > MAX_DEPTH {
         return false;
@@ -1153,6 +1224,17 @@ fn push_report(
         confidence = confidence.min(AuditConfidence::High);
     }
 
+    if !is_shell
+        && get_direct_code_exec_source(checker, call)
+            .is_some_and(|expr| is_reflection_like_exec_source(checker, expr, 0))
+    {
+        confidence = confidence.min(AuditConfidence::High);
+    }
+
+    if !is_shell && is_plain_reflection_call_result(checker, &call.func) {
+        confidence = confidence.min(AuditConfidence::High);
+    }
+
     if let Some(extra) = extra_confidence {
         confidence = confidence.max(extra);
     }
@@ -1219,6 +1301,10 @@ fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, is_shell: bool
                 .into_iter()
                 .all(|expr| !contains_suspicious_expr(checker, expr))
         {
+            confidence = confidence.min(AuditConfidence::High);
+        }
+
+        if !is_shell && is_reflection_like_exec_source(checker, arg, 0) {
             confidence = confidence.min(AuditConfidence::High);
         }
 
