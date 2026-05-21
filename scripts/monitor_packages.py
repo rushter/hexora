@@ -47,6 +47,8 @@ MAX_STORED_PACKAGES = 99
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+_ALERTS_CACHE: set[tuple[str, str]] = set()
+_MAX_ALERTS_CACHE_SIZE = 5000
 EXCLUDED_PATH_SUBSTRINGS = [
     "lib/site-packages/pip/_vendor/pkg_resources/__init__.py",
     "lib/site-packages/pkg_resources/__init__.py",
@@ -329,7 +331,7 @@ def format_alert_message(
     entry: FeedEntry,
     package_file: Path,
     very_high_items: list[dict[str, Any]],
-) -> str:
+) -> str | None:
     top_rules: list[str] = []
     for item in very_high_items:
         rule = item.get("rule")
@@ -352,6 +354,15 @@ def format_alert_message(
         rule_block = "\n".join(f"- {rule}" for rule in unique_rules)
 
     annotation_block = format_annotation_block(get_item_annotations(very_high_items))
+
+    global _ALERTS_CACHE
+    key = (entry.package_name, annotation_block)
+    if key in _ALERTS_CACHE:
+        logging.info("Skipping duplicate alert for %s (already sent)", entry.key)
+        return None
+    _ALERTS_CACHE.add(key)
+    if len(_ALERTS_CACHE) > _MAX_ALERTS_CACHE_SIZE:
+        _ALERTS_CACHE.clear()
 
     message = (
         "Hexora high-confidence match detected\n"
@@ -450,8 +461,9 @@ def process_entry(
     if telegram_token and telegram_chat_id:
         try:
             message = format_alert_message(entry, package_file, very_high_items)
-            notify_telegram(telegram_token, telegram_chat_id, message)
-            logging.info("Telegram alert sent for %s", entry.key)
+            if message is not None:
+                notify_telegram(telegram_token, telegram_chat_id, message)
+                logging.info("Telegram alert sent for %s", entry.key)
         except Exception as exc:
             logging.error("Failed to send Telegram alert for %s: %s", entry.key, exc)
     else:
