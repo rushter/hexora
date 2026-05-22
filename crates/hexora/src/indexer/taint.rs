@@ -291,7 +291,9 @@ pub fn compute_expr_taint(
             }
         }
         Expr::DictComp(dc) => {
-            taints.extend(get_taint(&dc.key));
+            if let Some(key) = &dc.key {
+                taints.extend(get_taint(key));
+            }
             taints.extend(get_taint(&dc.value));
             for comp_gen in &dc.generators {
                 taints.extend(get_taint(&comp_gen.iter));
