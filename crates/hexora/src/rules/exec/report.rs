@@ -419,7 +419,12 @@ pub(super) fn check_leaked_exec(checker: &mut Checker, call: &ast::ExprCall, kin
             sink_name
         );
         if is_obfuscated(checker, call, &name)
-            && arg_taint.is_some_and(|t| t != TaintKind::EnvVariables)
+            && arg_taint.is_some_and(|t| {
+                matches!(
+                    t,
+                    TaintKind::Decoded | TaintKind::Deobfuscated | TaintKind::NetworkSourced
+                )
+            })
         {
             confidence = AuditConfidence::VeryHigh;
         }

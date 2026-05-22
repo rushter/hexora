@@ -539,7 +539,9 @@ fn is_relaxed_exec_arg_with_mapping(
 
 pub(super) fn contains_suspicious_exec_arguments(checker: &Checker, call: &ast::ExprCall) -> bool {
     if is_exec_eval_call(checker, call) {
-        return contains_suspicious_expr(checker, &call.func)
+        let func_is_plain_alias = matches!(call.func.as_ref(), ast::Expr::Name(_))
+            && is_aliased_code_exec_call(checker, call);
+        return (!func_is_plain_alias && contains_suspicious_expr(checker, &call.func))
             || call.arguments.args.iter().enumerate().any(|(idx, arg)| {
                 !is_relaxed_exec_arg_with_mapping(checker, call, arg, Some(idx), None, 0)
                     && contains_suspicious_expr(checker, arg)
@@ -562,5 +564,11 @@ pub(super) fn should_promote_exec_confidence(
     taint: Option<TaintKind>,
     is_highly_suspicious: bool,
 ) -> bool {
-    is_highly_suspicious || taint.is_some_and(|t| t != TaintKind::EnvVariables)
+    is_highly_suspicious
+        || taint.is_some_and(|t| {
+            matches!(
+                t,
+                TaintKind::Decoded | TaintKind::Deobfuscated | TaintKind::NetworkSourced
+            )
+        })
 }
