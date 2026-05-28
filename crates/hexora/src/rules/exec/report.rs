@@ -114,8 +114,8 @@ fn get_taint_metadata(taint: TaintKind) -> (AuditConfidence, &'static str, &'sta
     match taint {
         TaintKind::Decoded | TaintKind::Deobfuscated => (
             AuditConfidence::High,
-            "obfuscated shell command",
-            "obfuscated code",
+            "possibly obfuscated shell command",
+            "possibly obfuscated code",
         ),
         TaintKind::NetworkSourced => (
             AuditConfidence::High,

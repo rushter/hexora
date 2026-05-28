@@ -196,8 +196,8 @@ impl Rule {
             Rule::SuspiciousCall => "Suspicious function call.",
 
             // Obfuscation/Execution
-            Rule::ObfuscatedShellExec => "Execution of an obfuscated shell command.",
-            Rule::ObfuscatedCodeExec => "Execution of obfuscated code.",
+            Rule::ObfuscatedShellExec => "Execution of possibly obfuscated shell command.",
+            Rule::ObfuscatedCodeExec => "Execution of possibly obfuscated code.",
 
             // Imports
             Rule::DunderImport => "Suspicious use of `__import__`.",
