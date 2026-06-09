@@ -71,6 +71,7 @@ pub fn read_exclude_names(path: &Path) -> Result<HashSet<String>, std::io::Error
         .collect())
 }
 
+/// List all Python files in the given path, including those inside .zip and .tar.gz archives.
 pub fn list_python_files(
     path: &Path,
     exclude_names: Option<&HashSet<String>>,

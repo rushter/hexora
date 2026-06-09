@@ -33,26 +33,26 @@ fn audit_file_with_content(
     })
 }
 
-/// Audit multiple files in the provided directory or a file
+/// Audit files in the provided directory or a file
+/// Automatically discovers Python files in .tar.gz, .zip files or in folders
 pub fn audit_path(
     file_path: &Path,
     exclude_names: Option<&HashSet<String>>,
-) -> Result<impl Iterator<Item = AuditResult>, &'static str> {
+) -> Result<impl Iterator<Item = AuditResult>, String> {
     let files: Vec<_> = list_python_files(file_path, exclude_names).collect();
     if files.is_empty() {
-        Err("No Python files found")
-    } else {
-        Ok(files.into_iter().filter_map(|file| {
-            debug!("Auditing file: {}", file.full_path());
-            match audit_file_with_content(file.file_path, file.archive_path, file.content) {
-                Ok(result) => Some(result),
-                Err(e) => {
-                    error!("Error auditing file: {}", e);
-                    None
-                }
-            }
-        }))
+        return Err("No Python files found".to_string());
     }
+    Ok(files.into_iter().filter_map(|file| {
+        debug!("Auditing file: {}", file.full_path());
+        match audit_file_with_content(file.file_path, file.archive_path, file.content) {
+            Ok(result) => Some(result),
+            Err(e) => {
+                error!("Error auditing file: {}", e);
+                None
+            }
+        }
+    }))
 }
 
 pub fn audit_source(source: &str, file_path: Option<&Path>) -> Result<Vec<AuditItem>, String> {
