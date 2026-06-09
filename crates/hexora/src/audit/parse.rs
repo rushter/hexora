@@ -105,6 +105,7 @@ fn elevate_setup_py_confidence(items: &mut [AuditItem], file_path: Option<&Path>
                 AuditConfidence::VeryLow => AuditConfidence::Low,
                 AuditConfidence::Low => AuditConfidence::Medium,
                 AuditConfidence::Medium => AuditConfidence::High,
+                AuditConfidence::High => AuditConfidence::VeryHigh,
                 _ => item.confidence,
             };
         }
