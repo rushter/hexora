@@ -26,6 +26,17 @@ impl<'a> Default for NodeIndexer<'a> {
 }
 
 impl<'a> NodeIndexer<'a> {
+    pub fn new() -> Self {
+        let mut this = Self {
+            index: AtomicU32::new(0),
+            model: SemanticModel::new(),
+            scope_stack: Vec::with_capacity(32),
+        };
+        this.push_scope(ScopeKind::Module);
+        this.bind_builtins();
+        this
+    }
+
     fn is_open_for_writing_call(&self, call: &ExprCall) -> bool {
         let mut mode = "r".to_string();
 
@@ -33,16 +44,16 @@ impl<'a> NodeIndexer<'a> {
             && let Some(m) = crate::indexer::resolver::string_from_expr(arg, self)
         {
             mode = m;
-        }
-
-        for kw in &call.arguments.keywords {
-            if matches!(kw.arg.as_ref().map(|a| a.as_str()), Some("mode"))
-                && let Some(m) = crate::indexer::resolver::string_from_expr(&kw.value, self)
-            {
-                mode = m;
+        } else {
+            // Can't have more than one `mode` argument
+            for kw in &call.arguments.keywords {
+                if matches!(kw.arg.as_ref().map(|a| a.as_str()), Some("mode"))
+                    && let Some(m) = crate::indexer::resolver::string_from_expr(&kw.value, self)
+                {
+                    mode = m;
+                }
             }
         }
-
         mode.chars().any(|c| matches!(c, 'w' | 'a' | 'x' | '+'))
     }
 
@@ -53,60 +64,49 @@ impl<'a> NodeIndexer<'a> {
         if attr.attr.as_str() != "write" {
             return;
         }
-
         let Expr::Name(handle_name) = attr.value.as_ref() else {
             return;
         };
 
-        let mut taint = TaintState::new();
-        for arg in &call.arguments.args {
-            taint.extend(self.get_taint(arg));
-        }
-        for kw in &call.arguments.keywords {
-            taint.extend(self.get_taint(&kw.value));
-        }
+        let taint: TaintState = call
+            .arguments
+            .args
+            .iter()
+            .chain(call.arguments.keywords.iter().map(|kw| &kw.value))
+            .flat_map(|arg| self.get_taint(arg))
+            .collect();
         if taint.is_empty() {
             return;
         }
 
-        let Some(binding) = self.lookup_binding(handle_name.id.as_str()) else {
+        let Some(open_call) = self.resolve_open_call(handle_name.id.as_str()) else {
             return;
         };
-        let Some(value_expr) = binding.value_expr else {
-            return;
-        };
-        let Expr::Call(open_call) = value_expr else {
-            return;
-        };
-
-        let is_open = self
-            .resolve_qualified_name(&open_call.func)
-            .is_some_and(|qn| qn.is_exact(&["open"]) || qn.is_exact(&["builtins", "open"]));
-        if !is_open || !self.is_open_for_writing_call(open_call) {
+        if !self.is_open_for_writing_call(open_call) {
             return;
         }
-
         let Some(path_expr) = open_call.arguments.args.first() else {
             return;
         };
+        let Expr::Name(path_name) = path_expr else {
+            return;
+        };
+        let path_id = path_name.id.as_str().to_string();
 
-        if let Expr::Name(path_name) = path_expr {
-            if let Some(symbol) = self.lookup_binding_mut(path_name.id.as_str()) {
-                symbol.add_assigned_expression(expr);
-                symbol.taint.extend(taint);
-            }
+        if let Some(symbol) = self.lookup_binding_mut(&path_id) {
+            symbol.add_assigned_expression(expr);
+            symbol.taint.extend(taint);
         }
     }
 
-    pub fn new() -> Self {
-        let mut this = Self {
-            index: AtomicU32::new(0),
-            model: SemanticModel::new(),
-            scope_stack: Vec::with_capacity(32),
+    fn resolve_open_call(&self, name: &str) -> Option<&ExprCall> {
+        let binding = self.lookup_binding(name)?;
+        let Expr::Call(open_call) = binding.value_expr? else {
+            return None;
         };
-        this.push_scope(ScopeKind::Module);
-        this.bind_builtins();
-        this
+        self.resolve_qualified_name(&open_call.func)
+            .filter(|qn| qn.is_exact(&["open"]) || qn.is_exact(&["builtins", "open"]))?;
+        Some(open_call)
     }
 
     pub(crate) fn current_scope_mut(&mut self) -> &mut Scope<'a> {
