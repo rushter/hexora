@@ -278,6 +278,17 @@ fn audit_items_score(items: &[&AuditItem]) -> u32 {
     items.iter().map(|item| item.confidence as u32).sum()
 }
 
+fn validate_cli_codes(codes: &HashSet<String>) {
+    for code in codes {
+        if !Rule::iter().any(|r| r.code() == code) {
+            error!(
+                "Unknown rule code: {}. Use `hexora rules` to see all available codes.",
+                code
+            );
+        }
+    }
+}
+
 fn audit_python_files(opts: &AuditOptions) {
     let mut output = match AuditOutput::new(opts) {
         Ok(output) => output,
@@ -301,6 +312,9 @@ fn audit_python_files(opts: &AuditOptions) {
     };
     let include: HashSet<_> = opts.include.iter().cloned().collect();
     let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
+
+    validate_cli_codes(&include);
+    validate_cli_codes(&exclude);
 
     match audit_path(&opts.input_path, None) {
         Ok(results) => {
