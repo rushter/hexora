@@ -591,21 +591,15 @@ dependencies = [
  "codespan-reporting",
  "env_logger",
  "hexora_io",
+ "hexora_rules",
+ "hexora_semantic",
  "log",
- "memchr",
- "once_cell",
- "regex",
  "ruff_python_ast",
  "ruff_python_parser",
- "ruff_python_stdlib",
  "ruff_text_size",
  "serde",
  "serde_json",
  "sha2 0.11.0-rc.2",
- "strum",
- "strum_macros",
- "test-case",
- "unindent",
 ]
 
 [[package]]
@@ -633,6 +627,43 @@ dependencies = [
  "pyo3",
  "pythonize",
  "serde",
+]
+
+[[package]]
+name = "hexora_rules"
+version = "0.2.4"
+dependencies = [
+ "hexora_io",
+ "hexora_semantic",
+ "log",
+ "memchr",
+ "once_cell",
+ "regex",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "ruff_text_size",
+ "serde",
+ "sha2 0.11.0-rc.2",
+ "strum",
+ "strum_macros",
+ "test-case",
+ "unindent",
+]
+
+[[package]]
+name = "hexora_semantic"
+version = "0.2.4"
+dependencies = [
+ "hexora_io",
+ "log",
+ "memchr",
+ "once_cell",
+ "regex",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "ruff_python_stdlib",
+ "ruff_text_size",
+ "unindent",
 ]
 
 [[package]]

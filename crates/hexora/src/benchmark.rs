@@ -1,5 +1,5 @@
 use crate::audit::parse::audit_path;
-use crate::audit::result::{AuditConfidence, Rule};
+use hexora_rules::result::{AuditConfidence, Rule};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};

@@ -1,8 +1,8 @@
-use crate::audit::result::AuditItem;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
+use hexora_rules::result::AuditItem;
 use std::path::Path;
 
 fn display_path(path: &Path, archive_path: Option<&Path>) -> String {

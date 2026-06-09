@@ -1,10 +1,10 @@
 use crate::audit::annotate::annotate_result;
 use crate::audit::parse::audit_path;
-use crate::audit::result::{AuditConfidence, AuditItem, AuditResult};
-use crate::audit::result::{AuditItemJSON, Rule};
+use crate::audit::result::{AuditItemJSON, AuditResult};
 use crate::benchmark::run_benchmark;
 use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
+use hexora_rules::result::{AuditConfidence, AuditItem, Rule};
 use log::{error, info};
 use std::collections::HashSet;
 use std::fs;

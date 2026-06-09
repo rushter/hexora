@@ -2,7 +2,10 @@
 members = ["crates/*"]
 resolver = "2"
 default-members = [
-    "crates/hexora"
+    "crates/hexora",
+    "crates/hexora_io",
+    "crates/hexora_semantic",
+    "crates/hexora_rules",
 ]
 [workspace.package]
 edition = "2024"
