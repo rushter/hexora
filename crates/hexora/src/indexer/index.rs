@@ -6,6 +6,7 @@ use ruff_text_size::Ranged;
 use std::collections::HashMap;
 
 use crate::indexer::model::{NodeId, SemanticModel};
+use crate::indexer::resolver::ResolverCache;
 use crate::indexer::scope::{Scope, ScopeKind, SymbolBinding};
 
 use crate::indexer::taint::{TaintKind, TaintState};
@@ -17,6 +18,7 @@ pub struct NodeIndexer<'a> {
     pub model: SemanticModel<'a>,
     pub(crate) index: AtomicU32,
     pub(crate) scope_stack: Vec<Scope<'a>>,
+    pub resolve_cache: ResolverCache,
 }
 
 impl<'a> Default for NodeIndexer<'a> {
@@ -31,6 +33,7 @@ impl<'a> NodeIndexer<'a> {
             index: AtomicU32::new(0),
             model: SemanticModel::new(),
             scope_stack: Vec::with_capacity(32),
+            resolve_cache: ResolverCache::new(),
         };
         this.push_scope(ScopeKind::Module);
         this.bind_builtins();
@@ -145,6 +148,7 @@ impl<'a> NodeIndexer<'a> {
 
     pub fn clear_state(&mut self) {
         self.model.clear();
+        self.resolve_cache.clear();
         self.scope_stack.clear();
         self.push_scope(ScopeKind::Module);
         self.bind_builtins();

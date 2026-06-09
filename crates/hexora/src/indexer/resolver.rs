@@ -9,6 +9,8 @@ use ruff_python_ast::{
     Operator, StmtFunctionDef,
 };
 use ruff_text_size::TextRange;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::len_without_is_empty)]
 pub trait ListLike {
@@ -145,6 +147,47 @@ pub(crate) fn resolve_argument_for_parameter_index<'a>(
     resolve_argument_for_parameter(call, func, param.name().as_str())
 }
 
+pub struct ResolverCache {
+    cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
+    in_progress: RefCell<HashSet<NodeId>>,
+}
+
+impl ResolverCache {
+    pub fn new() -> Self {
+        Self {
+            cache: RefCell::default(),
+            in_progress: RefCell::default(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.cache.get_mut().clear();
+        self.in_progress.get_mut().clear();
+    }
+
+    pub fn get_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
+        self.cache.borrow().get(&node_id).cloned()
+    }
+
+    pub fn mark_in_progress(&self, node_id: NodeId) -> bool {
+        self.in_progress.borrow_mut().insert(node_id)
+    }
+
+    pub fn mark_finished(&self, node_id: NodeId) {
+        self.in_progress.borrow_mut().remove(&node_id);
+    }
+
+    pub fn store(&self, node_id: NodeId, result: Option<Vec<Name>>) {
+        self.cache.borrow_mut().insert(node_id, result);
+    }
+}
+
+impl Default for ResolverCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> NodeIndexer<'a> {
     fn expr_to_identifier_path(
         &self,
@@ -181,12 +224,12 @@ impl<'a> NodeIndexer<'a> {
     ) -> Option<Vec<Name>> {
         let node_id = expr.node_index().load().as_u32()?;
         if context.is_none() {
-            if let Some(res) = self.model.resolve_cache.borrow().get(&node_id) {
-                return res.clone();
+            if let Some(res) = self.resolve_cache.get_cached(node_id) {
+                return res;
             }
         }
 
-        if !self.model.currently_resolving.borrow_mut().insert(node_id) {
+        if !self.resolve_cache.mark_in_progress(node_id) {
             return None;
         }
 
@@ -202,13 +245,10 @@ impl<'a> NodeIndexer<'a> {
             _ => None,
         };
 
-        self.model.currently_resolving.borrow_mut().remove(&node_id);
+        self.resolve_cache.mark_finished(node_id);
 
         if context.is_none() {
-            self.model
-                .resolve_cache
-                .borrow_mut()
-                .insert(node_id, res.clone());
+            self.resolve_cache.store(node_id, res.clone());
         }
         res
     }
