@@ -59,7 +59,13 @@ impl TarGzIterator {
                     continue;
                 }
             };
-            let path_in_tar = entry.path().ok()?.to_path_buf();
+            let path_in_tar = match entry.path().ok() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    error!("Skipping entry with invalid path in {:?}", path);
+                    continue;
+                }
+            };
 
             if is_python_file(&path_in_tar) {
                 let mut content = String::new();
