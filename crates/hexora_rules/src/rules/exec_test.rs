@@ -34,11 +34,15 @@ use test_case::test_case;
 )]
 #[test_case(
     "exec_03.py",
+    Rule::CodeExec,
+    vec![("subprocess.run", AuditConfidence::VeryHigh)]
+)]
+#[test_case(
+    "exec_03.py",
     Rule::ObfuscatedShellExec,
     vec![
         ("os.system", AuditConfidence::VeryHigh),
         ("os.system", AuditConfidence::VeryHigh),
-        ("subprocess.run", AuditConfidence::VeryHigh),
     ]
 )]
 #[test_case(

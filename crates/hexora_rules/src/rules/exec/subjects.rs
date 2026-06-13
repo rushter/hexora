@@ -139,11 +139,14 @@ fn exec_subject_position(checker: &Checker, call: &ast::ExprCall) -> usize {
         .unwrap_or(0)
 }
 
-fn is_sys_executable_expr(checker: &Checker, expr: &ast::Expr) -> bool {
+fn is_python_interpreter_expr(checker: &Checker, expr: &ast::Expr) -> bool {
     checker
         .indexer
         .resolve_qualified_name(expr)
         .is_some_and(|qn| qn.as_str() == "sys.executable")
+        || string_from_expr(expr, &checker.indexer)
+            .as_deref()
+            .is_some_and(super::is_python_like_command)
 }
 
 #[derive(Default, Clone, Copy)]
@@ -177,13 +180,13 @@ fn inspect_python_argv<'a>(
     executable: Option<&ast::Expr>,
 ) -> Option<PythonExecInfo<'a>> {
     let args = if let Some(executable) = executable {
-        if !is_sys_executable_expr(checker, executable) {
+        if !is_python_interpreter_expr(checker, executable) {
             return None;
         }
         parts
     } else {
         let (program, args) = parts.split_first()?;
-        if !is_sys_executable_expr(checker, program) {
+        if !is_python_interpreter_expr(checker, program) {
             return None;
         }
         args

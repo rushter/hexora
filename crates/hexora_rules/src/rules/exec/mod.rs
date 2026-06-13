@@ -31,7 +31,7 @@ impl ExecKind {
     }
 }
 
-fn is_python_like_command(command: &str) -> bool {
+pub(super) fn is_python_like_command(command: &str) -> bool {
     let lowered = command
         .rsplit(['/', '\\'])
         .next()

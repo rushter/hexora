@@ -93,8 +93,9 @@ mod tests {
     #[test_case("dunder_01.py", Rule::ObfuscatedShellExec, vec!["subprocess.call", "os.system"])]
     #[test_case("dunder_02.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.exec", "builtins.eval", "builtins.eval", "builtins.eval", "builtins.eval"])]
     #[test_case("dunder_03.py", Rule::DunderImport, vec!["__import__(\"sys\")"])]
-    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system", "subprocess.run"])]
+    #[test_case("exec_03.py", Rule::ObfuscatedShellExec, vec!["os.system", "os.system"])]
     #[test_case("exec_03.py", Rule::ObfuscatedCodeExec, vec!["builtins.exec", "builtins.exec"])]
+    #[test_case("exec_03.py", Rule::CodeExec, vec!["subprocess.run"])]
     fn test_dunder(path: &str, rule: Rule, expected_names: Vec<&str>) {
         assert_audit_results_by_name(path, rule, expected_names);
     }
