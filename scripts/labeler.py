@@ -309,18 +309,18 @@ HTML_PAGE = """<!DOCTYPE html>
       const result = await r.json();
       if (result.ok) {
         document.getElementById('modalOverlay').style.display = 'none';
-        archives.splice(currentIndex, 1);
-        if (archives.length === 0) {
-          document.getElementById('packageView').innerHTML = '<article><strong>All packages reviewed.</strong></article>';
-          document.getElementById('progress').textContent = 'Done';
-          document.getElementById('prevBtn').disabled = true;
-          document.getElementById('nextBtn').disabled = true;
-        } else if (currentIndex >= archives.length) {
-          currentIndex = archives.length - 1;
-          showCurrent();
-        } else {
-          showCurrent();
+        if (modalMode === 'benign') {
+          archives.splice(currentIndex, 1);
+          if (archives.length === 0) {
+            document.getElementById('packageView').innerHTML = '<article><strong>All packages reviewed.</strong></article>';
+            document.getElementById('progress').textContent = 'Done';
+            document.getElementById('prevBtn').disabled = true;
+            document.getElementById('nextBtn').disabled = true;
+            return;
+          }
+          if (currentIndex >= archives.length) currentIndex = archives.length - 1;
         }
+        showCurrent();
       } else {
         alert('Error: ' + (result.error || 'Unknown error'));
       }
