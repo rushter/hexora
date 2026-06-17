@@ -109,6 +109,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .actions { display: flex; gap: 0.5rem; }
     #status { margin-bottom: 1rem; }
     .binary-notice { font-style: italic; color: var(--muted-color); }
+    .btn-flagged { background: var(--ins-color, #2ecc71) !important; border-color: var(--ins-color, #2ecc71) !important; color: #fff !important; cursor: default !important; }
     .code-block { font-family: monospace; font-size: .875rem; line-height: 1.5; max-height: 600px; overflow: auto; border: 1px solid var(--muted-border-color); border-radius: 4px; margin: 0.5rem 0; }
     .code-line { display: flex; min-height: 1.5em; cursor: pointer; }
     .code-line:hover { background: var(--primary-hover-background, rgba(128,128,128,0.1)); }
@@ -149,6 +150,7 @@ HTML_PAGE = """<!DOCTYPE html>
     let modalFile = null;
     let modalLines = null;
     const selectedLines = new Map();
+    const flaggedFiles = new Set();
 
     function clearSelectedLines() {
       selectedLines.clear();
@@ -188,6 +190,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
     async function showCurrent() {
       clearSelectedLines();
+      flaggedFiles.clear();
       const pkg = archives[currentIndex];
       document.getElementById('progress').textContent = `${currentIndex + 1} / ${archives.length}`;
       document.getElementById('prevBtn').disabled = currentIndex === 0;
@@ -230,13 +233,22 @@ HTML_PAGE = """<!DOCTYPE html>
         }
         const label = getFlagButtonLabel(f.name);
         const hasSelected = selectedLines.get(f.name) && selectedLines.get(f.name).size > 0;
+        const isFlagged = flaggedFiles.has(f.name);
+        let btnsHtml;
+        if (isFlagged) {
+          btnsHtml = `<button class="btn-flagged" disabled>Flagged ✓</button>`;
+        } else {
+          btnsHtml = `
+            <button class="outline contrast flag-btn">${hasSelected ? 'Flag selected' : 'Flag'}</button>
+            <button class="outline flag-with-reason-btn">${hasSelected ? 'Flag selected w/ reason' : 'Flag w/ reason'}</button>
+          `;
+        }
         html += `
           <div class="file-card" data-file="${htmlEscape(f.name)}">
             <div class="file-header">
               <strong>${htmlEscape(f.name)}</strong>
               <div class="actions">
-                <button class="outline contrast flag-btn" data-note="0">${hasSelected ? 'Flag selected' : 'Flag'}</button>
-                <button class="outline flag-with-reason-btn">${hasSelected ? 'Flag selected w/ reason' : 'Flag w/ reason'}</button>
+                ${btnsHtml}
               </div>
             </div>
             ${contentHtml}
@@ -315,13 +327,23 @@ HTML_PAGE = """<!DOCTYPE html>
       showCurrent();
     }
 
+    function markFileFlagged(card, fileName) {
+      flaggedFiles.add(fileName);
+      const actions = card.querySelector('.file-header .actions');
+      actions.innerHTML = '<button class="btn-flagged" disabled>Flagged ✓</button>';
+    }
+
     async function flagFileWithoutReason(fileName, lines) {
+      if (flaggedFiles.has(fileName)) return;
       const f = currentFiles.find(x => x.name === fileName);
       const ok = await submitFlag({
         archive: archives[currentIndex], verdict: 'malicious', reason: '',
         file: fileName, lines: lines || null, code: f ? f.content : '',
       });
-      if (ok) afterFlagAdvance(false);
+      if (ok) {
+        const card = document.querySelector(`.file-card[data-file="${htmlEscape(fileName)}"]`);
+        if (card) markFileFlagged(card, fileName);
+      }
     }
 
     async function flagBenignWithoutReason() {
@@ -349,7 +371,12 @@ HTML_PAGE = """<!DOCTYPE html>
       const ok = await submitFlag(payload);
       if (ok) {
         document.getElementById('modalOverlay').style.display = 'none';
-        afterFlagAdvance(modalMode === 'benign');
+        if (modalMode === 'benign') {
+          afterFlagAdvance(true);
+        } else {
+          const card = document.querySelector(`.file-card[data-file="${htmlEscape(modalFile)}"]`);
+          if (card) markFileFlagged(card, modalFile);
+        }
       }
     };
 
@@ -397,12 +424,14 @@ HTML_PAGE = """<!DOCTYPE html>
         const card = e.target.closest('.file-card');
         if (!card) return;
         const { fileName, lines } = getFileSelections(card);
+        if (flaggedFiles.has(fileName)) return;
         flagFileWithoutReason(fileName, lines);
       }
       else if (e.target.classList.contains('flag-with-reason-btn')) {
         const card = e.target.closest('.file-card');
         if (!card) return;
         const { fileName, lines } = getFileSelections(card);
+        if (flaggedFiles.has(fileName)) return;
         openMaliciousModal(fileName, lines);
       }
       else if (e.target.closest('.code-line')) {
