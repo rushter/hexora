@@ -285,10 +285,6 @@ HTML_PAGE = """<!DOCTYPE html>
 
     document.getElementById('modalConfirm').onclick = async function() {
       const reason = document.getElementById('modalReason').value.trim();
-      if (!reason) {
-        alert('Please enter a reason / note.');
-        return;
-      }
       const archive = archives[currentIndex];
       const payload = {
         archive: archive,
