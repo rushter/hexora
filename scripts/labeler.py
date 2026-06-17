@@ -487,8 +487,8 @@ def main():
         sys.exit(1)
 
     port = int(os.environ.get("PORT", 8000))
-    server = http.server.HTTPServer(("0.0.0.0", port), LabelerHandler)
-    print(f"Labeler running on http://0.0.0.0:{port}")
+    server = http.server.HTTPServer(("127.0.0.1", port), LabelerHandler)
+    print(f"Labeler running on http://127.0.0.1:{port}")
     print(f"Packages directory: {PACKAGES_DIR}")
     print(f"Dataset file: {os.path.abspath(DATASET_FILE)}")
     try:
