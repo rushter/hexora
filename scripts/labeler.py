@@ -229,11 +229,15 @@ HTML_PAGE = """<!DOCTYPE html>
           contentHtml = renderCodeWithLines(decoded, f.name);
         }
         const label = getFlagButtonLabel(f.name);
+        const hasSelected = selectedLines.get(f.name) && selectedLines.get(f.name).size > 0;
         html += `
           <div class="file-card" data-file="${htmlEscape(f.name)}">
             <div class="file-header">
               <strong>${htmlEscape(f.name)}</strong>
-              <button class="outline contrast malicious-btn">${label}</button>
+              <div class="actions">
+                <button class="outline contrast flag-btn" data-note="0">${hasSelected ? 'Flag selected' : 'Flag'}</button>
+                <button class="outline flag-with-reason-btn">${hasSelected ? 'Flag selected w/ reason' : 'Flag w/ reason'}</button>
+              </div>
             </div>
             ${contentHtml}
           </div>
@@ -246,9 +250,12 @@ HTML_PAGE = """<!DOCTYPE html>
       }
 
       html += `
-        <footer style="display: flex; justify-content: space-between;">
+        <footer style="display: flex; justify-content: space-between; align-items: center;">
           <button class="outline secondary" id="skipBtn">Skip</button>
-          <button class="contrast" id="benignBtn">Flag as benign</button>
+          <div class="actions">
+            <button class="contrast" id="benignBtn">Benign</button>
+            <button class="outline" id="benignWithNoteBtn">Benign w/ note</button>
+          </div>
         </footer>
       </article>`;
       view.innerHTML = html;
@@ -283,6 +290,48 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('modalOverlay').style.display = 'none';
     };
 
+    async function submitFlag(payload) {
+      const r = await fetch('/api/flag', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const result = await r.json();
+      if (!result.ok) { alert('Error: ' + (result.error || 'Unknown')); return false; }
+      return true;
+    }
+
+    function afterFlagAdvance(isBenign) {
+      if (isBenign) {
+        archives.splice(currentIndex, 1);
+        if (archives.length === 0) {
+          document.getElementById('packageView').innerHTML = '<article><strong>All packages reviewed.</strong></article>';
+          document.getElementById('progress').textContent = 'Done';
+          document.getElementById('prevBtn').disabled = true;
+          document.getElementById('nextBtn').disabled = true;
+          return;
+        }
+        if (currentIndex >= archives.length) currentIndex = archives.length - 1;
+      }
+      showCurrent();
+    }
+
+    async function flagFileWithoutReason(fileName, lines) {
+      const f = currentFiles.find(x => x.name === fileName);
+      const ok = await submitFlag({
+        archive: archives[currentIndex], verdict: 'malicious', reason: '',
+        file: fileName, lines: lines || null, code: f ? f.content : '',
+      });
+      if (ok) afterFlagAdvance(false);
+    }
+
+    async function flagBenignWithoutReason() {
+      const ok = await submitFlag({
+        archive: archives[currentIndex], verdict: 'benign', reason: '',
+        file: '', lines: null, code: '',
+      });
+      if (ok) afterFlagAdvance(true);
+    }
+
     document.getElementById('modalConfirm').onclick = async function() {
       const reason = document.getElementById('modalReason').value.trim();
       const archive = archives[currentIndex];
@@ -297,28 +346,10 @@ HTML_PAGE = """<!DOCTYPE html>
         const f = currentFiles.find(x => x.name === modalFile);
         if (f) { payload.code = f.content; }
       }
-      const r = await fetch('/api/flag', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const result = await r.json();
-      if (result.ok) {
+      const ok = await submitFlag(payload);
+      if (ok) {
         document.getElementById('modalOverlay').style.display = 'none';
-        if (modalMode === 'benign') {
-          archives.splice(currentIndex, 1);
-          if (archives.length === 0) {
-            document.getElementById('packageView').innerHTML = '<article><strong>All packages reviewed.</strong></article>';
-            document.getElementById('progress').textContent = 'Done';
-            document.getElementById('prevBtn').disabled = true;
-            document.getElementById('nextBtn').disabled = true;
-            return;
-          }
-          if (currentIndex >= archives.length) currentIndex = archives.length - 1;
-        }
-        showCurrent();
-      } else {
-        alert('Error: ' + (result.error || 'Unknown error'));
+        afterFlagAdvance(modalMode === 'benign');
       }
     };
 
@@ -344,15 +375,34 @@ HTML_PAGE = """<!DOCTYPE html>
       if (currentIndex < archives.length - 1) { currentIndex++; showCurrent(); }
     };
 
+    function getFileSelections(card) {
+      const fileName = card.dataset.file;
+      const s = selectedLines.get(fileName);
+      return { fileName, lines: s && s.size > 0 ? Array.from(s).sort((a,b) => a-b) : null };
+    }
+
+    function updateFileButtonLabel(card, fileName) {
+      const hasSelected = selectedLines.get(fileName) && selectedLines.get(fileName).size > 0;
+      const btn = card.querySelector('.flag-btn');
+      const btnReason = card.querySelector('.flag-with-reason-btn');
+      if (btn) btn.textContent = hasSelected ? 'Flag selected' : 'Flag';
+      if (btnReason) btnReason.textContent = hasSelected ? 'Flag selected w/ reason' : 'Flag w/ reason';
+    }
+
     document.addEventListener('click', function(e) {
       if (e.target.id === 'skipBtn') { skipPackage(); }
-      else if (e.target.id === 'benignBtn') { openBenignModal(); }
-      else if (e.target.classList.contains('malicious-btn')) {
+      else if (e.target.id === 'benignBtn') { flagBenignWithoutReason(); }
+      else if (e.target.id === 'benignWithNoteBtn') { openBenignModal(); }
+      else if (e.target.classList.contains('flag-btn')) {
         const card = e.target.closest('.file-card');
         if (!card) return;
-        const fileName = card.dataset.file;
-        const s = selectedLines.get(fileName);
-        const lines = s && s.size > 0 ? Array.from(s).sort((a,b) => a-b) : null;
+        const { fileName, lines } = getFileSelections(card);
+        flagFileWithoutReason(fileName, lines);
+      }
+      else if (e.target.classList.contains('flag-with-reason-btn')) {
+        const card = e.target.closest('.file-card');
+        if (!card) return;
+        const { fileName, lines } = getFileSelections(card);
         openMaliciousModal(fileName, lines);
       }
       else if (e.target.closest('.code-line')) {
@@ -363,8 +413,7 @@ HTML_PAGE = """<!DOCTYPE html>
         const lineno = parseInt(line.dataset.lineno);
         toggleLine(fileName, lineno);
         line.classList.toggle('selected');
-        const btn = card.querySelector('.malicious-btn');
-        if (btn) btn.textContent = getFlagButtonLabel(fileName);
+        updateFileButtonLabel(card, fileName);
       }
       else if (e.target === document.getElementById('modalOverlay')) {
         document.getElementById('modalOverlay').style.display = 'none';
