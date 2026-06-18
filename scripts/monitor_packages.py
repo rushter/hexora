@@ -405,10 +405,10 @@ def format_score_alert_message(
     for result in sorted(
         high_score_results, key=lambda r: -r.get("score", 0.0)
     ):
-        file_path = result.get("path", "unknown")
+        file_path = result.get("archive_path") or result.get("path", "unknown")
         file_score = result.get("score", 0.0)
         lines.append("")
-        lines.append(f"{file_path} (ML score: {float(file_score):.2f})")
+        lines.append(f"{file_path} (ML score: {float(file_score):.4f})")
         items = result.get("items", [])
         if isinstance(items, list):
             count = 0
