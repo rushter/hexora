@@ -1,5 +1,6 @@
 use crate::audit::result::AuditResult;
 use hexora_io::list_python_files;
+use hexora_ml::{ScoreModel, extract_features};
 use log::{debug, error};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,11 +17,20 @@ fn audit_file_with_content(
     archive_path: Option<PathBuf>,
     source_code: String,
 ) -> Result<AuditResult, String> {
-    let audit_items = hexora_rules::audit_source(&source_code, Some(&file_path))?;
+    let prepared = hexora_semantic::analysis::prepare_source(&source_code)?;
+    let audit_items = hexora_rules::audit_prepared(&prepared, Some(&file_path))?;
+
+    let features = prepared.with_original_indexed(|analyzed| {
+        extract_features(&analyzed, &source_code, &audit_items)
+    });
+    let score = ScoreModel::default().predict(&features).unwrap_or(0.0);
+
     Ok(AuditResult {
         path: file_path,
         archive_path,
         items: audit_items,
+        features,
+        score,
         source_code,
     })
 }

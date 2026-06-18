@@ -102,10 +102,25 @@ struct AuditOptions {
     #[arg(
         long,
         default_value = "0",
-        help = "Minimum total score for a file to be included in the results."
+        help = "Minimum machine-learning score (0.0 to 1.0) for a file to be included in the results."
     )]
-    min_score: u32,
+    min_score: f64,
 }
+#[derive(Args, Clone, Debug)]
+struct GenerateFeaturesOptions {
+    #[arg(long, help = "Path to the JSON lines dataset file.", required = true)]
+    input_path: PathBuf,
+
+    #[arg(
+        long,
+        help = "Output path for generated features. If not specified, results will be written to stdout."
+    )]
+    output_path: Option<PathBuf>,
+
+    #[arg(long, help = "Maximum number of entries to process.")]
+    limit: Option<usize>,
+}
+
 #[derive(Args, Clone, Debug)]
 struct BenchmarkOptions {
     #[arg(
@@ -149,6 +164,12 @@ enum Commands {
         opts: BenchmarkOptions,
     },
 
+    /// Generate features from a JSON lines dataset file.
+    GenerateFeatures {
+        #[command(flatten)]
+        opts: GenerateFeaturesOptions,
+    },
+
     /// This command is used to safely inspect archived malicious package.
     DumpPackage {
         #[arg(help = "Path to the zip file.", index = 1)]
@@ -180,8 +201,9 @@ fn write_annotations(
     archive_path: Option<&Path>,
     source_code: &str,
     colored: bool,
+    score: f64,
 ) {
-    match annotate_result(item, path, archive_path, source_code, colored) {
+    match annotate_result(item, path, archive_path, source_code, colored, score) {
         Ok(annotation) => {
             writeln!(file_out, "{}", annotation)
                 .unwrap_or_else(|e| error!("Failed to write annotation: {:?}", e));
@@ -246,6 +268,7 @@ impl AuditOutput {
                         result.archive_path.as_deref(),
                         &result.source_code,
                         self.colored,
+                        result.score,
                     );
                 }
                 OutputFormat::Json => {
@@ -272,10 +295,6 @@ fn filter_audit_items<'a>(
     result
         .filter_items(include, exclude, min_confidence)
         .collect()
-}
-
-fn audit_items_score(items: &[&AuditItem]) -> u32 {
-    items.iter().map(|item| item.confidence as u32).sum()
 }
 
 fn validate_cli_codes(codes: &HashSet<String>) {
@@ -320,7 +339,7 @@ fn audit_python_files(opts: &AuditOptions) {
         Ok(results) => {
             for result in results {
                 let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
-                if audit_items_score(&filtered) < opts.min_score {
+                if result.file_score() < opts.min_score {
                     continue;
                 }
 
@@ -376,6 +395,13 @@ pub fn run_cli(start_arg: usize) {
                 }
             }
         }
+        Commands::GenerateFeatures { opts } => {
+            hexora_ml::generate_features_from_dataset(
+                &opts.input_path,
+                opts.output_path.as_deref(),
+                opts.limit,
+            );
+        }
         Commands::DumpPackage { path, filter } => {
             if let Err(e) = hexora_io::dump_package(&path, filter.as_deref()) {
                 error!("Dump package failed: {}", e);
@@ -413,7 +439,7 @@ mod tests {
             exclude: Vec::new(),
             include: Vec::new(),
             min_confidence: AuditConfidence::Low,
-            min_score: 0,
+            min_score: 0.0,
         }
     }
 
@@ -424,20 +450,22 @@ mod tests {
                 item(Rule::SuspiciousLiteral, AuditConfidence::High),
                 item(Rule::EnvAccess, AuditConfidence::Low),
             ],
+            features: hexora_ml::FeatureRecord::default(),
             path: PathBuf::from("sample.py"),
             archive_path: None,
+            score: 0.25,
             source_code: "print('x')".to_string(),
         };
 
         let mut opts = audit_options();
         opts.exclude = vec![Rule::SuspiciousLiteral.code().to_string()];
-        opts.min_score = 2;
+        opts.min_score = 0.5;
 
         let include: HashSet<_> = opts.include.iter().cloned().collect();
         let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
         let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
         assert_eq!(filtered.len(), 1);
-        assert_eq!(audit_items_score(&filtered), AuditConfidence::Low as u32);
-        assert!(result.file_score() > audit_items_score(&filtered));
+        assert_eq!(filtered[0].confidence, AuditConfidence::Low);
+        assert!(result.file_score() < opts.min_score);
     }
 }

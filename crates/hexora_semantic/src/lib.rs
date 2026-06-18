@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod assignment;
 pub mod expression_handler;
 pub mod index;

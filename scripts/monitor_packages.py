@@ -46,6 +46,7 @@ DEFAULT_POLL_SECONDS = 300
 MAX_STORED_PACKAGES = 500
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
+SCORE_THRESHOLD = 0.75
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 _ALERTS_CACHE: set[tuple[str, str]] = set()
 _MAX_ALERTS_CACHE_SIZE = 5000
@@ -368,12 +369,61 @@ def format_alert_message(
         "Hexora high-confidence match detected\n"
         f"Package: {entry.package_name} {entry.version}\n"
         f"Link: {entry.link}\n"
+        f"Inspector: https://inspector.pypi.io/project/{entry.package_name}/{entry.version}/\n"
         f"File: {package_file}\n"
         f"Very-high findings: {len(very_high_items)}\n"
         f"Rules:\n{rule_block}\n\n"
         f"Annotated code:\n{annotation_block}"
     )
 
+    return shorten_text(message, TELEGRAM_MAX_MESSAGE_LENGTH)
+
+
+def format_score_alert_message(
+    entry: FeedEntry,
+    package_file: Path,
+    high_score_results: list[dict[str, Any]],
+) -> str | None:
+    global _ALERTS_CACHE
+    key = (entry.package_name, "__score__")
+    if key in _ALERTS_CACHE:
+        logging.info("Skipping duplicate score alert for %s (already sent)", entry.key)
+        return None
+    _ALERTS_CACHE.add(key)
+    if len(_ALERTS_CACHE) > _MAX_ALERTS_CACHE_SIZE:
+        _ALERTS_CACHE.clear()
+
+    lines: list[str] = [
+        "Hexora high ML-score file detected",
+        f"Package: {entry.package_name} {entry.version}",
+        f"Link: {entry.link}",
+        f"Inspector: https://inspector.pypi.io/project/{entry.package_name}/{entry.version}/",
+        f"File: {package_file}",
+        f"Files exceeding score {SCORE_THRESHOLD}: {len(high_score_results)}",
+    ]
+
+    for result in sorted(
+        high_score_results, key=lambda r: -r.get("score", 0.0)
+    ):
+        file_path = result.get("path", "unknown")
+        file_score = result.get("score", 0.0)
+        lines.append("")
+        lines.append(f"{file_path} (ML score: {float(file_score):.2f})")
+        items = result.get("items", [])
+        if isinstance(items, list):
+            count = 0
+            for item in items:
+                if count >= 5:
+                    break
+                rule = item.get("rule", "?")
+                confidence = item.get("confidence", "?")
+                description = item.get("description", "")
+                lines.append(f"  - {rule} ({confidence}) - {description}")
+                count += 1
+            if len(items) > 5:
+                lines.append(f"  ... and {len(items) - 5} more findings")
+
+    message = "\n".join(lines)
     return shorten_text(message, TELEGRAM_MAX_MESSAGE_LENGTH)
 
 
@@ -414,6 +464,7 @@ def process_entry(
 
     high_or_higher_items: list[dict[str, Any]] = []
     excluded_file_results = 0
+    high_score_results: list[dict[str, Any]] = []
     for per_file_result in audit_result:
         if should_exclude_result(per_file_result):
             excluded_file_results += 1
@@ -421,6 +472,9 @@ def process_entry(
         high_or_higher_items.extend(
             get_confidence_items(per_file_result, HIGH_OR_HIGHER_LEVELS)
         )
+        file_score = per_file_result.get("score", 0.0)
+        if isinstance(file_score, (int, float)) and file_score > SCORE_THRESHOLD:
+            high_score_results.append(per_file_result)
     if excluded_file_results:
         logging.info(
             "Excluded %d file-level results for %s based on path filters",
@@ -429,12 +483,23 @@ def process_entry(
         )
     log_confidence_items(entry, high_or_higher_items)
 
+    if high_score_results:
+        for per_file_result in high_score_results:
+            file_path = per_file_result.get("path", "unknown")
+            file_score = per_file_result.get("score", 0.0)
+            items = per_file_result.get("items", [])
+            logging.warning(
+                "File %s has ML score %.4f (threshold: %.2f) with %d findings",
+                file_path, file_score, SCORE_THRESHOLD,
+                len(items) if isinstance(items, list) else 0,
+            )
+
     very_high_items: list[dict[str, Any]] = []
     for per_file_result in audit_result:
         if should_exclude_result(per_file_result):
             continue
         very_high_items.extend(get_confidence_items(per_file_result, {VERY_HIGH_LEVEL}))
-    if not very_high_items:
+    if not very_high_items and not high_score_results:
         logging.info("No very-high findings for %s", entry.key)
         if package_file.exists():
             try:
@@ -471,6 +536,20 @@ def process_entry(
             "Telegram credentials are not configured, skipping alert for %s",
             entry.key,
         )
+
+    if high_score_results and telegram_token and telegram_chat_id:
+        try:
+            score_message = format_score_alert_message(
+                entry, package_file, high_score_results,
+            )
+            if score_message is not None:
+                notify_telegram(telegram_token, telegram_chat_id, score_message)
+                logging.info("Telegram score alert sent for %s", entry.key)
+        except Exception as exc:
+            logging.error(
+                "Failed to send Telegram score alert for %s: %s",
+                entry.key, exc,
+            )
 
 
 def monitor(

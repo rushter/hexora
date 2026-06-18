@@ -591,6 +591,7 @@ dependencies = [
  "codespan-reporting",
  "env_logger",
  "hexora_io",
+ "hexora_ml",
  "hexora_rules",
  "hexora_semantic",
  "log",
@@ -617,6 +618,20 @@ dependencies = [
  "tempfile",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "hexora_ml"
+version = "0.2.4"
+dependencies = [
+ "hexora_io",
+ "hexora_rules",
+ "hexora_semantic",
+ "log",
+ "ruff_python_ast",
+ "serde",
+ "serde_json",
+ "strum",
 ]
 
 [[package]]

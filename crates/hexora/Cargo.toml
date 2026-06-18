@@ -21,6 +21,7 @@ name = "hexora"
 path = "src/main.rs"
 
 [dependencies]
+hexora_ml = { path = "../hexora_ml" }
 hexora_rules = { path = "../hexora_rules" }
 hexora_semantic = { path = "../hexora_semantic" }
 hexora_io = { path = "../hexora_io" }

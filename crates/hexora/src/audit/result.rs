@@ -1,4 +1,5 @@
 use crate::audit::annotate::annotate_results;
+use hexora_ml::FeatureRecord;
 pub use hexora_rules::result::{AuditConfidence, AuditItem};
 use log::error;
 use serde::Serialize;
@@ -9,8 +10,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct AuditResult {
     pub items: Vec<AuditItem>,
+    pub features: FeatureRecord,
     pub path: PathBuf,
     pub archive_path: Option<PathBuf>,
+    pub score: f64,
     pub source_code: String,
 }
 
@@ -25,8 +28,8 @@ fn sha256_path(path: &Path) -> String {
 }
 
 impl AuditResult {
-    pub fn file_score(&self) -> u32 {
-        self.items.iter().map(|item| item.confidence as u32).sum()
+    pub fn file_score(&self) -> f64 {
+        self.score
     }
 
     pub fn filter_items<'a>(

@@ -410,6 +410,15 @@ impl<'a> NodeIndexer<'a> {
         None
     }
 
+    pub fn bindings(&self) -> impl Iterator<Item = (&str, &SymbolBinding<'a>)> {
+        self.scope_stack.iter().flat_map(|scope| {
+            scope
+                .symbols
+                .iter()
+                .map(|(name, binding)| (name.as_str(), binding))
+        })
+    }
+
     pub(crate) fn lookup_binding_mut(&mut self, name: &str) -> Option<&mut SymbolBinding<'a>> {
         if !self.scope_stack.is_empty() {
             let mut index = self.scope_stack.len() - 1;

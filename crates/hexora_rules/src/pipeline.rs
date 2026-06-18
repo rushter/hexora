@@ -1,33 +1,24 @@
 use crate::checker::Checker;
 use crate::result::{AuditConfidence, AuditItem, Rule};
 use crate::rules::dunder::collect_importlib_imports;
-use hexora_io::locator::Locator;
-use hexora_semantic::index::NodeIndexer;
-use hexora_semantic::node_transformer::NodeTransformer;
-use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
-use ruff_python_ast::visitor::transformer::Transformer;
-use ruff_python_ast::{self as ast};
+use hexora_semantic::analysis::{PreparedAnalysis, prepare_source};
 use std::path::Path;
 
 pub fn audit_source(source: &str, file_path: Option<&Path>) -> Result<Vec<AuditItem>, String> {
-    let parsed = ruff_python_parser::parse_unchecked_source(source, ast::PySourceType::Python);
-    let locator = Locator::new(source);
-    let python_ast = parsed.suite();
+    let prepared = prepare_source(source)?;
+    audit_prepared(&prepared, file_path)
+}
 
-    let mut indexer = NodeIndexer::new();
-    indexer.visit_body(python_ast);
-    indexer.index_comments(parsed.tokens());
-    let mut audit_results = collect_importlib_imports(python_ast, &indexer);
+pub fn audit_prepared(
+    prepared: &PreparedAnalysis<'_>,
+    file_path: Option<&Path>,
+) -> Result<Vec<AuditItem>, String> {
+    let indexer = prepared.original_indexer();
+    let mut audit_results = collect_importlib_imports(prepared.original_ast(), &indexer);
 
-    let mut transformed_ast = python_ast.to_vec();
-    let transformer = NodeTransformer::new(&locator, indexer);
-    transformer.visit_body(&mut transformed_ast);
-
-    let mut indexer = transformer.indexer;
-    indexer.clear_state();
-    let mut checker = Checker::new(&locator, indexer);
+    let mut checker = Checker::new(&prepared.locator, prepared.checker_indexer());
     checker.check_comments();
-    checker.visit_body(&transformed_ast);
+    checker.visit_body(&prepared.transformed_ast);
 
     audit_results.extend(checker.audit_results);
     elevate_setup_py_confidence(&mut audit_results, file_path);

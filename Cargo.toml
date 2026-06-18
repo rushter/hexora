@@ -4,6 +4,7 @@ resolver = "2"
 default-members = [
     "crates/hexora",
     "crates/hexora_io",
+    "crates/hexora_ml",
     "crates/hexora_semantic",
     "crates/hexora_rules",
 ]
