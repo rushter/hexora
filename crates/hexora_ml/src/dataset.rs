@@ -54,11 +54,7 @@ mod tests {
         features.insert("source.num_lines", 10.0);
         features.insert("source.num_bytes", 42.0);
 
-        let row = LabeledFeatureRow::new(
-            features,
-            "benign".to_string(),
-            "sample.py".to_string(),
-        );
+        let row = LabeledFeatureRow::new(features, "benign".to_string(), "sample.py".to_string());
 
         let json = serde_json::to_string(&row).unwrap();
         assert!(json.contains("\"source.num_lines\":10.0"));
@@ -70,11 +66,7 @@ mod tests {
     #[test]
     fn test_labeled_feature_row_verdict_values() {
         let features = FeatureRecord::new();
-        let row = LabeledFeatureRow::new(
-            features,
-            "malicious".to_string(),
-            "evil.py".to_string(),
-        );
+        let row = LabeledFeatureRow::new(features, "malicious".to_string(), "evil.py".to_string());
 
         let json = serde_json::to_value(&row).unwrap();
         assert_eq!(json["_label"], "malicious");

@@ -49,8 +49,15 @@ fn map_audit_result(result: CoreAuditResult) -> AuditResult {
         .items
         .into_iter()
         .map(|item| {
-            let annotation =
-                annotate_result(&item, &path, archive_path.as_deref(), &source_code, false, score).ok();
+            let annotation = annotate_result(
+                &item,
+                &path,
+                archive_path.as_deref(),
+                &source_code,
+                false,
+                score,
+            )
+            .ok();
 
             AuditItem { item, annotation }
         })

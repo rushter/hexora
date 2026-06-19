@@ -15,10 +15,8 @@ struct DatasetEntry {
 }
 
 pub fn process_raw_entry(code_b64: &str, file: &str, verdict: &str) -> Result<String, String> {
-    let bytes =
-        base64_decode(code_b64, false).ok_or_else(|| "invalid base64 code".to_string())?;
-    let code =
-        String::from_utf8(bytes).map_err(|e| format!("code is not valid UTF-8: {}", e))?;
+    let bytes = base64_decode(code_b64, false).ok_or_else(|| "invalid base64 code".to_string())?;
+    let code = String::from_utf8(bytes).map_err(|e| format!("code is not valid UTF-8: {}", e))?;
     let file_path = Path::new(file);
     let features = extract_features_from_source(&code, file_path)?;
     let row = LabeledFeatureRow::new(features, verdict.to_string(), file.to_string());
@@ -135,8 +133,16 @@ mod tests {
         for line in &lines {
             let value: serde_json::Value = serde_json::from_str(line).unwrap();
             assert!(value.get("_label").is_some(), "Missing _label in: {}", line);
-            assert!(value.get("_file_path").is_some(), "Missing _file_path in: {}", line);
-            assert!(value.get("source.num_lines").is_some(), "Missing feature in: {}", line);
+            assert!(
+                value.get("_file_path").is_some(),
+                "Missing _file_path in: {}",
+                line
+            );
+            assert!(
+                value.get("source.num_lines").is_some(),
+                "Missing feature in: {}",
+                line
+            );
         }
 
         assert_eq!(lines[0].contains("\"_label\":\"benign\""), true);

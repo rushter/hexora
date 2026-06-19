@@ -93,7 +93,9 @@ pub fn annotate_result(
             .with_note({
                 let mut note = String::new();
                 note.push_str(format!("Confidence: {:?}\n", &item.confidence).as_str());
-                note.push_str(format!("Machine learning based score for file: {:.2}\n", score).as_str());
+                note.push_str(
+                    format!("Machine learning based score for file: {:.2}\n", score).as_str(),
+                );
                 if let Some(help_msg) = item.rule.help() {
                     note.push_str(format!("Help: {}", help_msg).as_str());
                 }

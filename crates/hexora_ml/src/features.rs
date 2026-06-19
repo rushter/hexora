@@ -30,9 +30,8 @@ pub fn extract_features(
 pub fn extract_features_from_source(code: &str, file_path: &Path) -> Result<FeatureRecord, String> {
     let prepared = hexora_semantic::analysis::prepare_source(code)?;
     let items = hexora_rules::audit_prepared(&prepared, Some(file_path))?;
-    let features = prepared.with_original_indexed(|analyzed| {
-        extract_features(&analyzed, code, &items)
-    });
+    let features =
+        prepared.with_original_indexed(|analyzed| extract_features(&analyzed, code, &items));
     Ok(features)
 }
 

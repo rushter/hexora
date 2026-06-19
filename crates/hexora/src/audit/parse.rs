@@ -20,9 +20,8 @@ fn audit_file_with_content(
     let prepared = hexora_semantic::analysis::prepare_source(&source_code)?;
     let audit_items = hexora_rules::audit_prepared(&prepared, Some(&file_path))?;
 
-    let features = prepared.with_original_indexed(|analyzed| {
-        extract_features(&analyzed, &source_code, &audit_items)
-    });
+    let features = prepared
+        .with_original_indexed(|analyzed| extract_features(&analyzed, &source_code, &audit_items));
     let score = ScoreModel::default().predict(&features).unwrap_or(0.0);
 
     Ok(AuditResult {
