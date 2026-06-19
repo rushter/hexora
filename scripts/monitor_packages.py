@@ -441,11 +441,11 @@ def process_entry(
     output_dir: Path,
     telegram_token: str | None,
     telegram_chat_id: str | None,
-) -> None:
+) -> bool:
     sdist_url = get_sdist_url(entry.package_name, entry.version)
     if not sdist_url:
         logging.info("No source distribution found for %s", entry.key)
-        return
+        return False
 
     package_file = make_download_path(
         output_dir, entry.package_name, entry.version, sdist_url
@@ -458,7 +458,13 @@ def process_entry(
 
     audit_result = run_hexora_audit(package_file)
     if audit_result is None:
-        return
+        if package_file.exists():
+            try:
+                package_file.unlink()
+                logging.info("Removed package archive (audit failed): %s", package_file)
+            except Exception as exc:
+                logging.error("Failed to remove %s: %s", package_file, exc)
+        return False
 
     high_or_higher_items: list[dict[str, Any]] = []
     excluded_file_results = 0
@@ -507,7 +513,7 @@ def process_entry(
                 logging.info("Removed non-very-high package archive %s", package_file)
             except Exception as exc:
                 logging.error("Failed to remove %s: %s", package_file, exc)
-        return
+        return False
 
     very_high_annotations = get_item_annotations(very_high_items)
     if very_high_annotations:
@@ -523,12 +529,14 @@ def process_entry(
     else:
         logging.warning("No annotations found for very-high findings in %s", entry.key)
 
+    alert_sent = False
     if very_high_items:
         if telegram_token and telegram_chat_id:
             try:
                 message = format_alert_message(entry, package_file, very_high_items)
                 if message is not None:
                     notify_telegram(telegram_token, telegram_chat_id, message)
+                    alert_sent = True
                     logging.info("Telegram alert sent for %s", entry.key)
             except Exception as exc:
                 logging.error(
@@ -549,6 +557,7 @@ def process_entry(
             )
             if score_message is not None:
                 notify_telegram(telegram_token, telegram_chat_id, score_message)
+                alert_sent = True
                 logging.info("Telegram score alert sent for %s", entry.key)
         except Exception as exc:
             logging.error(
@@ -556,6 +565,15 @@ def process_entry(
                 entry.key,
                 exc,
             )
+
+    if not alert_sent and package_file.exists():
+        try:
+            package_file.unlink()
+            logging.info("Removed package archive (no alert sent): %s", package_file)
+        except Exception as exc:
+            logging.error("Failed to remove %s: %s", package_file, exc)
+
+    return alert_sent
 
 
 def monitor(
