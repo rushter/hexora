@@ -100,6 +100,13 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
     record.insert("ast.num_imports", collector.num_imports as f64);
     record.insert("ast.num_import_froms", collector.num_import_froms as f64);
 
+    let cyclomatic_complexity = 1 + collector.cyclomatic_complexity;
+    record.insert("ast.cyclomatic_complexity", cyclomatic_complexity as f64);
+    record.insert(
+        "ast.cyclomatic_complexity_per_fn",
+        cyclomatic_complexity as f64 / collector.num_functions.max(1) as f64,
+    );
+
     for (kind, count) in collector.stmt_counts {
         record.insert(format!("stmt.{kind}"), count as f64);
     }
@@ -272,6 +279,7 @@ struct AstFeatureCollector {
     num_imports: usize,
     num_import_froms: usize,
     string_literals: Vec<String>,
+    cyclomatic_complexity: usize,
 }
 
 impl AstFeatureCollector {
@@ -321,6 +329,26 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
             Stmt::ClassDef(_) => self.num_classes += 1,
             Stmt::Import(_) => self.num_imports += 1,
             Stmt::ImportFrom(_) => self.num_import_froms += 1,
+            Stmt::If(stmt_if) => {
+                self.cyclomatic_complexity += 1;
+                self.cyclomatic_complexity += stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .filter(|c| c.test.is_some())
+                    .count();
+            }
+            Stmt::While(_) | Stmt::For(_) => self.cyclomatic_complexity += 1,
+            Stmt::Try(stmt_try) => {
+                self.cyclomatic_complexity += stmt_try.handlers.len();
+            }
+            Stmt::Match(stmt_match) => {
+                self.cyclomatic_complexity += stmt_match.cases.len();
+                self.cyclomatic_complexity += stmt_match
+                    .cases
+                    .iter()
+                    .filter(|c| c.guard.is_some())
+                    .count();
+            }
             _ => {}
         }
         walk_stmt(self, stmt);
@@ -340,6 +368,10 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
                 self.string_literals
                     .push(String::from_utf8_lossy(&bytes).into_owned());
             }
+            Expr::BoolOp(bool_op) => {
+                self.cyclomatic_complexity += bool_op.values.len().saturating_sub(1);
+            }
+            Expr::If(_) => self.cyclomatic_complexity += 1,
             _ => {}
         }
         walk_expr(self, expr);
@@ -570,5 +602,97 @@ exec(payload)
         assert!(features.len() > 0);
         let has_rule_hits = features.get("rule.total_hits").unwrap_or(0.0) > 0.0;
         assert!(has_rule_hits, "Expected rule hits but got none");
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_base() {
+        let code = "x = 1\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 1.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_if() {
+        let code = "if x:\n    pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_if_elif() {
+        let code = "if a:\n    pass\nelif b:\n    pass\nelse:\n    pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_for() {
+        let code = "for i in range(10):\n    pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_while_for_nested() {
+        let code = "while True:\n    for x in y:\n        pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_try() {
+        let code = "try:\n    pass\nexcept:\n    pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_multiple_except() {
+        let code = "try:\n    pass\nexcept ValueError:\n    pass\nexcept TypeError:\n    pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_bool_op() {
+        let code = "x = a and b\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_ternary() {
+        let code = "x = a if cond else b\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_match() {
+        let code = "match x:\n    case 1:\n        pass\n    case 2:\n        pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.cyclomatic_complexity").unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_per_fn() {
+        let code = "def foo():\n    if x:\n        pass\n";
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(features.get("ast.num_functions").unwrap(), 1.0);
+        assert_eq!(
+            features.get("ast.cyclomatic_complexity_per_fn").unwrap(),
+            2.0
+        );
     }
 }
