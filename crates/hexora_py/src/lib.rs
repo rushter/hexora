@@ -18,6 +18,7 @@ pub struct AuditResult {
     pub items: Vec<AuditItem>,
     pub path: PathBuf,
     pub archive_path: Option<PathBuf>,
+    pub score: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,14 +42,22 @@ fn is_archive_path(path: &std::path::Path) -> bool {
 fn map_audit_result(result: CoreAuditResult) -> AuditResult {
     let path = result.path;
     let archive_path = result.archive_path;
+    let score = result.score;
     let source_code = result.source_code;
 
     let items = result
         .items
         .into_iter()
         .map(|item| {
-            let annotation =
-                annotate_result(&item, &path, archive_path.as_deref(), &source_code, false).ok();
+            let annotation = annotate_result(
+                &item,
+                &path,
+                archive_path.as_deref(),
+                &source_code,
+                false,
+                score,
+            )
+            .ok();
 
             AuditItem { item, annotation }
         })
@@ -58,6 +67,7 @@ fn map_audit_result(result: CoreAuditResult) -> AuditResult {
         items,
         path,
         archive_path,
+        score,
     }
 }
 

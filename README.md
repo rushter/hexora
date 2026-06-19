@@ -4,6 +4,7 @@
 
 
 Hexora is a static analysis tool designed to detect malicious and harmful patterns in Python code.
+It combines a rule-based static analysis engine with a machine-learned model that scores entire source files to classify them as malicious or benign.
 
 It can be used to:
 
@@ -57,6 +58,7 @@ warning[HX2000]: Reading from the clipboard can be used to exfiltrate sensitive 
   │
   = Confidence: High
     Help: Clipboard access can be used to exfiltrate sensitive data such as passwords and keys.
+    Machine learning based score for file: 0.93
 
 warning[HX3000]: Possible execution of unwanted code
    ┌─ resources/test/test.py:20:1
