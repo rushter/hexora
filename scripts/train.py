@@ -67,7 +67,7 @@ def main():
         random_seed=1337,
         l2_leaf_reg=15,
         min_data_in_leaf=3,
-        class_weights=(5, 1),
+        class_weights=(3, 1),
         eval_metric="PRAUC",
         random_strength=2,
     )
