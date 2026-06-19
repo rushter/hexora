@@ -29,7 +29,10 @@ crates/hexora_ml/src/model.json.
 # ///
 
 import argparse
+import gzip
 import logging
+import os
+import shutil
 
 import catboost
 import polars as pl
@@ -57,22 +60,32 @@ def main():
     df = df.fill_null(0).drop(["_label", "_file_path"])
 
     model = catboost.CatBoostClassifier(
-        iterations=200,
-        depth=6,
-        learning_rate=0.01,
+        iterations=350,
+        depth=5,
+        learning_rate=0.03,
         verbose=0,
         random_seed=1337,
+        l2_leaf_reg=15,
+        min_data_in_leaf=3,
+        class_weights=(5, 1),
+        eval_metric="PRAUC",
+        random_strength=2,
     )
 
     logging.info("Running 5-fold cross-validation")
     scores = cross_val_score(model, df, y, cv=5, scoring="precision")
     print(f"Scores: {scores}")
-    print(f"Mean accuracy: {scores.mean():.6f}  Std: {scores.std():.6f}")
+    print(f"Mean precision: {scores.mean():.6f}  Std: {scores.std():.6f}")
 
     logging.info("Training final model on full dataset")
     model.fit(df, y)
-    model.save_model("crates/hexora_ml/src/model.json", format="json")
-    logging.info("Model saved to crates/hexora_ml/src/model.json")
+    path = "crates/hexora_ml/src/model.json"
+    model.save_model(path, format="json")
+    with open(path, "rb") as f_in:
+        with gzip.open(f"{path}.gz", "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    os.remove(path)
+    logging.info("Model saved to %s.gz", path)
 
 
 if __name__ == "__main__":

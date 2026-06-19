@@ -624,6 +624,7 @@ dependencies = [
 name = "hexora_ml"
 version = "0.2.4"
 dependencies = [
+ "flate2",
  "hexora_io",
  "hexora_rules",
  "hexora_semantic",

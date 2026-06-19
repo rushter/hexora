@@ -10,9 +10,20 @@
 
 use crate::schema::FeatureRecord;
 use serde::Deserialize;
-use std::{fmt, fs::File, io::BufReader, path::Path};
+use std::{fmt, fs::File, io::BufReader, path::Path, sync::OnceLock};
 
-const MODEL_JSON: &str = include_str!("model.json");
+static MODEL_JSON: OnceLock<String> = OnceLock::new();
+
+fn decompress_model() -> &'static str {
+    MODEL_JSON.get_or_init(|| {
+        let compressed = include_bytes!("model.json.gz");
+        let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut decoder, &mut s)
+            .expect("failed to decompress embedded model");
+        s
+    })
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -216,7 +227,7 @@ impl ScoreModel {
     }
 
     pub fn embedded() -> Result<Self, serde_json::Error> {
-        CatBoost::try_from_json(MODEL_JSON).map(|catboost| Self { catboost })
+        CatBoost::try_from_json(decompress_model()).map(|catboost| Self { catboost })
     }
 
     pub fn predict(&self, record: &FeatureRecord) -> Result<f64, InferenceError> {
@@ -244,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_embedded_model_predictions() {
-        let model = ScoreModel::embedded().unwrap();
+        let model = ScoreModel::load(Path::new("resources/test/model.json")).unwrap();
         let data = fs::read_to_string("resources/test/dataset.json").unwrap();
         let expected = [
             0.0040038, 0.01497678, 0.00442786, 0.00387944, 0.00239373, 0.93382871, 0.97137932,
