@@ -60,3 +60,5 @@ samples/
 pypi
 dumped/
 pypi_packages/
+.ipynb_checkpoints/
+catboost_info
