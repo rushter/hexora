@@ -405,7 +405,7 @@ def format_score_alert_message(
     for result in sorted(
         high_score_results, key=lambda r: -r.get("score", 0.0)
     ):
-        file_path = result.get("archive_path") or result.get("path", "unknown")
+        file_path = result.get("path", "unknown")
         file_score = result.get("score", 0.0)
         lines.append("")
         lines.append(f"{file_path} (ML score: {float(file_score):.4f})")
@@ -523,19 +523,20 @@ def process_entry(
     else:
         logging.warning("No annotations found for very-high findings in %s", entry.key)
 
-    if telegram_token and telegram_chat_id:
-        try:
-            message = format_alert_message(entry, package_file, very_high_items)
-            if message is not None:
-                notify_telegram(telegram_token, telegram_chat_id, message)
-                logging.info("Telegram alert sent for %s", entry.key)
-        except Exception as exc:
-            logging.error("Failed to send Telegram alert for %s: %s", entry.key, exc)
-    else:
-        logging.warning(
-            "Telegram credentials are not configured, skipping alert for %s",
-            entry.key,
-        )
+    if very_high_items:
+        if telegram_token and telegram_chat_id:
+            try:
+                message = format_alert_message(entry, package_file, very_high_items)
+                if message is not None:
+                    notify_telegram(telegram_token, telegram_chat_id, message)
+                    logging.info("Telegram alert sent for %s", entry.key)
+            except Exception as exc:
+                logging.error("Failed to send Telegram alert for %s: %s", entry.key, exc)
+        else:
+            logging.warning(
+                "Telegram credentials are not configured, skipping alert for %s",
+                entry.key,
+            )
 
     if high_score_results and telegram_token and telegram_chat_id:
         try:
