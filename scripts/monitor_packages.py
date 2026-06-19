@@ -46,7 +46,7 @@ DEFAULT_POLL_SECONDS = 300
 MAX_STORED_PACKAGES = 500
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
-SCORE_THRESHOLD = 0.75
+SCORE_THRESHOLD = 0.8
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 _ALERTS_CACHE: set[tuple[str, str]] = set()
 _MAX_ALERTS_CACHE_SIZE = 5000
@@ -402,9 +402,7 @@ def format_score_alert_message(
         f"Files exceeding score {SCORE_THRESHOLD}: {len(high_score_results)}",
     ]
 
-    for result in sorted(
-        high_score_results, key=lambda r: -r.get("score", 0.0)
-    ):
+    for result in sorted(high_score_results, key=lambda r: -r.get("score", 0.0)):
         file_path = result.get("path", "unknown")
         file_score = result.get("score", 0.0)
         lines.append("")
@@ -490,7 +488,9 @@ def process_entry(
             items = per_file_result.get("items", [])
             logging.warning(
                 "File %s has ML score %.4f (threshold: %.2f) with %d findings",
-                file_path, file_score, SCORE_THRESHOLD,
+                file_path,
+                file_score,
+                SCORE_THRESHOLD,
                 len(items) if isinstance(items, list) else 0,
             )
 
@@ -531,7 +531,9 @@ def process_entry(
                     notify_telegram(telegram_token, telegram_chat_id, message)
                     logging.info("Telegram alert sent for %s", entry.key)
             except Exception as exc:
-                logging.error("Failed to send Telegram alert for %s: %s", entry.key, exc)
+                logging.error(
+                    "Failed to send Telegram alert for %s: %s", entry.key, exc
+                )
         else:
             logging.warning(
                 "Telegram credentials are not configured, skipping alert for %s",
@@ -541,7 +543,9 @@ def process_entry(
     if high_score_results and telegram_token and telegram_chat_id:
         try:
             score_message = format_score_alert_message(
-                entry, package_file, high_score_results,
+                entry,
+                package_file,
+                high_score_results,
             )
             if score_message is not None:
                 notify_telegram(telegram_token, telegram_chat_id, score_message)
@@ -549,7 +553,8 @@ def process_entry(
         except Exception as exc:
             logging.error(
                 "Failed to send Telegram score alert for %s: %s",
-                entry.key, exc,
+                entry.key,
+                exc,
             )
 
 
