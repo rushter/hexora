@@ -119,7 +119,7 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
 
     let mut string_stats = StringStats::default();
     for expr in &collector.string_literals {
-        string_stats.observe(&expr);
+        string_stats.observe(expr);
     }
     record.insert("literal.num_strings", string_stats.count as f64);
     record.insert("literal.max_string_length", string_stats.max_len as f64);
