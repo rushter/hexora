@@ -37,7 +37,7 @@ pub fn generate_features_from_dataset(
         }
     };
 
-    let reader: Box<dyn BufRead> = if input_path.extension().map_or(false, |ext| ext == "gz") {
+    let reader: Box<dyn BufRead> = if input_path.extension().is_some_and(|ext| ext == "gz") {
         Box::new(BufReader::new(GzDecoder::new(file)))
     } else {
         Box::new(BufReader::new(file))
