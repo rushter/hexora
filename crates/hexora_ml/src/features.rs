@@ -13,12 +13,7 @@ use ruff_python_ast::{AnyNodeRef, Expr, Stmt};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
-const VERSION_FILE_NAMES: &[&str] = &[
-    "__init__.py",
-    "version.py",
-    "__version__.py",
-    "about.py",
-];
+const VERSION_FILE_NAMES: &[&str] = &["__init__.py", "version.py", "__version__.py", "about.py"];
 
 pub fn extract_features(
     analyzed: &AnalyzedSource<'_, '_>,
@@ -132,13 +127,11 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
     record.insert("literal.max_string_entropy", string_stats.max_entropy);
     record.insert("literal.mean_string_entropy", string_stats.mean_entropy());
 
-    let has_version_file = collector
-        .string_literals
-        .iter()
-        .any(|s| VERSION_FILE_NAMES
+    let has_version_file = collector.string_literals.iter().any(|s| {
+        VERSION_FILE_NAMES
             .iter()
             .any(|&name| memmem::find(s.as_bytes(), name.as_bytes()).is_some())
-        );
+    });
     if has_version_file {
         record.set_flag("contain_version_file");
     }
@@ -234,6 +227,9 @@ fn extract_semantic_features(record: &mut FeatureRecord, analyzed: &AnalyzedSour
         }
         if qn.is_import_call() {
             record.add("call.import_call", 1.0);
+        }
+        if qn.is_stdlib_call() {
+            record.add(format!("call.{}", qn.as_str()), 1.0);
         }
     }
 }
@@ -621,6 +617,24 @@ exec(payload)
         assert!(features.len() > 0);
         let has_rule_hits = features.get("rule.total_hits").unwrap_or(0.0) > 0.0;
         assert!(has_rule_hits, "Expected rule hits but got none");
+    }
+
+    #[test]
+    fn test_stdlib_call_features() {
+        let code = r#"
+import os
+path = os.path.join(os.path.dirname(__file__), 'staticconf', 'version.py')
+"#;
+        let file_path = Path::new("test_paths.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert!(
+            features.get("call.os.path.join").unwrap_or(0.0) > 0.0,
+            "expected call.os.path.join feature"
+        );
+        assert!(
+            features.get("call.os.path.dirname").unwrap_or(0.0) > 0.0,
+            "expected call.os.path.dirname feature"
+        );
     }
 
     #[test]

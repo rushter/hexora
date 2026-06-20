@@ -326,6 +326,73 @@ impl QualifiedName {
 /// Detection methods for builtins and dynamic code execution patterns.
 impl QualifiedName {
     #[inline]
+    pub fn is_stdlib_call(&self) -> bool {
+        // only common ones
+        const STDLIB_MODULES: &[&str] = &[
+            "os",
+            "sys",
+            "io",
+            "re",
+            "json",
+            "csv",
+            "xml",
+            "math",
+            "random",
+            "datetime",
+            "collections",
+            "pathlib",
+            "glob",
+            "tempfile",
+            "shutil",
+            "base64",
+            "hashlib",
+            "hmac",
+            "binascii",
+            "struct",
+            "pickle",
+            "marshal",
+            "shelve",
+            "sqlite3",
+            "zipfile",
+            "tarfile",
+            "gzip",
+            "bz2",
+            "lzma",
+            "zlib",
+            "configparser",
+            "string",
+            "textwrap",
+            "subprocess",
+            "threading",
+            "multiprocessing",
+            "asyncio",
+            "socket",
+            "ssl",
+            "http",
+            "urllib",
+            "smtplib",
+            "ftplib",
+            "ctypes",
+            "inspect",
+            "ast",
+            "importlib",
+            "functools",
+            "itertools",
+            "operator",
+            "warnings",
+            "logging",
+            "argparse",
+            "uuid",
+            "getpass",
+            "platform",
+            "signal",
+            "mmap",
+        ];
+        let s = self.segments_slice();
+        s.len() >= 2 && STDLIB_MODULES.contains(&s[0].as_str())
+    }
+
+    #[inline]
     pub fn is_import_call(&self) -> bool {
         match self.segments_slice() {
             [only] if only == "__import__" => true,
@@ -538,6 +605,20 @@ mod tests {
         assert!(QualifiedName::new("__import__").is_suspicious_builtin());
         assert!(QualifiedName::new("builtins.compile").is_suspicious_builtin());
         assert!(!QualifiedName::new("os.system").is_suspicious_builtin());
+    }
+
+    #[test]
+    fn test_is_stdlib_call() {
+        assert!(QualifiedName::new("os.path.join").is_stdlib_call());
+        assert!(QualifiedName::new("os.path.dirname").is_stdlib_call());
+        assert!(QualifiedName::new("subprocess.run").is_stdlib_call());
+        assert!(QualifiedName::new("base64.b64decode").is_stdlib_call());
+        assert!(QualifiedName::new("json.loads").is_stdlib_call());
+        assert!(QualifiedName::new("socket.socket.send").is_stdlib_call());
+        assert!(!QualifiedName::new("exec").is_stdlib_call());
+        assert!(!QualifiedName::new("eval").is_stdlib_call());
+        assert!(!QualifiedName::new("my_custom_func").is_stdlib_call());
+        assert!(!QualifiedName::new("some_module.custom_func").is_stdlib_call());
     }
 
     #[test]
