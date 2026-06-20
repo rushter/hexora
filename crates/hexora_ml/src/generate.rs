@@ -1,5 +1,6 @@
 use crate::dataset::LabeledFeatureRow;
 use crate::features::extract_features_from_source;
+use flate2::read::GzDecoder;
 use hexora_io::encoding::base64_decode;
 use log::error;
 use serde::Deserialize;
@@ -36,6 +37,12 @@ pub fn generate_features_from_dataset(
         }
     };
 
+    let reader: Box<dyn BufRead> = if input_path.extension().map_or(false, |ext| ext == "gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
     let mut writer: Box<dyn Write> = match output_path {
         Some(path) => match File::create(path) {
             Ok(f) => Box::new(f),
@@ -47,7 +54,6 @@ pub fn generate_features_from_dataset(
         None => Box::new(std::io::stdout()),
     };
 
-    let reader = BufReader::new(file);
     let mut processed: usize = 0;
     for (line_num, line) in reader.lines().enumerate() {
         let line = match line {
