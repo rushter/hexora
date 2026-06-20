@@ -629,6 +629,7 @@ dependencies = [
  "hexora_rules",
  "hexora_semantic",
  "log",
+ "memchr",
  "ruff_python_ast",
  "serde",
  "serde_json",

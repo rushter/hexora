@@ -5,12 +5,20 @@ use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::model::Transformation;
 use hexora_semantic::scope::BindingKind;
 use hexora_semantic::taint::TaintKind;
+use memchr::memmem;
 use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt,
 };
 use ruff_python_ast::{AnyNodeRef, Expr, Stmt};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
+
+const VERSION_FILE_NAMES: &[&str] = &[
+    "__init__.py",
+    "version.py",
+    "__version__.py",
+    "about.py",
+];
 
 pub fn extract_features(
     analyzed: &AnalyzedSource<'_, '_>,
@@ -115,7 +123,7 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
     }
 
     let mut string_stats = StringStats::default();
-    for expr in collector.string_literals {
+    for expr in &collector.string_literals {
         string_stats.observe(&expr);
     }
     record.insert("literal.num_strings", string_stats.count as f64);
@@ -123,6 +131,17 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
     record.insert("literal.mean_string_length", string_stats.mean_len());
     record.insert("literal.max_string_entropy", string_stats.max_entropy);
     record.insert("literal.mean_string_entropy", string_stats.mean_entropy());
+
+    let has_version_file = collector
+        .string_literals
+        .iter()
+        .any(|s| VERSION_FILE_NAMES
+            .iter()
+            .any(|&name| memmem::find(s.as_bytes(), name.as_bytes()).is_some())
+        );
+    if has_version_file {
+        record.set_flag("contain_version_file");
+    }
 }
 
 fn extract_import_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_, '_>) {
