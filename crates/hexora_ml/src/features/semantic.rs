@@ -9,11 +9,27 @@ pub(crate) fn extract_semantic_features(
 ) {
     let taint_map = analyzed.indexer.model.taint_map.borrow();
     record.insert("semantic.tainted_nodes", taint_map.len() as f64);
+    let mut multi_taint = 0usize;
+    let mut total_taint_kinds = 0usize;
     for taints in taint_map.values() {
+        if taints.len() >= 2 {
+            multi_taint += 1;
+        }
+        total_taint_kinds += taints.len();
         for taint in taints {
             record.add(format!("taint.{}", taint_name(*taint)), 1.0);
         }
     }
+    let tainted_count = taint_map.len();
+    record.insert("semantic.multi_taint_nodes", multi_taint as f64);
+    record.insert(
+        "semantic.taint_richness",
+        if tainted_count > 0 {
+            total_taint_kinds as f64 / tainted_count as f64
+        } else {
+            0.0
+        },
+    );
 
     let decoded_nodes = analyzed.indexer.model.decoded_nodes.borrow();
     record.insert("semantic.decoded_nodes", decoded_nodes.len() as f64);

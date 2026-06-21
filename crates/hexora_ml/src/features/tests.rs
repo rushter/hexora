@@ -31,6 +31,25 @@ mod tests {
     }
 
     #[test]
+    fn test_taint_features() {
+        let code = r#"
+    import base64
+    payload = base64.b64decode("cHJpbnQoMSk=")
+    exec(payload)
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert!(
+            features.get("semantic.tainted_nodes").unwrap_or(0.0) > 0.0,
+            "expected tainted nodes"
+        );
+        assert!(
+            features.get("semantic.multi_taint_nodes").unwrap_or(0.0) >= 0.0,
+            "expected multi_taint_nodes to exist"
+        );
+    }
+
+    #[test]
     fn test_identifier_features_obfuscated() {
         let code = r#"
     _0x1a2b3c = "data"
