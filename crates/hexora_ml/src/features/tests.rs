@@ -25,7 +25,10 @@ mod tests {
         let file_path = Path::new("test.py");
         let features = extract_features_from_source(code, file_path).unwrap();
         let count = features.get("ident.name_count").unwrap_or(0.0) as usize;
-        assert!(count >= 5, "expected at least 5 unique identifiers, got {count}");
+        assert!(
+            count >= 5,
+            "expected at least 5 unique identifiers, got {count}"
+        );
         let max_len = features.get("ident.max_name_length").unwrap_or(0.0);
         assert!(max_len >= 6.0, "expected some names longer than 6 chars");
     }
@@ -230,9 +233,7 @@ mod tests {
     "#;
         let file_path = Path::new("test.py");
         let features = extract_features_from_source(code, file_path).unwrap();
-        let pairs = features
-            .get("import.suspicious_pair_count")
-            .unwrap_or(0.0) as usize;
+        let pairs = features.get("import.suspicious_pair_count").unwrap_or(0.0) as usize;
         assert!(
             pairs >= 2,
             "expected at least 2 suspicious pairs (os+base64, os+socket, base64+socket), got {pairs}"

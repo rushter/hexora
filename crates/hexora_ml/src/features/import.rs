@@ -86,10 +86,7 @@ pub(crate) fn extract_import_features(
             suspicious_pairs += 1;
         }
     }
-    record.insert(
-        "import.suspicious_pair_count",
-        suspicious_pairs as f64,
-    );
+    record.insert("import.suspicious_pair_count", suspicious_pairs as f64);
 
     let mut suspicious_triples = 0usize;
     for &(a, b, c) in SUSPICIOUS_TRIPLES {
@@ -97,10 +94,7 @@ pub(crate) fn extract_import_features(
             suspicious_triples += 1;
         }
     }
-    record.insert(
-        "import.suspicious_triple_count",
-        suspicious_triples as f64,
-    );
+    record.insert("import.suspicious_triple_count", suspicious_triples as f64);
 
     record.insert("import.unique_roots", import_roots.len() as f64);
     for root in import_roots {
