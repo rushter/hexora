@@ -406,6 +406,9 @@ fn looks_like_ipv4(s: &str) -> bool {
 
 fn has_suspicious_ext(s: &str) -> bool {
     const EXTS: &[&[u8]] = &[b".exe", b".dll", b".bat", b".sh", b".ps1", b".vbs", b".so"];
-    let lower = s.to_ascii_lowercase();
-    EXTS.iter().any(|ext| lower.as_bytes().ends_with(ext))
+    let bytes = s.as_bytes();
+    EXTS.iter().any(|ext| {
+        bytes.len() >= ext.len()
+            && bytes[bytes.len() - ext.len()..].eq_ignore_ascii_case(ext)
+    })
 }

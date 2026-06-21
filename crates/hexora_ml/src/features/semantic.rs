@@ -1,8 +1,12 @@
 use crate::schema::FeatureRecord;
 use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::model::Transformation;
+use hexora_semantic::name::QualifiedName;
 use hexora_semantic::taint::TaintKind;
+use std::borrow::Cow;
 use std::collections::HashSet;
+
+type PredicateEntry = (fn(&QualifiedName) -> bool, &'static str);
 
 pub(crate) fn extract_semantic_features(
     record: &mut FeatureRecord,
@@ -48,27 +52,29 @@ pub(crate) fn extract_semantic_features(
         "semantic.qualified_calls",
         analyzed.indexer.model.call_qualified_names.len() as f64,
     );
+    const SIMPLE_PREDICATES: &[PredicateEntry] = &[
+        (QualifiedName::is_shell_command, "call.shell_exec"),
+        (QualifiedName::is_code_exec, "call.code_exec"),
+        (QualifiedName::is_exfiltration_sink, "call.exfiltration_sink"),
+        (QualifiedName::is_download_request, "call.download_request"),
+        (QualifiedName::is_env_access, "call.env_access"),
+        (QualifiedName::is_suspicious_builtin, "call.suspicious_builtin"),
+        (QualifiedName::is_import_call, "call.import_call"),
+        (QualifiedName::is_indirect_exec, "call.indirect_exec"),
+        (QualifiedName::is_os_fingerprint, "call.os_fingerprint"),
+        (QualifiedName::is_clipboard_read, "call.clipboard_read"),
+        (QualifiedName::is_screenshot_capture, "call.screenshot_capture"),
+        (QualifiedName::is_dll_injection, "call.dll_injection"),
+        (QualifiedName::is_pathlib_write, "call.pathlib_write"),
+        (QualifiedName::is_module_registry, "call.module_registry"),
+        (QualifiedName::is_io_resource_constructor, "call.io_resource_ctor"),
+        (QualifiedName::is_vars_function, "call.vars_function"),
+    ];
     for qn in analyzed.indexer.model.call_qualified_names.values() {
-        if qn.is_shell_command() {
-            record.add("call.shell_exec", 1.0);
-        }
-        if qn.is_code_exec() {
-            record.add("call.code_exec", 1.0);
-        }
-        if qn.is_exfiltration_sink() {
-            record.add("call.exfiltration_sink", 1.0);
-        }
-        if qn.is_download_request() {
-            record.add("call.download_request", 1.0);
-        }
-        if qn.is_env_access() {
-            record.add("call.env_access", 1.0);
-        }
-        if qn.is_suspicious_builtin() {
-            record.add("call.suspicious_builtin", 1.0);
-        }
-        if qn.is_import_call() {
-            record.add("call.import_call", 1.0);
+        for (pred, name) in SIMPLE_PREDICATES {
+            if pred(qn) {
+                record.add(*name, 1.0);
+            }
         }
         if qn.is_getattr()
             || qn.is_eval()
@@ -83,46 +89,21 @@ pub(crate) fn extract_semantic_features(
         if qn.is_stdlib_call() {
             record.add(format!("call.{}", qn.as_str()), 1.0);
         }
-        if qn.is_indirect_exec() {
-            record.add("call.indirect_exec", 1.0);
-        }
-        if qn.is_os_fingerprint() {
-            record.add("call.os_fingerprint", 1.0);
-        }
-        if qn.is_clipboard_read() {
-            record.add("call.clipboard_read", 1.0);
-        }
-        if qn.is_screenshot_capture() {
-            record.add("call.screenshot_capture", 1.0);
-        }
-        if qn.is_dll_injection() {
-            record.add("call.dll_injection", 1.0);
-        }
-        if qn.is_pathlib_write() {
-            record.add("call.pathlib_write", 1.0);
-        }
-        if qn.is_module_registry() {
-            record.add("call.module_registry", 1.0);
-        }
-        if qn.is_io_resource_constructor() {
-            record.add("call.io_resource_ctor", 1.0);
-        }
-        if qn.is_vars_function() {
-            record.add("call.vars_function", 1.0);
-        }
     }
 }
 
-pub(crate) fn taint_name(taint: TaintKind) -> String {
+pub(crate) fn taint_name(taint: TaintKind) -> Cow<'static, str> {
     match taint {
-        TaintKind::Literal => "literal".to_string(),
-        TaintKind::Decoded => "decoded".to_string(),
-        TaintKind::Deobfuscated => "deobfuscated".to_string(),
-        TaintKind::FileSourced => "file_sourced".to_string(),
-        TaintKind::NetworkSourced => "network_sourced".to_string(),
-        TaintKind::Fingerprinting => "fingerprinting".to_string(),
-        TaintKind::EnvVariables => "env_variables".to_string(),
-        TaintKind::InternalParameter(index) => format!("internal_parameter_{index}"),
+        TaintKind::Literal => Cow::Borrowed("literal"),
+        TaintKind::Decoded => Cow::Borrowed("decoded"),
+        TaintKind::Deobfuscated => Cow::Borrowed("deobfuscated"),
+        TaintKind::FileSourced => Cow::Borrowed("file_sourced"),
+        TaintKind::NetworkSourced => Cow::Borrowed("network_sourced"),
+        TaintKind::Fingerprinting => Cow::Borrowed("fingerprinting"),
+        TaintKind::EnvVariables => Cow::Borrowed("env_variables"),
+        TaintKind::InternalParameter(index) => {
+            Cow::Owned(format!("internal_parameter_{index}"))
+        }
     }
 }
 

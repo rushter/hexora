@@ -417,4 +417,32 @@ plain = "hello world"
             "expected all three string content features to fire"
         );
     }
+
+    #[test]
+    fn test_suspicious_ext_multibyte_no_panic() {
+        // Regression: a string whose byte length minus the extension width
+        // lands inside a multi-byte char must not panic when checking the
+        // suffix. Three U+3000 chars = 9 bytes; `len - 4 = 5` is mid-char.
+        let code = r#"blob = "\u3000\u3000\u3000""#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert_eq!(
+            features.get("literal.suspicious_ext_count").unwrap_or(0.0),
+            0.0,
+            "no suspicious extension expected for multibyte-only string"
+        );
+    }
+
+    #[test]
+    fn test_suspicious_ext_multibyte_then_exe() {
+        // Multi-byte char followed by a real `.exe` suffix should still fire
+        // and must not panic at the char boundary check.
+        let code = r#"drop = "\u3000payload.exe""#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert!(
+            features.get("literal.suspicious_ext_count").unwrap_or(0.0) >= 1.0,
+            "expected suspicious_ext_count >= 1 for multibyte + .exe"
+        );
+    }
 }

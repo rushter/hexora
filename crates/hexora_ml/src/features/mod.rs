@@ -26,22 +26,11 @@ pub fn extract_features(
     let total_exprs = record.get("ast.total_exprs").unwrap_or(0.0);
     record.insert(
         "semantic.decoded_ratio",
-        if total_exprs > 0.0 {
-            decoded / total_exprs
-        } else {
-            0.0
-        },
+        safe_ratio(decoded, total_exprs),
     );
     let dynamic = record.get("call.dynamic_count").unwrap_or(0.0);
     let total_calls = record.get("ast.num_calls").unwrap_or(0.0);
-    record.insert(
-        "call.dynamic_ratio",
-        if total_calls > 0.0 {
-            dynamic / total_calls
-        } else {
-            0.0
-        },
-    );
+    record.insert("call.dynamic_ratio", safe_ratio(dynamic, total_calls));
     record.insert("meta.feature_count", record.len() as f64);
     record
 }
@@ -52,6 +41,14 @@ pub fn extract_features_from_source(code: &str, file_path: &Path) -> Result<Feat
     let features =
         prepared.with_original_indexed(|analyzed| extract_features(&analyzed, code, &items));
     Ok(features)
+}
+
+fn safe_ratio(numer: f64, denom: f64) -> f64 {
+    if denom > 0.0 {
+        numer / denom
+    } else {
+        0.0
+    }
 }
 
 #[derive(Debug, Default)]
@@ -66,8 +63,9 @@ pub(crate) struct StringStats {
 impl StringStats {
     pub fn observe(&mut self, value: &str) {
         self.count += 1;
-        self.total_len += value.chars().count();
-        self.max_len = self.max_len.max(value.chars().count());
+        let char_count = value.chars().count();
+        self.total_len += char_count;
+        self.max_len = self.max_len.max(char_count);
         let entropy = shannon_entropy(value);
         self.total_entropy += entropy;
         self.max_entropy = self.max_entropy.max(entropy);
