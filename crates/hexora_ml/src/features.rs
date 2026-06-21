@@ -116,6 +116,9 @@ fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_
     for (kind, count) in collector.expr_counts {
         record.insert(format!("expr.{kind}"), count as f64);
     }
+    for (name, count) in &collector.operator_counts {
+        record.insert(format!("expr.op.{name}"), *count as f64);
+    }
 
     let mut string_stats = StringStats::default();
     for expr in &collector.string_literals {
@@ -295,6 +298,7 @@ struct AstFeatureCollector {
     num_import_froms: usize,
     string_literals: Vec<String>,
     cyclomatic_complexity: usize,
+    operator_counts: BTreeMap<&'static str, usize>,
 }
 
 impl AstFeatureCollector {
@@ -382,6 +386,10 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
                     .collect::<Vec<u8>>();
                 self.string_literals
                     .push(String::from_utf8_lossy(&bytes).into_owned());
+            }
+            Expr::BinOp(binop) => {
+                let name = operator_name(&binop.op);
+                *self.operator_counts.entry(name).or_insert(0) += 1;
             }
             Expr::BoolOp(bool_op) => {
                 self.cyclomatic_complexity += bool_op.values.len().saturating_sub(1);
@@ -574,6 +582,24 @@ fn expr_kind_name(expr: &Expr) -> &'static str {
         Expr::Slice(_) => "Slice",
         Expr::IpyEscapeCommand(_) => "IpyEscapeCommand",
         _ => "Other",
+    }
+}
+
+fn operator_name(op: &ruff_python_ast::Operator) -> &'static str {
+    match op {
+        ruff_python_ast::Operator::Add => "Add",
+        ruff_python_ast::Operator::Sub => "Sub",
+        ruff_python_ast::Operator::Mult => "Mult",
+        ruff_python_ast::Operator::Div => "Div",
+        ruff_python_ast::Operator::Mod => "Mod",
+        ruff_python_ast::Operator::Pow => "Pow",
+        ruff_python_ast::Operator::FloorDiv => "FloorDiv",
+        ruff_python_ast::Operator::BitAnd => "BitAnd",
+        ruff_python_ast::Operator::BitOr => "BitOr",
+        ruff_python_ast::Operator::BitXor => "BitXor",
+        ruff_python_ast::Operator::LShift => "LShift",
+        ruff_python_ast::Operator::RShift => "RShift",
+        ruff_python_ast::Operator::MatMult => "MatMult",
     }
 }
 
