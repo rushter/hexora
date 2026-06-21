@@ -612,6 +612,7 @@ dependencies = [
  "flate2",
  "log",
  "once_cell",
+ "regex",
  "ruff_source_file",
  "ruff_text_size",
  "tar",

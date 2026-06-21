@@ -1,6 +1,7 @@
 use base64::{Engine as _, engine::general_purpose};
 use encoding_rs;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::HashMap;
 
 pub const CP1026: [u8; 256] = [
@@ -338,6 +339,44 @@ pub fn base64_decode(input: &str, url_safe: bool) -> Option<Vec<u8>> {
     }
 }
 
+pub const MIN_BASE64_STRING_LENGTH: usize = 100;
+pub const ELEVATED_BASE64_STRING_LENGTH: usize = 200;
+pub const MIN_HEXED_STRING_LENGTH: usize = 100;
+
+pub static BASE64_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$")
+        .expect("Invalid base64 regex")
+});
+
+pub static HEXED_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(\\x[0-9a-fA-F]{2})+$").expect("Invalid hex regex"));
+
+#[inline]
+pub fn is_base64_candidate(literal: &str) -> bool {
+    literal.len() >= 8 && BASE64_REGEX.is_match(literal)
+}
+
+#[inline]
+pub fn is_base64_string(literal: &str) -> bool {
+    literal.len() >= MIN_BASE64_STRING_LENGTH && BASE64_REGEX.is_match(literal)
+}
+
+#[inline]
+pub fn is_hex_escaped(literal: &str) -> bool {
+    literal.starts_with('\\') && HEXED_REGEX.is_match(literal)
+}
+
+#[inline]
+pub fn is_hexed_string(literal: &str) -> bool {
+    if !literal.starts_with('\\') {
+        return false;
+    }
+    if literal.len() < MIN_HEXED_STRING_LENGTH {
+        return false;
+    };
+    HEXED_REGEX.is_match(literal)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +407,42 @@ mod tests {
         let bytes = b"\x85\xa5\x81\x93";
         let decoded = decode_bytes(bytes, "1026").unwrap();
         assert_eq!(decoded, "eval");
+    }
+
+    #[test]
+    fn test_is_base64_candidate() {
+        assert!(is_base64_candidate("dGVzdA=="));
+        assert!(is_base64_candidate("dGVzdGluZw=="));
+        assert!(!is_base64_candidate("short"));
+        assert!(!is_base64_candidate(""));
+        assert!(!is_base64_candidate("not base64!"));
+    }
+
+    #[test]
+    fn test_is_base64_string() {
+        // 96 base64 chars + "AA==" suffix = 100 chars, valid padded base64
+        let long = format!("{}AA==", "A".repeat(96));
+        assert_eq!(long.len(), 100);
+        assert!(is_base64_string(&long));
+        assert!(!is_base64_string("dGVzdA=="));
+        assert!(!is_base64_string("not base64"));
+    }
+
+    #[test]
+    fn test_is_hex_escaped() {
+        assert!(is_hex_escaped("\\x41\\x42\\x43"));
+        assert!(is_hex_escaped("\\xff\\x00"));
+        assert!(!is_hex_escaped("abc"));
+        assert!(!is_hex_escaped("\\x4"));
+        assert!(!is_hex_escaped(""));
+    }
+
+    #[test]
+    fn test_is_hexed_string() {
+        let long_hex: String = (0..50).map(|i| format!("\\x{:02x}", i)).collect();
+        assert!(is_hexed_string(&long_hex));
+        assert!(!is_hexed_string("\\x41\\x42"));
+        assert!(!is_hexed_string("not hex"));
+        assert!(!is_hexed_string(""));
     }
 }

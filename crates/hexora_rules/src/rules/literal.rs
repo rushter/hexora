@@ -1,7 +1,10 @@
 use crate::checker::Checker;
 use crate::pipeline::audit_source;
 use crate::result::{AuditConfidence, AuditItem, Rule};
-use hexora_io::encoding::{base64_decode, unescape_to_bytes};
+use hexora_io::encoding::{
+    ELEVATED_BASE64_STRING_LENGTH, base64_decode, is_base64_candidate, is_base64_string,
+    is_hexed_string, unescape_to_bytes,
+};
 use hexora_io::macros::es;
 use hexora_semantic::model::Transformation;
 
@@ -9,7 +12,6 @@ use hexora_semantic::resolver::{ListLike, string_from_expr};
 use hexora_semantic::taint::TaintKind;
 use memchr::memmem;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
 use ruff_text_size::Ranged;
@@ -17,21 +19,10 @@ use serde::Serialize;
 
 const MAX_PREVIEW_LENGTH: usize = 16;
 const LITERALS_PREVIEW_MAX_COUNT: usize = 5;
-const MIN_HEXED_STRING_LENGTH: usize = 100;
-const MIN_BASE64_STRING_LENGTH: usize = 100;
-const ELEVATED_BASE64_STRING_LENGTH: usize = 200;
 const MIN_HEXED_LITERALS: u16 = 10;
 const MIN_INT_LITERALS: u16 = 20;
 const MIN_LITERAL_LENGTH: usize = 8;
 const MAX_LITERAL_LENGTH: usize = 512;
-
-static HEXED_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^(\\x[0-9a-fA-F]{2})+$").expect("Invalid hex regex"));
-
-static BASE64_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$")
-        .expect("Invalid base64 regex")
-});
 
 #[derive(Debug, Serialize)]
 pub struct SuspiciousLiteral {
@@ -338,28 +329,6 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
     }
     m
 });
-
-fn is_hexed_string(literal: &str) -> bool {
-    if !literal.starts_with('\\') {
-        return false;
-    }
-
-    if literal.len() < MIN_HEXED_STRING_LENGTH {
-        return false;
-    };
-    HEXED_REGEX.is_match(literal)
-}
-
-fn is_base64_string(literal: &str) -> bool {
-    if literal.len() < MIN_BASE64_STRING_LENGTH {
-        return false;
-    };
-    BASE64_REGEX.is_match(literal)
-}
-
-fn is_base64_candidate(literal: &str) -> bool {
-    literal.len() >= 8 && BASE64_REGEX.is_match(literal)
-}
 
 fn literal_preview(value: &str, max_length: usize) -> String {
     if value.len() > max_length {

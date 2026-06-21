@@ -27,6 +27,8 @@ import argparse
 import json
 import logging
 import os
+import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -35,8 +37,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
-
-import hexora
 
 RSS_FEED_URL = "https://pypi.org/rss/updates.xml"
 PYPI_JSON_URL = "https://pypi.org/pypi/{name}/{version}/json"
@@ -206,30 +206,48 @@ def enforce_package_quota(
             )
 
 
+AUDIT_TIMEOUT = 60
+
+
 def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
+    code = (
+        "import json, sys, hexora; "
+        f"result = hexora.audit_file({str(package_file)!r}); "
+        "json.dump(result, sys.stdout, default=str)"
+    )
     try:
-        result = hexora.audit_file(package_file)
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=AUDIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        logging.error("Hexora audit timed out after %ds for %s", AUDIT_TIMEOUT, package_file)
+        return None
     except Exception as exc:
         logging.error("Hexora audit failed for %s: %s", package_file, exc)
         return None
 
-    if not isinstance(result, list):
-        logging.warning(
-            "Unexpected audit result type for %s: %s", package_file, type(result)
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip() if proc.stderr else "no stderr"
+        logging.error(
+            "Hexora audit exited with code %d for %s: %s",
+            proc.returncode, package_file, stderr,
         )
         return None
 
-    normalized: list[dict[str, Any]] = []
-    for item in result:
-        if isinstance(item, dict):
-            normalized.append(item)
-        else:
-            logging.warning(
-                "Unexpected audit entry type for %s: %s",
-                package_file,
-                type(item),
-            )
-    return normalized
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        logging.error("Failed to parse audit output for %s: %s", package_file, exc)
+        return None
+
+    if not isinstance(result, list):
+        logging.warning("Unexpected audit result type for %s: %s", package_file, type(result))
+        return None
+
+    return result
 
 
 def get_confidence_items(

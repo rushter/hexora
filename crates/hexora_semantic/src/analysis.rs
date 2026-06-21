@@ -65,6 +65,7 @@ impl<'src> PreparedAnalysis<'src> {
         let mut indexer = NodeIndexer::new();
         indexer.visit_body(&self.original_ast);
         indexer.model.comments = self.comments.clone();
+        *indexer.model.decoded_nodes.borrow_mut() = self.decoded_nodes.clone();
         indexer
     }
 

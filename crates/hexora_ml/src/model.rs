@@ -27,28 +27,36 @@ pub struct CatBoost {
     features_info: Features,
     oblivious_trees: Vec<ObliviousTree>,
     scale_and_bias: (f32, Vec<f32>),
+    #[serde(skip)]
+    num_features: usize,
 }
 
 impl CatBoost {
     pub fn load(path: &Path) -> Result<Self, std::io::Error> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let model: CatBoost = serde_json::from_reader(reader)?;
+        let mut model: CatBoost = serde_json::from_reader(reader)?;
+        model.num_features = model.compute_num_features();
         Ok(model)
     }
 
     pub fn try_from_json(model_str: &str) -> Result<Self, serde_json::Error> {
-        let model: CatBoost = serde_json::from_str(model_str)?;
+        let mut model: CatBoost = serde_json::from_str(model_str)?;
+        model.num_features = model.compute_num_features();
         Ok(model)
     }
 
-    fn num_features(&self) -> usize {
+    fn compute_num_features(&self) -> usize {
         self.features_info
             .float_features
             .iter()
             .map(|f| f.flat_feature_index)
             .max()
             .map_or(0, |m| m + 1)
+    }
+
+    fn num_features(&self) -> usize {
+        self.num_features
     }
 }
 
@@ -133,14 +141,12 @@ impl CatBoost {
     }
 
     pub fn predict_raw(&self, features: &[f32]) -> Result<f32, InferenceError> {
-        {
-            let expected_features = self.num_features();
-            if features.len() != expected_features {
-                return Err(InferenceError::NumFeaturesMismatch {
-                    expected: expected_features,
-                    actual: features.len(),
-                });
-            }
+        let expected_features = self.num_features();
+        if features.len() != expected_features {
+            return Err(InferenceError::NumFeaturesMismatch {
+                expected: expected_features,
+                actual: features.len(),
+            });
         }
 
         let go_lefts = self
@@ -192,23 +198,23 @@ impl CatBoost {
     }
 
     pub fn predict_from_record(&self, record: &FeatureRecord) -> Result<f32, InferenceError> {
-        let mut features = vec![0.0f32; self.num_features()];
-        for f in &self.features_info.float_features {
-            if let Some(value) = record.get(&f.feature_id) {
-                features[f.flat_feature_index] = value as f32;
-            }
-        }
+        let features = self.features_from_record(record);
         self.predict(&features)
     }
 
     pub fn predict_raw_from_record(&self, record: &FeatureRecord) -> Result<f32, InferenceError> {
+        let features = self.features_from_record(record);
+        self.predict_raw(&features)
+    }
+
+    fn features_from_record(&self, record: &FeatureRecord) -> Vec<f32> {
         let mut features = vec![0.0f32; self.num_features()];
         for f in &self.features_info.float_features {
             if let Some(value) = record.get(&f.feature_id) {
                 features[f.flat_feature_index] = value as f32;
             }
         }
-        self.predict_raw(&features)
+        features
     }
 }
 
