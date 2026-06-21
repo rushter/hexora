@@ -32,6 +32,16 @@ pub fn extract_features(
             0.0
         },
     );
+    let dynamic = record.get("call.dynamic_count").unwrap_or(0.0);
+    let total_calls = record.get("ast.num_calls").unwrap_or(0.0);
+    record.insert(
+        "call.dynamic_ratio",
+        if total_calls > 0.0 {
+            dynamic / total_calls
+        } else {
+            0.0
+        },
+    );
     record.insert("meta.feature_count", record.len() as f64);
     record
 }

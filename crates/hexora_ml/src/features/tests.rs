@@ -222,6 +222,22 @@ mod tests {
     }
 
     #[test]
+    fn test_dynamic_call_ratio() {
+        let code = r#"
+    getattr(obj, "method")(arg)
+    eval(expr)
+    exec(code)
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let ratio = features.get("call.dynamic_ratio").unwrap_or(0.0);
+        assert!(
+            ratio > 0.0,
+            "expected dynamic_ratio > 0 for code with dynamic dispatch calls, got {ratio}"
+        );
+    }
+
+    #[test]
     fn test_decoded_ratio() {
         let code = r#"
     import base64

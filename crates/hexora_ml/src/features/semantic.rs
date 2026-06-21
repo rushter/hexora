@@ -70,6 +70,16 @@ pub(crate) fn extract_semantic_features(
         if qn.is_import_call() {
             record.add("call.import_call", 1.0);
         }
+        if qn.is_getattr()
+            || qn.is_eval()
+            || qn.is_import_call()
+            || matches!(qn.segments_slice(), [n] if matches!(n.as_str(), "exec" | "compile"))
+            || matches!(qn.segments_slice(), [p, n]
+                if matches!(p.as_str(), "builtins" | "__builtins__")
+                && matches!(n.as_str(), "exec" | "compile"))
+        {
+            record.add("call.dynamic_count", 1.0);
+        }
         if qn.is_stdlib_call() {
             record.add(format!("call.{}", qn.as_str()), 1.0);
         }
