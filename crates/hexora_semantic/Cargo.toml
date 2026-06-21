@@ -1,6 +1,6 @@
 [package]
 name = "hexora_semantic"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2024"
 description = "Semantic analysis engine for Hexora"
 license = "MIT"
