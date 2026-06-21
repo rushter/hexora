@@ -6,7 +6,7 @@ use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt,
 };
 use ruff_python_ast::{AnyNodeRef, Expr, Stmt};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 const VERSION_FILE_NAMES: &[&str] = &["__init__.py", "version.py", "__version__.py", "about.py"];
 
@@ -52,6 +52,25 @@ pub(crate) fn extract_ast_features(record: &mut FeatureRecord, analyzed: &Analyz
     record.insert("literal.max_string_entropy", string_stats.max_entropy);
     record.insert("literal.mean_string_entropy", string_stats.mean_entropy());
 
+    let mut ident_stats = StringStats::default();
+    let mut short_idents = 0usize;
+    for name in &collector.ident_names {
+        ident_stats.observe(name);
+        if name.chars().count() <= 2 {
+            short_idents += 1;
+        }
+    }
+    let total_unique = ident_stats.count.max(1);
+    record.insert("ident.name_count", ident_stats.count as f64);
+    record.insert("ident.max_name_length", ident_stats.max_len as f64);
+    record.insert("ident.mean_name_length", ident_stats.mean_len());
+    record.insert("ident.max_name_entropy", ident_stats.max_entropy);
+    record.insert("ident.mean_name_entropy", ident_stats.mean_entropy());
+    record.insert(
+        "ident.short_name_ratio",
+        short_idents as f64 / total_unique as f64,
+    );
+
     let has_version_file = collector.string_literals.iter().any(|s| {
         VERSION_FILE_NAMES
             .iter()
@@ -77,6 +96,7 @@ struct AstFeatureCollector {
     string_literals: Vec<String>,
     cyclomatic_complexity: usize,
     operator_counts: BTreeMap<&'static str, usize>,
+    ident_names: HashSet<String>,
 }
 
 impl AstFeatureCollector {
@@ -168,6 +188,9 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
             Expr::BinOp(binop) => {
                 let name = operator_name(&binop.op);
                 *self.operator_counts.entry(name).or_insert(0) += 1;
+            }
+            Expr::Name(name) => {
+                self.ident_names.insert(name.id.to_string());
             }
             Expr::BoolOp(bool_op) => {
                 self.cyclomatic_complexity += bool_op.values.len().saturating_sub(1);

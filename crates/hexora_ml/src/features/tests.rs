@@ -16,6 +16,37 @@ mod tests {
     }
 
     #[test]
+    fn test_identifier_features_basic() {
+        let code = r#"
+    result = calculate(data, offset)
+    def process_item(value):
+        return value.strip()
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let count = features.get("ident.name_count").unwrap_or(0.0) as usize;
+        assert!(count >= 5, "expected at least 5 unique identifiers, got {count}");
+        let max_len = features.get("ident.max_name_length").unwrap_or(0.0);
+        assert!(max_len >= 6.0, "expected some names longer than 6 chars");
+    }
+
+    #[test]
+    fn test_identifier_features_obfuscated() {
+        let code = r#"
+    _0x1a2b3c = "data"
+    a1B2c3D4e5F6 = _0x1a2b3c
+    xXx = a1B2c3D4e5F6
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let mean_entropy = features.get("ident.mean_name_entropy").unwrap_or(0.0);
+        assert!(
+            mean_entropy > 1.5,
+            "expected high mean name entropy for obfuscated names, got {mean_entropy}"
+        );
+    }
+
+    #[test]
     fn test_extract_features_from_source_empty_string() {
         let code = "";
         let file_path = Path::new("empty.py");
