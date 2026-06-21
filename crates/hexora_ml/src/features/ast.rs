@@ -10,7 +10,11 @@ use std::collections::{BTreeMap, HashSet};
 
 const VERSION_FILE_NAMES: &[&str] = &["__init__.py", "version.py", "__version__.py", "about.py"];
 
-pub(crate) fn extract_ast_features(record: &mut FeatureRecord, analyzed: &AnalyzedSource<'_, '_>) {
+pub(crate) fn extract_ast_features(
+    record: &mut FeatureRecord,
+    analyzed: &AnalyzedSource<'_, '_>,
+    source: &str,
+) {
     let mut collector = AstFeatureCollector::default();
     collector.visit_body(analyzed.ast);
 
@@ -41,6 +45,11 @@ pub(crate) fn extract_ast_features(record: &mut FeatureRecord, analyzed: &Analyz
     for (name, count) in &collector.operator_counts {
         record.insert(format!("expr.op.{name}"), *count as f64);
     }
+
+    record.insert(
+        "source.string_ratio",
+        collector.total_string_literal_chars as f64 / source.chars().count().max(1) as f64,
+    );
 
     let mut string_stats = StringStats::default();
     for expr in &collector.string_literals {
@@ -94,6 +103,7 @@ struct AstFeatureCollector {
     num_imports: usize,
     num_import_froms: usize,
     string_literals: Vec<String>,
+    total_string_literal_chars: usize,
     cyclomatic_complexity: usize,
     operator_counts: BTreeMap<&'static str, usize>,
     ident_names: HashSet<String>,
@@ -175,15 +185,20 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
         self.bump_expr(expr_kind_name(expr));
         match expr {
             Expr::Call(_) => self.num_calls += 1,
-            Expr::StringLiteral(value) => self.string_literals.push(value.value.to_string()),
+            Expr::StringLiteral(value) => {
+                let s = value.value.to_string();
+                self.total_string_literal_chars += s.chars().count();
+                self.string_literals.push(s);
+            }
             Expr::BytesLiteral(value) => {
                 let bytes = value
                     .value
                     .iter()
                     .flat_map(|part| part.as_slice().iter().copied())
                     .collect::<Vec<u8>>();
-                self.string_literals
-                    .push(String::from_utf8_lossy(&bytes).into_owned());
+                let s = String::from_utf8_lossy(&bytes).into_owned();
+                self.total_string_literal_chars += s.chars().count();
+                self.string_literals.push(s);
             }
             Expr::BinOp(binop) => {
                 let name = operator_name(&binop.op);

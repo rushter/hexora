@@ -2,6 +2,7 @@ use crate::schema::FeatureRecord;
 use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::model::Transformation;
 use hexora_semantic::taint::TaintKind;
+use std::collections::HashSet;
 
 pub(crate) fn extract_semantic_features(
     record: &mut FeatureRecord,
@@ -33,12 +34,15 @@ pub(crate) fn extract_semantic_features(
 
     let decoded_nodes = analyzed.indexer.model.decoded_nodes.borrow();
     record.insert("semantic.decoded_nodes", decoded_nodes.len() as f64);
+    let mut seen_transforms = HashSet::new();
     for transformation in decoded_nodes.values() {
+        seen_transforms.insert(transformation_name(*transformation));
         record.add(
             format!("transform.{}", transformation_name(*transformation)),
             1.0,
         );
     }
+    record.insert("semantic.encoding_diversity", seen_transforms.len() as f64);
 
     record.insert(
         "semantic.qualified_calls",

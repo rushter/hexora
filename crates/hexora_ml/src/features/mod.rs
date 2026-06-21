@@ -18,7 +18,7 @@ pub fn extract_features(
 ) -> FeatureRecord {
     let mut record = FeatureRecord::new();
     source::extract_source_features(&mut record, analyzed.locator, source);
-    ast::extract_ast_features(&mut record, analyzed);
+    ast::extract_ast_features(&mut record, analyzed, source);
     import::extract_import_features(&mut record, analyzed);
     semantic::extract_semantic_features(&mut record, analyzed);
     rule::extract_rule_features(&mut record, items);

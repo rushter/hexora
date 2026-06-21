@@ -31,6 +31,38 @@ mod tests {
     }
 
     #[test]
+    fn test_string_ratio_feature() {
+        let code = r#"
+    x = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" * 10
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let ratio = features.get("source.string_ratio").unwrap_or(0.0);
+        assert!(
+            ratio > 0.5,
+            "expected high string ratio for payload-like code, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn test_encoding_diversity_feature() {
+        let code = r#"
+    import base64
+    a = base64.b64decode("dGVzdA==")
+    b = bytes.fromhex("74657374")
+    c = a + b
+    exec(c)
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let diversity = features.get("semantic.encoding_diversity").unwrap_or(0.0);
+        assert!(
+            diversity >= 2.0,
+            "expected at least 2 encoding types, got {diversity}"
+        );
+    }
+
+    #[test]
     fn test_taint_features() {
         let code = r#"
     import base64
