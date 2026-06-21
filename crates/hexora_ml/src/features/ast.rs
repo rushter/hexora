@@ -1,5 +1,6 @@
 use crate::features::StringStats;
 use crate::schema::FeatureRecord;
+use hexora_io::encoding::{is_base64_candidate, is_base64_string, is_hex_escaped, is_hexed_string};
 use hexora_semantic::analysis::AnalyzedSource;
 use memchr::memmem;
 use ruff_python_ast::visitor::source_order::{
@@ -61,6 +62,52 @@ pub(crate) fn extract_ast_features(
     record.insert("literal.mean_string_length", string_stats.mean_len());
     record.insert("literal.max_string_entropy", string_stats.max_entropy);
     record.insert("literal.mean_string_entropy", string_stats.mean_entropy());
+
+    let mut base64_candidate_count = 0usize;
+    let mut base64_long_count = 0usize;
+    let mut hex_escape_count = 0usize;
+    let mut long_hex_string_count = 0usize;
+    let mut url_count = 0usize;
+    let mut ip_address_count = 0usize;
+    let mut suspicious_ext_count = 0usize;
+
+    for s in &collector.string_literals {
+        if is_base64_candidate(s) {
+            base64_candidate_count += 1;
+        }
+        if is_base64_string(s) {
+            base64_long_count += 1;
+        }
+        if is_hex_escaped(s) {
+            hex_escape_count += 1;
+        }
+        if is_hexed_string(s) {
+            long_hex_string_count += 1;
+        }
+        if contains_url(s) {
+            url_count += 1;
+        }
+        if looks_like_ipv4(s) {
+            ip_address_count += 1;
+        }
+        if has_suspicious_ext(s) {
+            suspicious_ext_count += 1;
+        }
+    }
+
+    record.insert(
+        "literal.base64_candidate_count",
+        base64_candidate_count as f64,
+    );
+    record.insert("literal.base64_long_count", base64_long_count as f64);
+    record.insert("literal.hex_escape_count", hex_escape_count as f64);
+    record.insert(
+        "literal.long_hex_string_count",
+        long_hex_string_count as f64,
+    );
+    record.insert("literal.url_count", url_count as f64);
+    record.insert("literal.ip_address_count", ip_address_count as f64);
+    record.insert("literal.suspicious_ext_count", suspicious_ext_count as f64);
 
     let mut ident_stats = StringStats::default();
     let mut short_idents = 0usize;
@@ -316,4 +363,49 @@ fn operator_name(op: &ruff_python_ast::Operator) -> &'static str {
         ruff_python_ast::Operator::RShift => "RShift",
         ruff_python_ast::Operator::MatMult => "MatMult",
     }
+}
+
+fn contains_url(s: &str) -> bool {
+    memmem::find(s.as_bytes(), b"http://").is_some()
+        || memmem::find(s.as_bytes(), b"https://").is_some()
+}
+
+fn looks_like_ipv4(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut groups = 0u8;
+    let mut current_digits = 0u8;
+    let mut current_value: u32 = 0;
+    let mut has_digit = false;
+
+    for &b in bytes {
+        if b.is_ascii_digit() {
+            current_digits += 1;
+            current_value = current_value * 10 + (b - b'0') as u32;
+            has_digit = true;
+            if current_digits > 3 || current_value > 255 {
+                return false;
+            }
+        } else if b == b'.' {
+            if !has_digit {
+                return false;
+            }
+            groups += 1;
+            if groups > 3 {
+                return false;
+            }
+            current_digits = 0;
+            current_value = 0;
+            has_digit = false;
+        } else {
+            return false;
+        }
+    }
+
+    has_digit && groups == 3
+}
+
+fn has_suspicious_ext(s: &str) -> bool {
+    const EXTS: &[&[u8]] = &[b".exe", b".dll", b".bat", b".sh", b".ps1", b".vbs", b".so"];
+    let lower = s.to_ascii_lowercase();
+    EXTS.iter().any(|ext| lower.as_bytes().ends_with(ext))
 }

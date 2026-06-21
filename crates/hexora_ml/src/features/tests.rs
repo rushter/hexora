@@ -290,4 +290,131 @@ mod tests {
             2.0
         );
     }
+
+    #[test]
+    fn test_unused_qualified_name_predicates() {
+        let code = r#"
+import threading
+import platform
+import pyperclip
+import pyscreenshot
+import ctypes
+import pathlib
+import socket
+
+t = threading.Thread()
+p = platform.system()
+c = pyperclip.paste()
+img = pyscreenshot.grab()
+lib = ctypes.CDLL("x")
+pathlib.Path("x").write_text("y")
+s = socket.socket()
+g = globals()
+v = vars()
+"#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert!(
+            features.get("call.indirect_exec").unwrap_or(0.0) > 0.0,
+            "expected call.indirect_exec for threading.Thread()"
+        );
+        assert!(
+            features.get("call.os_fingerprint").unwrap_or(0.0) > 0.0,
+            "expected call.os_fingerprint for platform.system()"
+        );
+        assert!(
+            features.get("call.clipboard_read").unwrap_or(0.0) > 0.0,
+            "expected call.clipboard_read for pyperclip.paste()"
+        );
+        assert!(
+            features.get("call.screenshot_capture").unwrap_or(0.0) > 0.0,
+            "expected call.screenshot_capture for pyscreenshot.grab()"
+        );
+        assert!(
+            features.get("call.dll_injection").unwrap_or(0.0) > 0.0,
+            "expected call.dll_injection for ctypes.CDLL()"
+        );
+        assert!(
+            features.get("call.pathlib_write").unwrap_or(0.0) > 0.0,
+            "expected call.pathlib_write for pathlib.Path.write_text()"
+        );
+        assert!(
+            features.get("call.io_resource_ctor").unwrap_or(0.0) > 0.0,
+            "expected call.io_resource_ctor for socket.socket()"
+        );
+        assert!(
+            features.get("call.module_registry").unwrap_or(0.0) > 0.0,
+            "expected call.module_registry for globals()"
+        );
+        assert!(
+            features.get("call.vars_function").unwrap_or(0.0) > 0.0,
+            "expected call.vars_function for vars()"
+        );
+    }
+
+    #[test]
+    fn test_string_content_features_base64_hex() {
+        let long_b64: String = format!("{}AA==", "A".repeat(96));
+        assert_eq!(long_b64.len(), 100);
+        let long_hex: String = (0..50).map(|i| format!("\\x{:02x}", i)).collect();
+        let code = format!(
+            r#"
+short_b64 = "dGVzdA=="
+long_b64 = "{long_b64}"
+hex_short = r"\x41\x42\x43"
+hex_long = r"{long_hex}"
+"#
+        );
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(&code, file_path).unwrap();
+        assert!(
+            features
+                .get("literal.base64_candidate_count")
+                .unwrap_or(0.0)
+                >= 2.0,
+            "expected at least 2 base64 candidates (short + long)"
+        );
+        assert!(
+            features.get("literal.base64_long_count").unwrap_or(0.0) >= 1.0,
+            "expected at least 1 long base64 string"
+        );
+        assert!(
+            features.get("literal.hex_escape_count").unwrap_or(0.0) >= 2.0,
+            "expected at least 2 hex-escaped strings (short + long)"
+        );
+        assert!(
+            features.get("literal.long_hex_string_count").unwrap_or(0.0) >= 1.0,
+            "expected at least 1 long hex string"
+        );
+    }
+
+    #[test]
+    fn test_string_content_features_url_ip_ext() {
+        let code = r#"
+url = "https://evil.example/c2"
+ip = "127.0.0.1"
+drop = "payload.exe"
+plain = "hello world"
+"#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        assert!(
+            features.get("literal.url_count").unwrap_or(0.0) >= 1.0,
+            "expected url_count >= 1 for https:// URL"
+        );
+        assert!(
+            features.get("literal.ip_address_count").unwrap_or(0.0) >= 1.0,
+            "expected ip_address_count >= 1 for bare IPv4"
+        );
+        assert!(
+            features.get("literal.suspicious_ext_count").unwrap_or(0.0) >= 1.0,
+            "expected suspicious_ext_count >= 1 for .exe"
+        );
+        assert!(
+            features.get("literal.url_count").unwrap_or(0.0) >= 1.0
+                && features.get("literal.ip_address_count").unwrap_or(0.0) >= 1.0
+                && features.get("literal.suspicious_ext_count").unwrap_or(0.0) >= 1.0,
+            "expected all three string content features to fire"
+        );
+    }
 }

@@ -83,6 +83,33 @@ pub(crate) fn extract_semantic_features(
         if qn.is_stdlib_call() {
             record.add(format!("call.{}", qn.as_str()), 1.0);
         }
+        if qn.is_indirect_exec() {
+            record.add("call.indirect_exec", 1.0);
+        }
+        if qn.is_os_fingerprint() {
+            record.add("call.os_fingerprint", 1.0);
+        }
+        if qn.is_clipboard_read() {
+            record.add("call.clipboard_read", 1.0);
+        }
+        if qn.is_screenshot_capture() {
+            record.add("call.screenshot_capture", 1.0);
+        }
+        if qn.is_dll_injection() {
+            record.add("call.dll_injection", 1.0);
+        }
+        if qn.is_pathlib_write() {
+            record.add("call.pathlib_write", 1.0);
+        }
+        if qn.is_module_registry() {
+            record.add("call.module_registry", 1.0);
+        }
+        if qn.is_io_resource_constructor() {
+            record.add("call.io_resource_ctor", 1.0);
+        }
+        if qn.is_vars_function() {
+            record.add("call.vars_function", 1.0);
+        }
     }
 }
 
