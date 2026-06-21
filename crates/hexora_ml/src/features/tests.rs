@@ -222,6 +222,31 @@ mod tests {
     }
 
     #[test]
+    fn test_suspicious_co_occurrence() {
+        let code = r#"
+    import os
+    import base64
+    import socket
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let pairs = features
+            .get("import.suspicious_pair_count")
+            .unwrap_or(0.0) as usize;
+        assert!(
+            pairs >= 2,
+            "expected at least 2 suspicious pairs (os+base64, os+socket, base64+socket), got {pairs}"
+        );
+        let triples = features
+            .get("import.suspicious_triple_count")
+            .unwrap_or(0.0) as usize;
+        assert!(
+            triples >= 1,
+            "expected at least 1 suspicious triple (base64+socket+os), got {triples}"
+        );
+    }
+
+    #[test]
     fn test_dynamic_call_ratio() {
         let code = r#"
     getattr(obj, "method")(arg)
