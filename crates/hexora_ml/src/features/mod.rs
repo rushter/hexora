@@ -22,6 +22,16 @@ pub fn extract_features(
     import::extract_import_features(&mut record, analyzed);
     semantic::extract_semantic_features(&mut record, analyzed);
     rule::extract_rule_features(&mut record, items);
+    let decoded = record.get("semantic.decoded_nodes").unwrap_or(0.0);
+    let total_exprs = record.get("ast.total_exprs").unwrap_or(0.0);
+    record.insert(
+        "semantic.decoded_ratio",
+        if total_exprs > 0.0 {
+            decoded / total_exprs
+        } else {
+            0.0
+        },
+    );
     record.insert("meta.feature_count", record.len() as f64);
     record
 }

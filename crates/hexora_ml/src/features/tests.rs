@@ -222,6 +222,22 @@ mod tests {
     }
 
     #[test]
+    fn test_decoded_ratio() {
+        let code = r#"
+    import base64
+    payload = base64.b64decode("cHJpbnQoMSk=")
+    exec(payload)
+    "#;
+        let file_path = Path::new("test.py");
+        let features = extract_features_from_source(code, file_path).unwrap();
+        let ratio = features.get("semantic.decoded_ratio").unwrap_or(0.0);
+        assert!(
+            ratio > 0.0,
+            "expected decoded_ratio > 0 for code with decoded payloads, got {ratio}"
+        );
+    }
+
+    #[test]
     fn test_cyclomatic_complexity_per_fn() {
         let code = "def foo():\n    if x:\n        pass\n";
         let file_path = Path::new("test.py");

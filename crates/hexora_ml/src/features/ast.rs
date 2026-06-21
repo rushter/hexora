@@ -42,6 +42,7 @@ pub(crate) fn extract_ast_features(
     for (kind, count) in collector.expr_counts {
         record.insert(format!("expr.{kind}"), count as f64);
     }
+    record.insert("ast.total_exprs", collector.total_exprs as f64);
     for (name, count) in &collector.operator_counts {
         record.insert(format!("expr.op.{name}"), *count as f64);
     }
@@ -107,6 +108,7 @@ struct AstFeatureCollector {
     cyclomatic_complexity: usize,
     operator_counts: BTreeMap<&'static str, usize>,
     ident_names: HashSet<String>,
+    total_exprs: usize,
 }
 
 impl AstFeatureCollector {
@@ -182,6 +184,7 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
+        self.total_exprs += 1;
         self.bump_expr(expr_kind_name(expr));
         match expr {
             Expr::Call(_) => self.num_calls += 1,
