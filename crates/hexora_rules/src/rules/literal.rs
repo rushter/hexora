@@ -286,6 +286,24 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
             rule: Rule::DataExfiltration,
         },
         SuspiciousLiteral{
+            pattern:"oast.pro".to_string(),
+            description: "OAST (OOB) domain detected. Possible out-of-band data exfiltration.".to_string(),
+            confidence: AuditConfidence::High,
+            rule: Rule::DataExfiltration,
+        },
+        SuspiciousLiteral{
+            pattern:"oast.live".to_string(),
+            description: "OAST (OOB) domain detected. Possible out-of-band data exfiltration.".to_string(),
+            confidence: AuditConfidence::High,
+            rule: Rule::DataExfiltration,
+        },
+        SuspiciousLiteral{
+            pattern:"oast.site".to_string(),
+            description: "OAST (OOB) domain detected. Possible out-of-band data exfiltration.".to_string(),
+            confidence: AuditConfidence::High,
+            rule: Rule::DataExfiltration,
+        },
+        SuspiciousLiteral{
             pattern:"pyobfuscate".to_string(),
             description: "pyobfuscate detected in a literal. Potential code obfuscation.".to_string(),
             confidence: AuditConfidence::VeryHigh,
