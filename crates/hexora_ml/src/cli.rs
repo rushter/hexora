@@ -41,6 +41,9 @@ pub struct ValidateDatasetOptions {
         help = "Only output files that triggered no rules (JSON output recommended)."
     )]
     pub no_rules: bool,
+
+    #[arg(long, help = "Include the decoded source code in the output.")]
+    pub code: bool,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -84,6 +87,7 @@ pub fn handle_dataset_command(cmd: DatasetCommand) {
                 opts.output_path.as_deref(),
                 opts.min_confidence,
                 opts.no_rules,
+                opts.code,
             );
         }
         DatasetCommand::ReadFile {

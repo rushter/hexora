@@ -52,9 +52,16 @@ struct ValidateRuleOutput {
 struct ValidateFileOutput {
     file: String,
     rules: Vec<ValidateRuleOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
 }
 
-fn write_validate_json(writer: &mut dyn Write, file: String, items: &[AuditItem]) -> bool {
+fn write_validate_json(
+    writer: &mut dyn Write,
+    file: String,
+    items: &[AuditItem],
+    code: Option<String>,
+) -> bool {
     let output = ValidateFileOutput {
         file,
         rules: items
@@ -66,6 +73,7 @@ fn write_validate_json(writer: &mut dyn Write, file: String, items: &[AuditItem]
                 confidence: item.confidence,
             })
             .collect(),
+        code,
     };
     serde_json::to_string(&output)
         .ok()
@@ -90,6 +98,7 @@ pub fn validate_dataset(
     output_path: Option<&Path>,
     min_confidence: AuditConfidence,
     no_rules_only: bool,
+    show_code: bool,
 ) {
     let Some(reader) = open_dataset(input_path) else {
         error!("Failed to open input file: {:?}", input_path);
@@ -136,7 +145,13 @@ pub fn validate_dataset(
             continue;
         }
 
-        if !write_validate_json(&mut writer, entry.file, &audit_items) {
+        let decoded_code = if show_code {
+            decode_entry_code(&entry.code).ok()
+        } else {
+            None
+        };
+
+        if !write_validate_json(&mut writer, entry.file, &audit_items, decoded_code) {
             error!("Line {}: failed to write output", line_num + 1);
             return;
         }
