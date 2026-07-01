@@ -107,21 +107,6 @@ struct AuditOptions {
     min_score: f64,
 }
 #[derive(Args, Clone, Debug)]
-struct GenerateFeaturesOptions {
-    #[arg(long, help = "Path to the JSON lines dataset file.", required = true)]
-    input_path: PathBuf,
-
-    #[arg(
-        long,
-        help = "Output path for generated features. If not specified, results will be written to stdout."
-    )]
-    output_path: Option<PathBuf>,
-
-    #[arg(long, help = "Maximum number of entries to process.")]
-    limit: Option<usize>,
-}
-
-#[derive(Args, Clone, Debug)]
 struct BenchmarkOptions {
     #[arg(
         help = "Input path to a file or directory containing Python files.",
@@ -164,10 +149,10 @@ enum Commands {
         opts: BenchmarkOptions,
     },
 
-    /// Generate features from a JSON lines dataset file.
-    GenerateFeatures {
-        #[command(flatten)]
-        opts: GenerateFeaturesOptions,
+    /// Dataset-related operations.
+    Dataset {
+        #[command(subcommand)]
+        command: hexora_ml::cli::DatasetCommand,
     },
 
     /// This command is used to safely inspect archived malicious package.
@@ -395,12 +380,8 @@ pub fn run_cli(start_arg: usize) {
                 }
             }
         }
-        Commands::GenerateFeatures { opts } => {
-            hexora_ml::generate_features_from_dataset(
-                &opts.input_path,
-                opts.output_path.as_deref(),
-                opts.limit,
-            );
+        Commands::Dataset { command } => {
+            hexora_ml::cli::handle_dataset_command(command);
         }
         Commands::DumpPackage { path, filter } => {
             if let Err(e) = hexora_io::dump_package(&path, filter.as_deref()) {

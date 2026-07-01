@@ -2,8 +2,10 @@ use crate::dataset::LabeledFeatureRow;
 use crate::features::extract_features_from_source;
 use flate2::read::GzDecoder;
 use hexora_io::encoding::base64_decode;
+use hexora_rules::pipeline::audit_source;
+use hexora_rules::result::{AuditConfidence, AuditItem};
 use log::error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -15,13 +17,172 @@ struct DatasetEntry {
     file: String,
 }
 
+fn open_dataset(input_path: &Path) -> Option<Box<dyn BufRead>> {
+    let file = File::open(input_path).ok()?;
+    let reader: Box<dyn BufRead> = if input_path.extension().is_some_and(|ext| ext == "gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+    Some(reader)
+}
+
+fn output_writer(output_path: Option<&Path>) -> Option<Box<dyn Write>> {
+    let writer: Box<dyn Write> = match output_path {
+        Some(path) => Box::new(File::create(path).ok()?),
+        None => Box::new(std::io::stdout()),
+    };
+    Some(writer)
+}
+
+fn decode_entry_code(code_b64: &str) -> Result<String, String> {
+    let bytes = base64_decode(code_b64, false).ok_or("invalid base64 code")?;
+    String::from_utf8(bytes).map_err(|e| format!("code is not valid UTF-8: {}", e))
+}
+
+#[derive(Serialize)]
+struct ValidateRuleOutput {
+    code: &'static str,
+    label: String,
+    description: String,
+    confidence: AuditConfidence,
+}
+
+#[derive(Serialize)]
+struct ValidateFileOutput {
+    file: String,
+    rules: Vec<ValidateRuleOutput>,
+}
+
+fn write_validate_json(writer: &mut dyn Write, file: String, items: &[AuditItem]) -> bool {
+    let output = ValidateFileOutput {
+        file,
+        rules: items
+            .iter()
+            .map(|item| ValidateRuleOutput {
+                code: item.rule.code(),
+                label: item.label.clone(),
+                description: item.description.clone(),
+                confidence: item.confidence,
+            })
+            .collect(),
+    };
+    serde_json::to_string(&output)
+        .ok()
+        .and_then(|json| writeln!(writer, "{json}").ok())
+        .is_some()
+}
+
 pub fn process_raw_entry(code_b64: &str, file: &str, verdict: &str) -> Result<String, String> {
-    let bytes = base64_decode(code_b64, false).ok_or_else(|| "invalid base64 code".to_string())?;
-    let code = String::from_utf8(bytes).map_err(|e| format!("code is not valid UTF-8: {}", e))?;
-    let file_path = Path::new(file);
-    let features = extract_features_from_source(&code, file_path)?;
+    let code = decode_entry_code(code_b64)?;
+    let features = extract_features_from_source(&code, Path::new(file))?;
     let row = LabeledFeatureRow::new(features, verdict.to_string(), file.to_string());
     serde_json::to_string(&row).map_err(|e| e.to_string())
+}
+
+pub fn validate_dataset_entry(code_b64: &str, file: &str) -> Result<Vec<AuditItem>, String> {
+    let code = decode_entry_code(code_b64)?;
+    audit_source(&code, Some(Path::new(file))).map_err(|e| format!("audit error: {e}"))
+}
+
+pub fn validate_dataset(
+    input_path: &Path,
+    output_path: Option<&Path>,
+    min_confidence: AuditConfidence,
+    no_rules_only: bool,
+) {
+    let Some(reader) = open_dataset(input_path) else {
+        error!("Failed to open input file: {:?}", input_path);
+        return;
+    };
+    let Some(mut writer) = output_writer(output_path) else {
+        error!("Failed to create output file");
+        return;
+    };
+
+    for (line_num, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                error!("Line {}: read error: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        let entry: DatasetEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(e) => {
+                error!("Line {}: invalid JSON: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        if entry.verdict != "malicious" {
+            continue;
+        }
+
+        let audit_items = match validate_dataset_entry(&entry.code, &entry.file) {
+            Ok(items) => items
+                .into_iter()
+                .filter(|item| item.confidence >= min_confidence)
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                error!("Line {}: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        if no_rules_only && !audit_items.is_empty() {
+            continue;
+        }
+
+        if !write_validate_json(&mut writer, entry.file, &audit_items) {
+            error!("Line {}: failed to write output", line_num + 1);
+            return;
+        }
+    }
+}
+
+pub fn read_file_from_dataset(input_path: &Path, file_path: &str) {
+    let Some(reader) = open_dataset(input_path) else {
+        error!("Failed to open input file: {:?}", input_path);
+        return;
+    };
+
+    for (line_num, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                error!("Line {}: read error: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        let entry: DatasetEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(e) => {
+                error!("Line {}: invalid JSON: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        if entry.file != file_path {
+            continue;
+        }
+
+        match decode_entry_code(&entry.code) {
+            Ok(code) => {
+                println!("{code}");
+                return;
+            }
+            Err(e) => {
+                error!("Line {}: {}", line_num + 1, e);
+                return;
+            }
+        }
+    }
+
+    error!("No entry found with file: {file_path}");
 }
 
 pub fn generate_features_from_dataset(
@@ -29,29 +190,13 @@ pub fn generate_features_from_dataset(
     output_path: Option<&Path>,
     limit: Option<usize>,
 ) {
-    let file = match File::open(input_path) {
-        Ok(f) => f,
-        Err(e) => {
-            error!("Failed to open input file: {:?}", e);
-            return;
-        }
+    let Some(reader) = open_dataset(input_path) else {
+        error!("Failed to open input file: {:?}", input_path);
+        return;
     };
-
-    let reader: Box<dyn BufRead> = if input_path.extension().is_some_and(|ext| ext == "gz") {
-        Box::new(BufReader::new(GzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
-    };
-
-    let mut writer: Box<dyn Write> = match output_path {
-        Some(path) => match File::create(path) {
-            Ok(f) => Box::new(f),
-            Err(e) => {
-                error!("Failed to create output file: {:?}", e);
-                return;
-            }
-        },
-        None => Box::new(std::io::stdout()),
+    let Some(mut writer) = output_writer(output_path) else {
+        error!("Failed to create output file");
+        return;
     };
 
     let mut processed: usize = 0;
@@ -80,7 +225,7 @@ pub fn generate_features_from_dataset(
             }
         };
 
-        if writeln!(writer, "{}", json).is_err() {
+        if writeln!(writer, "{json}").is_err() {
             error!("Line {}: failed to write output", line_num + 1);
             return;
         }
