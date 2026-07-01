@@ -12,6 +12,7 @@ use hexora_semantic::resolver::{ListLike, string_from_expr};
 use hexora_semantic::taint::TaintKind;
 use memchr::memmem;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
 use ruff_text_size::Ranged;
@@ -471,6 +472,7 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
             return;
         }
         check_suspicious_literal(checker, &literal, expr);
+        check_telegram_token(checker, &literal, expr);
     }
 }
 
@@ -584,6 +586,22 @@ pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast
     }
 }
 
+static TELEGRAM_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\d{6,}:[A-Za-z0-9_-]{30,}").expect("Invalid Telegram token regex"));
+
+pub fn check_telegram_token(checker: &mut Checker, literal: &str, expr: &ast::Expr) {
+    for matched in TELEGRAM_TOKEN_RE.find_iter(literal) {
+        let token = matched.as_str();
+        checker.audit_results.push(AuditItem {
+            label: literal_preview(token, MAX_PREVIEW_LENGTH),
+            rule: Rule::TelegramToken,
+            description: "Telegram bot token detected in string literal.".to_string(),
+            confidence: AuditConfidence::Medium,
+            location: Some(expr.range()),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::result::Rule;
@@ -591,6 +609,7 @@ mod tests {
     use crate::rules::test::*;
     use test_case::test_case;
 
+    #[test_case("telegram_token_01.py", Rule::TelegramToken, vec!["12345678...yz012345"])]
     #[test_case("literal_01.py", Rule::HexedString, vec!["\\x31\\xc0...\\x80\\x00", "\\xeb\\x0d...\\xd4\\x99"])]
     #[test_case("literal_02.py", Rule::Base64String, vec!["\\x74\\x72...\\x29\\x29"])]
     #[test_case("literal_03.py", Rule::HexedLiterals, vec!["[0x00, 0x00, 0x00, 0x18, 0x66, ... ]", "[0x00, 0x1A, 0x63, 0x6C, 0x69, ... ]"])]
@@ -631,6 +650,30 @@ mod tests {
             normalize_literal("C:\\\\Users\\\\admin\\\\Desktop\\\\test.txt"),
             "C:/Users/admin/Desktop/test.txt"
         );
+    }
+
+    #[test]
+    fn test_telegram_token_detected() {
+        use crate::result::AuditConfidence;
+        let source = r#"token = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz012345""#;
+        let result = crate::pipeline::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::TelegramToken)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, AuditConfidence::Medium);
+    }
+
+    #[test]
+    fn test_telegram_token_not_detected_for_short_strings() {
+        let source = r#"token = "12345:abcde"#;
+        let result = crate::pipeline::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::TelegramToken)
+            .collect();
+        assert!(matches.is_empty());
     }
 
     #[test]

@@ -177,6 +177,7 @@ Right now, the following rules are available:
 | HX6060 | PathTraversal | Suspicious path traversal. |
 | HX6070 | BrowserExtension | Enumeration of sensitive browser extensions. |
 | HX6080 | WebHook | Suspicious webhook detected. Possible data exfiltration. |
+| HX6090 | TelegramToken | Telegram bot token detected in string literal. |
 | HX7000 | SuspiciousFunctionName | Suspicious function name. |
 | HX7010 | SuspiciousParameterName | Suspicious parameter name. |
 | HX7020 | SuspiciousVariable | Suspicious variable name. |

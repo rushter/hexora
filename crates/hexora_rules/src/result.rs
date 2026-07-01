@@ -77,6 +77,7 @@ pub enum Rule {
     PathTraversal,
     BrowserExtension,
     WebHook,
+    TelegramToken,
 
     // Variables and Parameters
     SuspiciousFunctionName,
@@ -150,6 +151,7 @@ impl Rule {
             Rule::PathTraversal => "HX6060",
             Rule::BrowserExtension => "HX6070",
             Rule::WebHook => "HX6080",
+            Rule::TelegramToken => "HX6090",
 
             // Variables and Parameters: HX7000
             Rule::SuspiciousFunctionName => "HX7000",
@@ -210,6 +212,7 @@ impl Rule {
             Rule::PathTraversal => "Suspicious path traversal.",
             Rule::BrowserExtension => "Enumeration of sensitive browser extensions.",
             Rule::WebHook => "Suspicious webhook detected. Possible data exfiltration.",
+            Rule::TelegramToken => "Telegram bot token detected in string literal.",
 
             Rule::SuspiciousFunctionName => "Suspicious function name.",
             Rule::SuspiciousParameterName => "Suspicious parameter name.",
@@ -288,6 +291,9 @@ impl Rule {
                 "Enumeration of sensitive browser extensions. Usually used to steal credentials.",
             ),
             Rule::WebHook => Some("Webhooks are often used to exfiltrate (upload) collected data."),
+            Rule::TelegramToken => Some(
+                "Telegram bot tokens grant API access to the bot and can be used to exfiltrate data or control the bot.",
+            ),
             Rule::DataExfiltration => {
                 Some("Data exfiltration is the unauthorized transfer of data from a computer.")
             }
