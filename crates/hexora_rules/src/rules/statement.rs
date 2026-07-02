@@ -40,7 +40,6 @@ pub fn analyze(stmt: &ast::Stmt, checker: &mut Checker) {
                 suspicious_function_parameter(checker, arg.name());
             }
         }
-
         _ => {}
     }
 }

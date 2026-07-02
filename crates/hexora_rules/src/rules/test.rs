@@ -24,13 +24,13 @@ pub fn get_resources_path() -> Result<PathBuf, String> {
 
 pub fn test_path(path: impl AsRef<Path>) -> Result<AuditResult, String> {
     let resources_path = get_resources_path()?;
-    let path = resources_path.join(path);
-    let source =
-        std::fs::read_to_string(&path).map_err(|e| format!("{}: {}", e, path.display()))?;
-    let items = audit_source(&source, Some(&path))?;
+    let full_path = resources_path.join(path);
+    let source = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("{}: {}", e, full_path.display()))?;
+    let items = audit_source(&source, Some(full_path.as_path()))?;
     Ok(AuditResult {
         items,
-        path,
+        path: full_path,
         archive_path: None,
         source_code: source,
     })

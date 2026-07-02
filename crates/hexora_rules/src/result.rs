@@ -92,6 +92,7 @@ pub enum Rule {
     BuiltinsVariable,
     SuspiciousComment,
     SuspiciousWrite,
+    InstallHook,
 }
 // Serialize the enum as its code string
 impl Serialize for Rule {
@@ -163,6 +164,7 @@ impl Rule {
             Rule::BuiltinsVariable => "HX8010",
             Rule::SuspiciousComment => "HX8020",
             Rule::SuspiciousWrite => "HX8030",
+            Rule::InstallHook => "HX8040",
 
             // Exfiltration: HX9000
             Rule::DataExfiltration => "HX9000",
@@ -221,9 +223,10 @@ impl Rule {
             Rule::DataExfiltration => "Potential data exfiltration.",
 
             Rule::BinaryDownload => "Suspicious binary download.",
-            Rule::SuspiciousWrite => "Suspicious write to the filesystem.",
             Rule::BuiltinsVariable => "Suspicious builtin variable usage.",
+            Rule::SuspiciousWrite => "Suspicious write to the filesystem.",
             Rule::SuspiciousComment => "Suspicious comment.",
+            Rule::InstallHook => "Suspicious install hook setup.",
         }
     }
     pub fn help(&self) -> Option<&str> {
@@ -299,6 +302,9 @@ impl Rule {
             }
             Rule::SuspiciousWrite => Some(
                 "Writing to files with to suspicious extensions (.exe, .py) can be used to store malicious payloads.",
+            ),
+            Rule::InstallHook => Some(
+                "Custom install commands in setup.py can execute arbitrary code at package install time.",
             ),
             _ => None,
         }

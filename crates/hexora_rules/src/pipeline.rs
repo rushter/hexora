@@ -16,7 +16,11 @@ pub fn audit_prepared(
     let indexer = prepared.original_indexer();
     let mut audit_results = collect_importlib_imports(prepared.original_ast(), &indexer);
 
-    let mut checker = Checker::new(&prepared.locator, prepared.checker_indexer());
+    let mut checker = Checker::new(
+        &prepared.locator,
+        prepared.checker_indexer(),
+        is_setup_py_file(file_path),
+    );
     checker.check_comments();
     checker.visit_body(&prepared.transformed_ast);
 
@@ -25,13 +29,14 @@ pub fn audit_prepared(
     Ok(audit_results)
 }
 
-fn elevate_setup_py_confidence(items: &mut [AuditItem], file_path: Option<&Path>) {
-    let is_setup_py = file_path
-        .and_then(|path| path.file_name())
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("setup.py"));
+pub(crate) fn is_setup_py_file(path: Option<&Path>) -> bool {
+    path.and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.to_lowercase().ends_with("setup.py"))
+}
 
-    if !is_setup_py {
+fn elevate_setup_py_confidence(items: &mut [AuditItem], file_path: Option<&Path>) {
+    if !is_setup_py_file(file_path) {
         return;
     }
 

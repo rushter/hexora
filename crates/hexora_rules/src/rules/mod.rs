@@ -11,6 +11,7 @@ mod exec_test;
 mod fingerprinting;
 mod identifier;
 mod imports;
+pub(crate) mod install_hook;
 mod literal;
 mod screenshot;
 mod write;

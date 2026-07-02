@@ -9,6 +9,7 @@ use crate::rules::env::{env_access, env_access_subscript};
 use crate::rules::exec::{code_exec, shell_exec};
 use crate::rules::fingerprinting::fingerprinting;
 use crate::rules::identifier::suspicious_call_name;
+use crate::rules::install_hook::check_setup_call;
 use crate::rules::literal::{check_int_literals, check_literal};
 use crate::rules::screenshot::screenshot_capture;
 use crate::rules::write::suspicious_write;
@@ -31,6 +32,9 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
             suspicious_write(checker, call);
             check_builtins(checker, call);
             suspicious_call_name(checker, call);
+            if checker.is_setup_py() {
+                check_setup_call(checker, call);
+            }
         }
         Expr::List(list @ ast::ExprList { elts, .. }) => {
             if elts.is_empty() {

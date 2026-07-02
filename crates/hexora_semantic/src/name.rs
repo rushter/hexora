@@ -321,6 +321,29 @@ impl QualifiedName {
                     && path == "Path"
                     && (write == "write_text" || write == "write_bytes"))
     }
+
+    #[inline]
+    pub fn is_setup_py_setup(&self) -> bool {
+        match self.segments_slice() {
+            [only] if only == "setup" => true,
+            [setuptools, setup] if setuptools == "setuptools" && setup == "setup" => true,
+            [distutils, core, setup]
+                if distutils == "distutils" && core == "core" && setup == "setup" =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_suspicious_capability(&self) -> bool {
+        self.is_exfiltration_sink()
+            || self.is_code_exec()
+            || self.is_shell_command()
+            || self.is_download_request()
+            || self.is_env_access()
+    }
 }
 
 /// Detection methods for builtins and dynamic code execution patterns.
@@ -659,5 +682,27 @@ mod tests {
         assert!(QualifiedName::new("ctypes.windll.kernel32.OpenProcess").is_dll_injection());
         assert!(QualifiedName::new("windll.kernel32.WinExec").is_dll_injection());
         assert!(!QualifiedName::new("ctypes.Structure").is_dll_injection());
+    }
+
+    #[test]
+    fn test_is_setup_py_setup() {
+        assert!(QualifiedName::new("setup").is_setup_py_setup());
+        assert!(QualifiedName::new("setuptools.setup").is_setup_py_setup());
+        assert!(QualifiedName::new("distutils.core.setup").is_setup_py_setup());
+        assert!(!QualifiedName::new("os.system").is_setup_py_setup());
+        assert!(!QualifiedName::new("setup.py").is_setup_py_setup());
+        assert!(!QualifiedName::new("mypackage.setup").is_setup_py_setup());
+    }
+
+    #[test]
+    fn test_is_suspicious_capability() {
+        assert!(QualifiedName::new("requests.post").is_suspicious_capability());
+        assert!(QualifiedName::new("exec").is_suspicious_capability());
+        assert!(QualifiedName::new("os.system").is_suspicious_capability());
+        assert!(QualifiedName::new("urllib.request.urlopen").is_suspicious_capability());
+        assert!(QualifiedName::new("os.getenv").is_suspicious_capability());
+        assert!(QualifiedName::new("requests.get").is_suspicious_capability());
+        assert!(!QualifiedName::new("os.path.join").is_suspicious_capability());
+        assert!(!QualifiedName::new("platform.system").is_suspicious_capability());
     }
 }
