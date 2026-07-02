@@ -203,11 +203,20 @@ impl QualifiedName {
         match self.segments_slice() {
             [module, submodule] => match module.as_str() {
                 "requests" => matches!(submodule.as_str(), "get" | "post" | "request"),
-                "urllib" | "urllib2" => matches!(submodule.as_str(), "urlopen"),
+                "urllib" | "urllib2" => {
+                    matches!(submodule.as_str(), "urlopen" | "urlretrieve")
+                }
                 _ => false,
             },
             [urllib, request, submodule] if urllib == "urllib" && request == "request" => {
-                matches!(submodule.as_str(), "urlopen")
+                matches!(submodule.as_str(), "urlopen" | "urlretrieve")
+            }
+            // import urllib.request → resolved path duplicates 'request':
+            // ["urllib", "request", "request", "urlretrieve"]
+            [urllib, request, request2, submodule]
+                if urllib == "urllib" && request == "request" && request2 == "request" =>
+            {
+                matches!(submodule.as_str(), "urlopen" | "urlretrieve")
             }
             _ => false,
         }

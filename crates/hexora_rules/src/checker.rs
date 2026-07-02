@@ -13,6 +13,7 @@ pub struct Checker<'a> {
     pub indexer: NodeIndexer<'a>,
     is_setup_py: bool,
     install_hook_suspicious_stack: Vec<bool>,
+    pub downloaded_paths: Vec<String>,
 }
 
 impl<'a> Checker<'a> {
@@ -23,6 +24,7 @@ impl<'a> Checker<'a> {
             indexer,
             is_setup_py,
             install_hook_suspicious_stack: Vec::new(),
+            downloaded_paths: Vec::new(),
         }
     }
 

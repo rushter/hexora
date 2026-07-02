@@ -159,8 +159,8 @@ Right now, the following rules are available:
 | HX3040 | DLLInjection | Possible DLL injection. |
 | HX3050 | DangerousExec | Execution of potentially dangerous command inside a shell command. |
 | HX3060 | SuspiciousCall | Suspicious function call. |
-| HX4000 | ObfuscatedShellExec | Execution of an obfuscated shell command. |
-| HX4010 | ObfuscatedCodeExec | Execution of obfuscated code. |
+| HX4000 | ObfuscatedShellExec | Execution of possibly obfuscated shell command. |
+| HX4010 | ObfuscatedCodeExec | Execution of possibly obfuscated code. |
 | HX5000 | DunderImport | Suspicious use of `__import__`. |
 | HX5010 | SuspiciousImport | Suspicious import. |
 | HX5020 | CtypesImport | Suspicious ctypes import. |
@@ -186,6 +186,7 @@ Right now, the following rules are available:
 | HX8010 | BuiltinsVariable | Suspicious builtin variable usage. |
 | HX8020 | SuspiciousComment | Suspicious comment. |
 | HX8030 | SuspiciousWrite | Suspicious write to the filesystem. |
+| HX8040 | InstallHook | Suspicious install hook setup. |
 
 ## Credits
 

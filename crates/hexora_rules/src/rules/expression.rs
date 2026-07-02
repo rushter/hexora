@@ -3,7 +3,7 @@ use crate::rules::builtins::check_builtins;
 use crate::rules::call::{data_exfiltration, suspicious_call};
 use crate::rules::clipboard::clipboard_read;
 use crate::rules::dll_injection::dll_injection;
-use crate::rules::download::binary_download;
+use crate::rules::download::{binary_download, check_download_exec_chain};
 use crate::rules::dunder::dunder_import;
 use crate::rules::env::{env_access, env_access_subscript};
 use crate::rules::exec::{code_exec, shell_exec};
@@ -19,6 +19,7 @@ pub fn analyze(expr: &Expr, checker: &mut Checker) {
     match expr {
         Expr::Call(call) => {
             shell_exec(checker, call);
+            check_download_exec_chain(checker, call);
             code_exec(checker, call);
             dll_injection(checker, call);
             dunder_import(checker, call);
