@@ -47,6 +47,7 @@ MAX_STORED_PACKAGES = 500
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
 SCORE_THRESHOLD = 0.9
+ML_SCORE_MIN_FOR_VERY_HIGH = 0.15
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 _ALERTS_CACHE: set[tuple[str, str]] = set()
 _MAX_ALERTS_CACHE_SIZE = 5000
@@ -521,6 +522,15 @@ def process_entry(
     very_high_items: list[dict[str, Any]] = []
     for per_file_result in audit_result:
         if should_exclude_result(per_file_result):
+            continue
+        file_score = per_file_result.get("score", 0.0)
+        if isinstance(file_score, (int, float)) and file_score < ML_SCORE_MIN_FOR_VERY_HIGH:
+            logging.debug(
+                "Skipping very-high findings for %s (ML score %.4f < %.2f)",
+                per_file_result.get("path", "unknown"),
+                file_score,
+                ML_SCORE_MIN_FOR_VERY_HIGH,
+            )
             continue
         very_high_items.extend(get_confidence_items(per_file_result, {VERY_HIGH_LEVEL}))
     if not very_high_items and not high_score_results:
