@@ -46,8 +46,8 @@ DEFAULT_POLL_SECONDS = 300
 MAX_STORED_PACKAGES = 500
 HIGH_OR_HIGHER_LEVELS = {"high", "very_high"}
 VERY_HIGH_LEVEL = "very_high"
-SCORE_THRESHOLD = 0.9
-ML_SCORE_MIN_FOR_VERY_HIGH = 0.15
+SCORE_THRESHOLD = 0.7
+ML_SCORE_MIN_FOR_VERY_HIGH = 0.401
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 _ALERTS_CACHE: set[tuple[str, str]] = set()
 _MAX_ALERTS_CACHE_SIZE = 5000
@@ -224,7 +224,9 @@ def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
             timeout=AUDIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        logging.error("Hexora audit timed out after %ds for %s", AUDIT_TIMEOUT, package_file)
+        logging.error(
+            "Hexora audit timed out after %ds for %s", AUDIT_TIMEOUT, package_file
+        )
         return None
     except Exception as exc:
         logging.error("Hexora audit failed for %s: %s", package_file, exc)
@@ -234,7 +236,9 @@ def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
         stderr = proc.stderr.strip() if proc.stderr else "no stderr"
         logging.error(
             "Hexora audit exited with code %d for %s: %s",
-            proc.returncode, package_file, stderr,
+            proc.returncode,
+            package_file,
+            stderr,
         )
         return None
 
@@ -245,7 +249,9 @@ def run_hexora_audit(package_file: Path) -> list[dict[str, Any]] | None:
         return None
 
     if not isinstance(result, list):
-        logging.warning("Unexpected audit result type for %s: %s", package_file, type(result))
+        logging.warning(
+            "Unexpected audit result type for %s: %s", package_file, type(result)
+        )
         return None
 
     return result
@@ -524,7 +530,10 @@ def process_entry(
         if should_exclude_result(per_file_result):
             continue
         file_score = per_file_result.get("score", 0.0)
-        if isinstance(file_score, (int, float)) and file_score < ML_SCORE_MIN_FOR_VERY_HIGH:
+        if (
+            isinstance(file_score, (int, float))
+            and file_score < ML_SCORE_MIN_FOR_VERY_HIGH
+        ):
             logging.debug(
                 "Skipping very-high findings for %s (ML score %.4f < %.2f)",
                 per_file_result.get("path", "unknown"),
