@@ -69,11 +69,9 @@ impl<'a> NodeTransformer<'a> {
 
         let mut resolved = String::new();
         for mapped in resolved_exprs.iter() {
-            if let Some(s) = self.extract_string(mapped) {
+            {
+                let s = self.extract_string(mapped)?;
                 resolved.push_str(&s);
-            } else {
-                // N.B.: We currently abort if any part cannot be resolved to a string.
-                return None;
             }
         }
         Some(resolved)
@@ -119,10 +117,9 @@ impl<'a> NodeTransformer<'a> {
         }
 
         if let ast::Expr::Call(inner_call) = expr {
-            if let Some(arg) = self.call_is_simple_reversed(inner_call) {
+            {
+                let arg = self.call_is_simple_reversed(inner_call)?;
                 return self.sequence_to_parts(arg, !reverse);
-            } else {
-                return None;
             }
         }
 
