@@ -1,6 +1,7 @@
 mod archive;
 pub mod base64;
 pub mod encoding;
+pub mod escape;
 pub mod hex;
 pub mod locator;
 pub mod macros;

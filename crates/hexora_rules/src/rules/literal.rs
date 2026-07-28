@@ -2,9 +2,8 @@ use crate::checker::Checker;
 use crate::pipeline::audit_source;
 use crate::result::{AuditConfidence, AuditItem, Rule};
 use hexora_io::base64::ELEVATED_BASE64_STRING_LENGTH;
-use hexora_io::encoding::{
-    base64_decode, is_base64_candidate, is_base64_string, is_hexed_string, unescape_to_bytes,
-};
+use hexora_io::encoding::{base64_decode, is_base64_candidate, is_base64_string, is_hexed_string};
+use hexora_io::escape::unescape_to_bytes;
 use hexora_io::macros::es;
 use hexora_io::telegram::is_telegram_token;
 use hexora_semantic::model::Transformation;

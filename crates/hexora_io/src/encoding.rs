@@ -273,40 +273,6 @@ pub fn decode_bytes(bytes: &[u8], encoding: &str) -> Option<String> {
     None
 }
 
-pub fn unescape_to_bytes(input: &str) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
-    let mut chars = input.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('x') => {
-                    let h1 = chars.next()?;
-                    let h2 = chars.next()?;
-                    let hex = format!("{}{}", h1, h2);
-                    let byte = u8::from_str_radix(&hex, 16).ok()?;
-                    bytes.push(byte);
-                }
-                Some('n') => bytes.push(b'\n'),
-                Some('r') => bytes.push(b'\r'),
-                Some('t') => bytes.push(b'\t'),
-                Some('\\') => bytes.push(b'\\'),
-                Some('\'') => bytes.push(b'\''),
-                Some('\"') => bytes.push(b'\"'),
-                _ => return None,
-            }
-        } else {
-            bytes.push(c as u8);
-        }
-    }
-    Some(bytes)
-}
-
-#[inline]
-pub fn bytes_to_escaped(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("\\x{:02x}", b)).collect()
-}
-
 #[inline]
 pub fn hex_to_escaped(input: &str) -> Option<String> {
     let filtered: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();

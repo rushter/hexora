@@ -1,9 +1,8 @@
 use crate::model::Transformation;
 use crate::node_transformer::NodeTransformer;
 use crate::taint::TaintState;
-use hexora_io::encoding::{
-    base64_decode, bytes_to_escaped, decode_bytes, hex_to_escaped, unescape_to_bytes,
-};
+use hexora_io::encoding::{base64_decode, decode_bytes, hex_to_escaped};
+use hexora_io::escape::{bytes_to_escaped, unescape_to_bytes};
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ExprContext, HasNodeIndex, NodeIndex, Operator,
     StringLiteralFlags,

@@ -1,16 +1,16 @@
 pub const MIN_HEXED_STRING_LENGTH: usize = 100;
 
-const HEX_CHARS: [bool; 256] = {
-    let mut table = [false; 256];
-    let mut i = 0;
+pub const HEX_DIGIT_TABLE: [u8; 256] = {
+    let mut table = [0xFFu8; 256];
+    let mut i = 0u8;
     while i < 10 {
-        table[b'0' as usize + i] = true;
+        table[b'0' as usize + i as usize] = i;
         i += 1;
     }
     i = 0;
     while i < 6 {
-        table[b'A' as usize + i] = true;
-        table[b'a' as usize + i] = true;
+        table[b'a' as usize + i as usize] = 10 + i;
+        table[b'A' as usize + i as usize] = 10 + i;
         i += 1;
     }
     table
@@ -19,33 +19,14 @@ const HEX_CHARS: [bool; 256] = {
 #[inline]
 pub fn is_hex_escaped(literal: &str) -> bool {
     let bytes = literal.as_bytes();
-    let len = bytes.len();
-    if len < 4 || len & 3 != 0 {
-        return false;
-    }
-    let mut i = 0;
-    while i < len - 4 {
-        if bytes[i] != b'\\'
-            || bytes[i + 1] != b'x'
-            || !HEX_CHARS[bytes[i + 2] as usize]
-            || !HEX_CHARS[bytes[i + 3] as usize]
-            || bytes[i + 4] != b'\\'
-            || bytes[i + 5] != b'x'
-            || !HEX_CHARS[bytes[i + 6] as usize]
-            || !HEX_CHARS[bytes[i + 7] as usize]
-        {
-            return false;
-        }
-        i += 8;
-    }
-    if i < len {
-        bytes[i] == b'\\'
-            && bytes[i + 1] == b'x'
-            && HEX_CHARS[bytes[i + 2] as usize]
-            && HEX_CHARS[bytes[i + 3] as usize]
-    } else {
-        true
-    }
+    bytes.len() >= 4
+        && bytes.len() & 3 == 0
+        && bytes.chunks(4).all(|c| {
+            c[0] == b'\\'
+                && c[1] == b'x'
+                && HEX_DIGIT_TABLE[c[2] as usize] != 0xFF
+                && HEX_DIGIT_TABLE[c[3] as usize] != 0xFF
+        })
 }
 
 #[inline]
