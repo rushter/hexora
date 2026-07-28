@@ -1,7 +1,10 @@
 mod archive;
+pub mod base64;
 pub mod encoding;
+pub mod hex;
 pub mod locator;
 pub mod macros;
+pub mod telegram;
 
 use std::collections::HashSet;
 use std::fs;
