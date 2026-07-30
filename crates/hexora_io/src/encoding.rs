@@ -279,23 +279,18 @@ pub fn hex_to_escaped(input: &str) -> Option<String> {
     if filtered.is_empty() || !filtered.len().is_multiple_of(2) {
         return None;
     }
-    filtered
-        .as_bytes()
-        .chunks(2)
-        .map(|chunk| {
-            let h = chunk[0] as char;
-            let l = chunk[1] as char;
-            if h.is_ascii_hexdigit() && l.is_ascii_hexdigit() {
-                Some(format!(
-                    "\\x{}{}",
-                    h.to_ascii_lowercase(),
-                    l.to_ascii_lowercase()
-                ))
-            } else {
-                None
-            }
-        })
-        .collect()
+    let mut result = String::with_capacity(filtered.len() / 2 * 4);
+    for chunk in filtered.as_bytes().chunks(2) {
+        let h = chunk[0];
+        let l = chunk[1];
+        if !h.is_ascii_hexdigit() || !l.is_ascii_hexdigit() {
+            return None;
+        }
+        result.push_str("\\x");
+        result.push(h.to_ascii_lowercase() as char);
+        result.push(l.to_ascii_lowercase() as char);
+    }
+    Some(result)
 }
 
 pub fn base64_decode(input: &str, url_safe: bool) -> Option<Vec<u8>> {
@@ -337,5 +332,64 @@ mod tests {
         let bytes = b"\x85\xa5\x81\x93";
         let decoded = decode_bytes(bytes, "1026").unwrap();
         assert_eq!(decoded, "eval");
+    }
+
+    #[test]
+    fn test_hex_to_escaped_basic() {
+        assert_eq!(
+            hex_to_escaped("48656c6c6f").as_deref(),
+            Some("\\x48\\x65\\x6c\\x6c\\x6f")
+        );
+    }
+
+    #[test]
+    fn test_hex_to_escaped_uppercase() {
+        assert_eq!(
+            hex_to_escaped("DEADBEEF").as_deref(),
+            Some("\\xde\\xad\\xbe\\xef")
+        );
+    }
+
+    #[test]
+    fn test_hex_to_escaped_mixed_case() {
+        assert_eq!(hex_to_escaped("4a6F68").as_deref(), Some("\\x4a\\x6f\\x68"));
+    }
+
+    #[test]
+    fn test_hex_to_escaped_with_whitespace() {
+        assert_eq!(
+            hex_to_escaped("48 65 6c 6c 6f").as_deref(),
+            Some("\\x48\\x65\\x6c\\x6c\\x6f")
+        );
+        assert_eq!(
+            hex_to_escaped("48\t65\n6c\r6c 6f").as_deref(),
+            Some("\\x48\\x65\\x6c\\x6c\\x6f")
+        );
+    }
+
+    #[test]
+    fn test_hex_to_escaped_empty() {
+        assert_eq!(hex_to_escaped(""), None);
+    }
+
+    #[test]
+    fn test_hex_to_escaped_odd_length() {
+        assert_eq!(hex_to_escaped("48656c6c6"), None);
+    }
+
+    #[test]
+    fn test_hex_to_escaped_non_hex_digit() {
+        assert_eq!(hex_to_escaped("48 6z 6c"), None);
+    }
+
+    #[test]
+    fn test_hex_to_escaped_only_whitespace() {
+        assert_eq!(hex_to_escaped("  \t\n\r "), None);
+    }
+
+    #[test]
+    fn test_hex_to_escaped_short() {
+        assert_eq!(hex_to_escaped("00ff").as_deref(), Some("\\x00\\xff"));
+        assert_eq!(hex_to_escaped("ff").as_deref(), Some("\\xff"));
     }
 }
