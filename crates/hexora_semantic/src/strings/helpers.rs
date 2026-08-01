@@ -1,9 +1,9 @@
 use crate::model::Transformation;
 use crate::node_transformer::NodeTransformer;
 use crate::taint::TaintKind;
-use ruff_python_ast::str::raw_contents;
+use ruff_python_ast::str::{leading_quote, trailing_quote};
 use ruff_python_ast::{self as ast, AtomicNodeIndex, HasNodeIndex, StringLiteralFlags};
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextLen, TextRange};
 
 impl<'a> NodeTransformer<'a> {
     #[inline]
@@ -86,7 +86,19 @@ impl<'a> NodeTransformer<'a> {
     pub(crate) fn collect_raw(&self, ranges: impl Iterator<Item = TextRange>) -> String {
         ranges
             .filter(|r| r.start() < r.end() && (r.end() - r.start()).to_usize() > 1)
-            .filter_map(|r| raw_contents(self.locator.slice(r)))
+            .filter_map(|r| {
+                let contents = self.locator.slice(r);
+                // Unterminated literals can have a trailing-quote match that
+                // overlaps the leading quote; `TextRange::new` asserts
+                // `start <= end`, so compute the content bounds ourselves.
+                let content_start = leading_quote(contents)?.text_len();
+                let content_end =
+                    contents.text_len() - trailing_quote(contents).unwrap_or("").text_len();
+                if content_start > content_end {
+                    return None;
+                }
+                Some(&contents[TextRange::new(content_start, content_end)])
+            })
             .collect()
     }
 

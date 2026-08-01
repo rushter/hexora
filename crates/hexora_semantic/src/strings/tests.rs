@@ -55,6 +55,30 @@ fn get_strings(source: &str) -> Vec<StringItem> {
 }
 
 #[test]
+fn test_unterminated_triple_quoted_string() {
+    for source in [
+        "x = \"\"\"",
+        "x = '''",
+        "x = r\"\"\"",
+        "x = b'''",
+        "x = f\"\"\"",
+    ] {
+        let actual = get_strings(source);
+        assert!(
+            actual.iter().any(|it| it.string.is_empty()),
+            "expected an empty folded string for {source:?}, got {actual:?}"
+        );
+    }
+}
+
+#[test]
+fn test_unterminated_triple_quoted_string_with_content() {
+    let source = "x = \"\"\"foo";
+    let actual = get_strings(source);
+    assert!(actual.iter().any(|it| it.string == "foo"));
+}
+
+#[test]
 fn test_string_concatenation() {
     let source = r#"a = "print"+"(123)"+";"+"123""#;
     let expected = vec![string_item!("print(123);123", 4, 29)];
