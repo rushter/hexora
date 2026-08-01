@@ -21,17 +21,54 @@ static DANGEROUS_COMMANDS: &[&str] = &[
     "/dev/tcp",
     "start /B",
 ];
-static DANGEROUS_COMMAND_PREFIXES: &[&str] = &["start "];
+
+// Characters that terminate a word. `$` ends a word too: `curl$foo` still
+// invokes curl when `$foo` expands to nothing, so it must stay a boundary.
+fn is_word_end_separator(ch: char) -> bool {
+    matches!(
+        ch,
+        '|' | '&' | ';' | '(' | ')' | '<' | '>' | '$' | '`' | '\n'
+    )
+}
+
+// Characters that begin a new shell command. `$` is deliberately absent:
+// `echo $curl` expands a variable and never executes curl (command
+// substitution via `$(...)` and backticks is still caught through `(`/`` ` ``).
+fn is_command_start_separator(ch: char) -> bool {
+    matches!(ch, '|' | '&' | ';' | '(' | ')' | '<' | '>' | '`' | '\n')
+}
+
+fn is_word_boundary(ch: Option<char>) -> bool {
+    match ch {
+        None => true,
+        Some(c) => c.is_whitespace() || is_word_end_separator(c),
+    }
+}
+
+// A token is in "command position" when it begins a shell command: at the
+// start of the string, after leading whitespace, or right after a command
+// separator. A token preceded by an argument word is a plain mention, e.g.
+// the "curl" in `echo curl`, and is not an executed command.
+fn is_in_command_position(command: &str, idx: usize) -> bool {
+    let before = &command[..idx];
+    match before.chars().next_back() {
+        None => true,
+        Some(c) if c.is_whitespace() => {
+            let trimmed = before.trim();
+            trimmed.is_empty()
+                || trimmed
+                    .chars()
+                    .next_back()
+                    .is_some_and(is_command_start_separator)
+        }
+        Some(c) => is_command_start_separator(c),
+    }
+}
 
 fn contains_shell_token(command: &str, token: &str) -> bool {
     command.match_indices(token).any(|(idx, _)| {
-        let before = command[..idx].chars().next_back();
         let after = command[idx + token.len()..].chars().next();
-        let is_boundary = |ch: Option<char>| match ch {
-            None => true,
-            Some(c) => c.is_whitespace() || matches!(c, '|' | '&' | ';' | '(' | ')' | '<' | '>'),
-        };
-        is_boundary(before) && is_boundary(after)
+        is_word_boundary(after) && is_in_command_position(command, idx)
     })
 }
 
@@ -41,6 +78,38 @@ fn is_dangerous_command_match(command: &str, token: &str) -> bool {
     }
 
     contains_shell_token(command, token)
+}
+
+// A standalone mention of a dangerous command is only executed when it is the
+// program itself (argv[0] or the first token of a command string). In
+// argument positions a bare token such as the "curl" in
+// subprocess.run(["echo", "curl"]) is a plain mention, not a command.
+fn is_plain_mention(command: &str, token: &str, program_position: bool) -> bool {
+    !program_position && command.trim() == token
+}
+
+fn contains_dangerous_string(command: &str, program_position: bool) -> bool {
+    DANGEROUS_COMMANDS.iter().any(|&token| {
+        !is_plain_mention(command, token, program_position)
+            && is_dangerous_command_match(command, token)
+    })
+}
+
+fn contains_dangerous_exec_expr_at(
+    checker: &Checker,
+    expr: &ast::Expr,
+    program_position: bool,
+) -> bool {
+    if let Some(s) = string_from_expr(expr, &checker.indexer) {
+        return contains_dangerous_string(&s, program_position);
+    }
+
+    expr_sequence_parts(checker, expr, 0).is_some_and(|parts| {
+        parts
+            .iter()
+            .enumerate()
+            .any(|(idx, part)| contains_dangerous_exec_expr_at(checker, part, idx == 0))
+    })
 }
 
 pub(super) fn get_suspicious_taint(checker: &Checker, expr: &ast::Expr) -> Option<TaintKind> {
@@ -69,21 +138,17 @@ pub(crate) fn get_call_suspicious_taint(
 }
 
 fn contains_dangerous_exec_expr(checker: &Checker, expr: &ast::Expr) -> bool {
-    if let Some(s) = string_from_expr(expr, &checker.indexer) {
-        DANGEROUS_COMMANDS
-            .iter()
-            .any(|&c| is_dangerous_command_match(&s, c))
-            || DANGEROUS_COMMAND_PREFIXES.iter().any(|&c| s.starts_with(c))
-    } else {
-        expr_sequence_parts(checker, expr, 0).is_some_and(|parts| {
-            parts
-                .iter()
-                .any(|part| contains_dangerous_exec_expr(checker, part))
-        })
-    }
+    contains_dangerous_exec_expr_at(checker, expr, true)
 }
 
 pub(super) fn contains_dangerous_exec(checker: &Checker, call: &ast::ExprCall) -> bool {
+    if let Some((parts, _)) = shell_argv_layout(checker, call) {
+        return parts
+            .iter()
+            .enumerate()
+            .any(|(idx, part)| contains_dangerous_exec_expr_at(checker, part, idx == 0));
+    }
+
     call.arguments
         .args
         .iter()

