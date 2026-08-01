@@ -5,13 +5,13 @@ edition = "2024"
 description = "Machine learning features and scoring for Hexora"
 license = "MIT"
 repository = "https://github.com/rushter/hexora"
-rust-version = "1.90"
+rust-version = "1.95"
 
 [dependencies]
 hexora_semantic = { path = "../hexora_semantic" }
 hexora_rules = { path = "../hexora_rules" }
 hexora_io = { path = "../hexora_io" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="9ad2da3015e5faf73bdc5f1d09df3e47238e3edf" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev="80790b348b5188e7fc253665540f442c6ec7dd05" }
 log = "0.4"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0"
