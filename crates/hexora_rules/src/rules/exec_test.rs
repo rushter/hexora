@@ -840,3 +840,48 @@ vars()["os"].system("whoami")
         .collect();
     assert!(matches.contains(&"os.system".to_string()));
 }
+
+#[test]
+fn test_spawnv_with_decoded_argv_is_obfuscated() {
+    let source = r#"import base64
+import os
+os.spawnv(os.P_NOWAIT, "/bin/sh", ["/bin/sh", "-c", base64.b64decode("d2hvYW1p")])
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+
+    let dangerous_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.rule == Rule::DangerousExec)
+        .map(|item| {
+            (
+                item.label.clone(),
+                item.confidence,
+                item.description.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        dangerous_exec,
+        vec![(
+            "os.spawnv".to_string(),
+            AuditConfidence::VeryHigh,
+            "Execution of obfuscated dangerous command in shell".to_string(),
+        )]
+    );
+}
+
+#[test]
+fn test_spawnve_with_decoded_argv_is_obfuscated() {
+    let source = r#"import base64
+import os
+os.spawnve(os.P_NOWAIT, "/bin/sh", ["/bin/sh", "-c", base64.b64decode("d2hvYW1p")], {})
+"#;
+    let result = crate::pipeline::audit_source(source, None).unwrap();
+
+    let obfuscated_shell_exec: Vec<_> = result
+        .iter()
+        .filter(|item| item.rule == Rule::ObfuscatedShellExec || item.rule == Rule::DangerousExec)
+        .map(|item| item.label.clone())
+        .collect();
+    assert!(obfuscated_shell_exec.contains(&"os.spawnve".to_string()));
+}
