@@ -88,7 +88,10 @@ use test_case::test_case;
 #[test_case(
     "exec_09.py",
     Rule::ObfuscatedCodeExec,
-    vec![("__builtins__.eval", AuditConfidence::VeryHigh)]
+    vec![
+        ("exec", AuditConfidence::High),
+        ("__builtins__.eval", AuditConfidence::VeryHigh),
+    ]
 )]
 #[test_case(
     "exec_10.py",
