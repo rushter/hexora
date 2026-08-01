@@ -60,10 +60,8 @@ pub fn env_access(checker: &mut Checker, call: &ast::ExprCall) {
     }
 
     let mut candidate: Option<String> = None;
-    if let Some(first) = call.arguments.args.first()
-        && let ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = first
-    {
-        candidate = Some(value.to_string());
+    if let Some(first) = call.arguments.args.first() {
+        candidate = string_from_expr(first, &checker.indexer);
     }
 
     if candidate.is_none() {
@@ -74,9 +72,8 @@ pub fn env_access(checker: &mut Checker, call: &ast::ExprCall) {
                 ..
             } = kw
                 && name.id == "key"
-                && let ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = value
             {
-                candidate = Some(value.to_string());
+                candidate = string_from_expr(value, &checker.indexer);
                 break;
             }
         }
@@ -156,5 +153,47 @@ os.environ["AWS_ACCESS_KEY_ID"]
             .map(|item| item.label)
             .collect();
         assert_eq!(matches, vec!["AWS_ACCESS_KEY_ID"]);
+    }
+
+    #[test]
+    fn test_env_variable_key() {
+        let source = r#"import os
+k = "AWS_ACCESS_KEY_ID"
+os.getenv(k)
+"#;
+        let result = crate::pipeline::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::EnvAccess)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["AWS_ACCESS_KEY_ID"]);
+    }
+
+    #[test]
+    fn test_env_keyword_key() {
+        let source = r#"import os
+os.getenv(key="FACEBOOK_APP_SECRET")
+"#;
+        let result = crate::pipeline::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::EnvAccess)
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(matches, vec!["FACEBOOK_APP_SECRET"]);
+    }
+
+    #[test]
+    fn test_env_unresolved_key_not_flagged() {
+        let source = r#"import os
+os.getenv(some_dynamic_key)
+"#;
+        let result = crate::pipeline::audit_source(source, None).unwrap();
+        let matches: Vec<_> = result
+            .into_iter()
+            .filter(|item| item.rule == Rule::EnvAccess)
+            .collect();
+        assert!(matches.is_empty());
     }
 }

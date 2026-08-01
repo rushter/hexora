@@ -120,22 +120,14 @@ fn exec_subject_position(checker: &Checker, call: &ast::ExprCall) -> usize {
                 if os == "os"
                     && matches!(
                         name.as_str(),
-                        "execv"
-                            | "execve"
-                            | "execvp"
-                            | "execvpe"
-                            | "posix_spawn"
-                            | "posix_spawnp"
+                        "execv" | "execve" | "execvp" | "execvpe" | "posix_spawn" | "posix_spawnp"
                     ) =>
             {
                 Some(1)
             }
             [os, name]
                 if os == "os"
-                    && matches!(
-                        name.as_str(),
-                        "spawnv" | "spawnve" | "spawnvp" | "spawnvpe"
-                    ) =>
+                    && matches!(name.as_str(), "spawnv" | "spawnve" | "spawnvp" | "spawnvpe") =>
             {
                 Some(2)
             }
