@@ -1,6 +1,6 @@
 [package]
 name = "hexora_ml"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "Machine learning features and scoring for Hexora"
 license = "MIT"
