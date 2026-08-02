@@ -3,11 +3,13 @@ use crate::schema::FeatureRecord;
 use hexora_io::encoding::{is_base64_candidate, is_base64_string, is_hex_escaped, is_hexed_string};
 use hexora_semantic::analysis::AnalyzedSource;
 use memchr::memmem;
+use rustc_hash::FxHashSet;
+use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt,
 };
 use ruff_python_ast::{AnyNodeRef, Expr, Stmt};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 const VERSION_FILE_NAMES: &[&str] = &["__init__.py", "version.py", "__version__.py", "about.py"];
 
@@ -154,7 +156,7 @@ struct AstFeatureCollector {
     total_string_literal_chars: usize,
     cyclomatic_complexity: usize,
     operator_counts: BTreeMap<&'static str, usize>,
-    ident_names: HashSet<String>,
+    ident_names: FxHashSet<Name>,
     total_exprs: usize,
 }
 
@@ -255,7 +257,7 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
                 *self.operator_counts.entry(name).or_insert(0) += 1;
             }
             Expr::Name(name) => {
-                self.ident_names.insert(name.id.to_string());
+                self.ident_names.insert(name.id.clone());
             }
             Expr::BoolOp(bool_op) => {
                 self.cyclomatic_complexity += bool_op.values.len().saturating_sub(1);

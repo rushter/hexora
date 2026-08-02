@@ -3,7 +3,7 @@ use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::Ranged;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::model::{NodeId, SemanticModel};
 use crate::resolver::ResolverCache;
@@ -202,7 +202,7 @@ impl<'a> NodeIndexer<'a> {
                 self.pop_scope();
             }
             Stmt::FunctionDef(func) => {
-                let mut return_taint = TaintState::new();
+                let mut return_taint = TaintState::default();
                 for ret_expr in collect_returns(&func.body) {
                     return_taint.extend(self.get_taint(ret_expr));
                 }
@@ -342,7 +342,7 @@ impl<'a> NodeIndexer<'a> {
                 _ => {}
             }
         }
-        TaintState::new()
+        TaintState::default()
     }
 
     pub fn visit_node<T>(&self, node: &T)
@@ -381,7 +381,7 @@ impl<'a> NodeIndexer<'a> {
         };
         self.scope_stack.push(Scope {
             kind,
-            symbols: HashMap::with_capacity(32),
+            symbols: FxHashMap::with_capacity_and_hasher(32, rustc_hash::FxBuildHasher),
             parent_scope: parent,
             parameter_leaks: Vec::new(),
         });

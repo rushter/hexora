@@ -1,5 +1,5 @@
 use ruff_python_ast::*;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use crate::name::QualifiedName;
 
@@ -15,7 +15,7 @@ pub enum TaintKind {
     InternalParameter(usize),
 }
 
-pub type TaintState = HashSet<TaintKind>;
+pub type TaintState = FxHashSet<TaintKind>;
 
 fn is_open_for_reading(call: &ExprCall) -> bool {
     let mut mode = "r".to_string();
@@ -122,7 +122,7 @@ pub fn compute_expr_taint(
     resolve_qualified_name: impl Fn(&Expr) -> Option<QualifiedName>,
     get_function_return_taint: impl Fn(&Expr) -> TaintState,
 ) -> TaintState {
-    let mut taints = TaintState::new();
+    let mut taints = TaintState::default();
 
     match expr {
         Expr::StringLiteral(_) | Expr::BytesLiteral(_) => {
@@ -345,7 +345,7 @@ pub fn get_method_mutation_taint(
             method,
             "append" | "extend" | "insert" | "reverse" | "update" | "add"
         ) {
-            let mut taint = TaintState::new();
+            let mut taint = TaintState::default();
             if method != "reverse" {
                 for arg in &call.arguments.args {
                     taint.extend(get_taint(arg));

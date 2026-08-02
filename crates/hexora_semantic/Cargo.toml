@@ -16,6 +16,7 @@ hexora_io = { path = "../hexora_io" }
 log = "0.4.17"
 once_cell = "1.21.3"
 memchr = "2.7.1"
+rustc-hash = "2.1.1"
 
 [dev-dependencies]
 unindent = "0.2.4"

@@ -1,7 +1,7 @@
 use crate::taint::TaintState;
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{Expr, StmtFunctionDef};
-use std::collections::{HashMap, HashSet};
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub enum BindingKind {
@@ -31,8 +31,8 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: None,
-            taint: HashSet::new(),
-            return_taint: HashSet::new(),
+            taint: TaintState::default(),
+            return_taint: TaintState::default(),
             parameter_leaks: Vec::new(),
         }
     }
@@ -44,8 +44,8 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: None,
-            taint: HashSet::new(),
-            return_taint: HashSet::new(),
+            taint: TaintState::default(),
+            return_taint: TaintState::default(),
             parameter_leaks: Vec::new(),
         }
     }
@@ -62,8 +62,8 @@ impl<'a> SymbolBinding<'a> {
             value_expr,
             assigned_expressions,
             function_def: None,
-            taint: HashSet::new(),
-            return_taint: HashSet::new(),
+            taint: TaintState::default(),
+            return_taint: TaintState::default(),
             parameter_leaks: Vec::new(),
         }
     }
@@ -75,8 +75,8 @@ impl<'a> SymbolBinding<'a> {
             value_expr: None,
             assigned_expressions: Vec::new(),
             function_def: Some(func),
-            taint: HashSet::new(),
-            return_taint: HashSet::new(),
+            taint: TaintState::default(),
+            return_taint: TaintState::default(),
             parameter_leaks: Vec::new(),
         }
     }
@@ -96,7 +96,7 @@ pub enum ScopeKind {
 
 pub struct Scope<'a> {
     pub kind: ScopeKind,
-    pub symbols: HashMap<String, SymbolBinding<'a>>,
+    pub symbols: FxHashMap<String, SymbolBinding<'a>>,
     pub parent_scope: Option<usize>,
     pub parameter_leaks: Vec<(usize, String)>,
 }
@@ -105,7 +105,7 @@ impl<'a> Scope<'a> {
     pub fn new(kind: ScopeKind, parent_scope: Option<usize>) -> Self {
         Self {
             kind,
-            symbols: HashMap::with_capacity(32),
+            symbols: FxHashMap::with_capacity_and_hasher(32, rustc_hash::FxBuildHasher),
             parent_scope,
             parameter_leaks: Vec::new(),
         }

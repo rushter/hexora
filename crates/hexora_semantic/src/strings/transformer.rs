@@ -477,7 +477,7 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
             }
 
             ast::Expr::FString(f) => {
-                let mut taints = TaintState::new();
+                let mut taints = TaintState::default();
                 for part in &f.value {
                     if let ast::FStringPart::FString(inner) = part {
                         for element in &inner.elements {

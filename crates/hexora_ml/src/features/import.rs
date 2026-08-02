@@ -1,7 +1,7 @@
 use crate::schema::FeatureRecord;
 use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::scope::BindingKind;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 const SUSPICIOUS_PAIRS: &[(&str, &str)] = &[
     ("base64", "socket"),
@@ -47,9 +47,9 @@ pub(crate) fn extract_import_features(
     record: &mut FeatureRecord,
     analyzed: &AnalyzedSource<'_, '_>,
 ) {
-    let mut import_roots = HashSet::new();
-    let mut builtin_globals = HashSet::new();
-    let mut builtin_module_calls = HashSet::new();
+    let mut import_roots = FxHashSet::default();
+    let mut builtin_globals = FxHashSet::default();
+    let mut builtin_module_calls = FxHashSet::default();
 
     for (name, binding) in analyzed.indexer.bindings() {
         match binding.kind {
