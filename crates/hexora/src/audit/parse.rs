@@ -3,6 +3,8 @@ use hexora_io::list_python_files;
 use hexora_ml::{FeatureRecord, ScoreModel, extract_features};
 use hexora_rules::result::AuditItem;
 use log::{debug, error};
+use rayon::prelude::*;
+use std::any::Any;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -39,6 +41,40 @@ fn audit_file_with_content(
     })
 }
 
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+
+/// Audit a single file, isolating panics so a malformed input cannot abort the whole run.
+fn audit_file_checked(file: hexora_io::PythonFile) -> Option<AuditResult> {
+    debug!("Auditing file: {}", file.full_path());
+    let full_path = file.full_path();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        audit_file_with_content(file.file_path, file.archive_path, file.content)
+    }));
+    match result {
+        Ok(Ok(result)) => Some(result),
+        Ok(Err(e)) => {
+            error!("Error auditing file: {}", e);
+            None
+        }
+        Err(panic) => {
+            error!(
+                "Panic while auditing file: {}. Panic message: {}",
+                full_path,
+                panic_message(&*panic)
+            );
+            None
+        }
+    }
+}
+
 /// Audit files in the provided directory or a file
 /// Automatically discovers Python files in .tar.gz, .zip files or in folders
 pub fn audit_path(
@@ -49,14 +85,9 @@ pub fn audit_path(
     if files.is_empty() {
         return Err("No Python files found".to_string());
     }
-    Ok(files.into_iter().filter_map(|file| {
-        debug!("Auditing file: {}", file.full_path());
-        match audit_file_with_content(file.file_path, file.archive_path, file.content) {
-            Ok(result) => Some(result),
-            Err(e) => {
-                error!("Error auditing file: {}", e);
-                None
-            }
-        }
-    }))
+    let results: Vec<_> = files
+        .into_par_iter()
+        .filter_map(audit_file_checked)
+        .collect();
+    Ok(results.into_iter())
 }

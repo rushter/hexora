@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use archive::{TarGzIterator, ZipIterator};
+use rayon::prelude::*;
 
 fn has_extension(path: &Path, ext: &str) -> bool {
     path.extension()
@@ -81,43 +82,54 @@ pub fn list_python_files(
     exclude_names: Option<&HashSet<String>>,
 ) -> impl Iterator<Item = PythonFile> {
     let exclude_names = exclude_names.cloned().unwrap_or_default();
-    walkdir::WalkDir::new(path)
+    let entries: Vec<_> = walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
-        .flat_map(move |entry| {
-            let path = entry.path();
+        .collect();
 
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if exclude_names.contains(name) {
-                    return EntryIterator::Empty;
-                }
-            }
+    // Extract file contents and decompress archives in parallel. Each
+    // filesystem entry is an independent unit of work; ordering is preserved.
+    let files: Vec<PythonFile> = entries
+        .into_par_iter()
+        .flat_map_iter(|entry| extract_from_entry(&entry, &exclude_names))
+        .collect();
 
-            if is_python_file(path) {
-                if let Ok(content) = fs::read_to_string(path) {
-                    return EntryIterator::FileSystem(std::iter::once(PythonFile {
-                        file_path: path.to_owned(),
-                        content,
-                        archive_path: None,
-                    }));
-                }
-            }
+    files.into_iter()
+}
 
-            if is_zip_file(path) {
-                if let Some(it) = ZipIterator::new(path) {
-                    return EntryIterator::Zip(it);
-                }
-            }
+fn extract_from_entry(entry: &walkdir::DirEntry, exclude_names: &HashSet<String>) -> EntryIterator {
+    let path = entry.path();
 
-            if is_tar_gz_file(path) {
-                if let Some(it) = TarGzIterator::new(path) {
-                    return EntryIterator::TarGz(it);
-                }
-            }
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if exclude_names.contains(name) {
+            return EntryIterator::Empty;
+        }
+    }
 
-            EntryIterator::Empty
-        })
+    if is_python_file(path) {
+        if let Ok(content) = fs::read_to_string(path) {
+            return EntryIterator::FileSystem(std::iter::once(PythonFile {
+                file_path: path.to_owned(),
+                content,
+                archive_path: None,
+            }));
+        }
+    }
+
+    if is_zip_file(path) {
+        if let Some(it) = ZipIterator::new(path) {
+            return EntryIterator::Zip(it);
+        }
+    }
+
+    if is_tar_gz_file(path) {
+        if let Some(it) = TarGzIterator::new(path) {
+            return EntryIterator::TarGz(it);
+        }
+    }
+
+    EntryIterator::Empty
 }
 
 pub fn dump_package(path: &Path, filter: Option<&str>) -> Result<(), std::io::Error> {
