@@ -55,7 +55,7 @@ def main():
     args = parser.parse_args()
 
     logging.info("Loading data from %s", args.input_path)
-    df = pl.read_ndjson(args.input_path)
+    df = pl.read_ndjson(args.input_path, infer_schema_length=None)
     y = df["_label"].replace({"benign": 0, "malicious": 1}).cast(pl.Int64)
     df = df.fill_null(0).drop(["_label", "_file_path"])
 
