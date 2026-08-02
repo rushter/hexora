@@ -75,6 +75,10 @@ fn audit_file_checked(file: hexora_io::PythonFile) -> Option<AuditResult> {
     }
 }
 
+/// Maximum number of files audited concurrently. Bounds peak memory: only
+/// this many source buffers, ASTs and semantic indices are in flight at once.
+const MAX_CONCURRENT_AUDITS: usize = 8;
+
 /// Audit files in the provided directory or a file
 /// Automatically discovers Python files in .tar.gz, .zip files or in folders
 pub fn audit_path(
@@ -85,9 +89,19 @@ pub fn audit_path(
     if files.is_empty() {
         return Err("No Python files found".to_string());
     }
-    let results: Vec<_> = files
-        .into_par_iter()
-        .filter_map(audit_file_checked)
-        .collect();
-    Ok(results.into_iter())
+    let mut files = files.into_iter().fuse();
+    Ok(std::iter::from_fn(move || {
+        let batch: Vec<_> = files.by_ref().take(MAX_CONCURRENT_AUDITS).collect();
+        if batch.is_empty() {
+            return None;
+        }
+        Some(
+            batch
+                .into_par_iter()
+                .filter_map(audit_file_checked)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
+    })
+    .flatten())
 }

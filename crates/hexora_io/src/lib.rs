@@ -10,9 +10,47 @@ pub mod telegram;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex};
 
 use archive::{TarGzIterator, ZipIterator};
 use rayon::prelude::*;
+
+/// A counting semaphore backed by a mutex + condvar (std's is unstable).
+#[derive(Debug)]
+struct Semaphore {
+    count: Mutex<usize>,
+    condvar: Condvar,
+}
+
+impl Semaphore {
+    fn new(permits: usize) -> Self {
+        Self {
+            count: Mutex::new(permits),
+            condvar: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self) -> SemaphorePermit<'_> {
+        let mut count = self.count.lock().unwrap();
+        while *count == 0 {
+            count = self.condvar.wait(count).unwrap();
+        }
+        *count -= 1;
+        SemaphorePermit { semaphore: self }
+    }
+}
+
+struct SemaphorePermit<'a> {
+    semaphore: &'a Semaphore,
+}
+
+impl Drop for SemaphorePermit<'_> {
+    fn drop(&mut self) {
+        let mut count = self.semaphore.count.lock().unwrap();
+        *count += 1;
+        self.semaphore.condvar.notify_one();
+    }
+}
 
 fn has_extension(path: &Path, ext: &str) -> bool {
     path.extension()
@@ -76,6 +114,10 @@ pub fn read_exclude_names(path: &Path) -> Result<HashSet<String>, std::io::Error
         .collect())
 }
 
+/// Maximum number of archives decompressed in parallel. Bounds the transient
+/// peak: only this many tar.gz/zip files are fully expanded into memory at once.
+const MAX_CONCURRENT_EXTRACTIONS: usize = 4;
+
 /// List all Python files in the given path, including those inside .zip and .tar.gz archives.
 pub fn list_python_files(
     path: &Path,
@@ -90,9 +132,13 @@ pub fn list_python_files(
 
     // Extract file contents and decompress archives in parallel. Each
     // filesystem entry is an independent unit of work; ordering is preserved.
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS));
     let files: Vec<PythonFile> = entries
         .into_par_iter()
-        .flat_map_iter(|entry| extract_from_entry(&entry, &exclude_names))
+        .flat_map_iter(move |entry| {
+            let _permit = semaphore.acquire();
+            extract_from_entry(&entry, &exclude_names)
+        })
         .collect();
 
     files.into_iter()
