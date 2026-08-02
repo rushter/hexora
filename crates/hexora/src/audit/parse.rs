@@ -22,7 +22,7 @@ fn audit_file_with_content(
 
     let features = prepared
         .with_original_indexed(|analyzed| extract_features(&analyzed, &source_code, &audit_items));
-    let score = ScoreModel::default().predict(&features).unwrap_or(0.0);
+    let score = ScoreModel::cached().predict(&features).unwrap_or(0.0);
 
     Ok(AuditResult {
         path: file_path,

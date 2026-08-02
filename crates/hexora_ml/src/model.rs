@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::{fmt, fs::File, io::BufReader, path::Path, sync::OnceLock};
 
 static MODEL_JSON: OnceLock<String> = OnceLock::new();
+static SCORE_MODEL: OnceLock<ScoreModel> = OnceLock::new();
 
 fn decompress_model() -> &'static str {
     MODEL_JSON.get_or_init(|| {
@@ -232,6 +233,11 @@ impl ScoreModel {
         CatBoost::try_from_json(decompress_model()).map(|catboost| Self { catboost })
     }
 
+    pub fn cached() -> &'static Self {
+        SCORE_MODEL
+            .get_or_init(|| Self::embedded().expect("failed to load embedded CatBoost model"))
+    }
+
     pub fn predict(&self, record: &FeatureRecord) -> Result<f64, InferenceError> {
         self.catboost.predict_from_record(record).map(|p| p as f64)
     }
@@ -245,7 +251,7 @@ impl ScoreModel {
 
 impl Default for ScoreModel {
     fn default() -> Self {
-        Self::embedded().expect("failed to load embedded CatBoost model")
+        Self::cached().clone()
     }
 }
 
