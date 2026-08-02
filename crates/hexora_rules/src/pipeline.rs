@@ -1,27 +1,35 @@
 use crate::checker::Checker;
 use crate::result::{AuditConfidence, AuditItem, Rule};
 use crate::rules::dunder::collect_import_module_imports;
-use hexora_semantic::analysis::{PreparedAnalysis, prepare_source};
+use hexora_semantic::analysis::{AnalyzedSource, PreparedAnalysis, prepare_source};
+use hexora_semantic::index::NodeIndexer;
 use std::path::Path;
 
 pub fn audit_source(source: &str, file_path: Option<&Path>) -> Result<Vec<AuditItem>, String> {
     let prepared = prepare_source(source)?;
-    audit_prepared(&prepared, file_path)
+    prepared.with_indexed(|analyzed| audit_analyzed(&analyzed, file_path))
 }
 
 pub fn audit_prepared(
     prepared: &PreparedAnalysis<'_>,
     file_path: Option<&Path>,
 ) -> Result<Vec<AuditItem>, String> {
-    let mut audit_results = collect_import_module_imports(prepared.import_module_imports());
+    prepared.with_indexed(|analyzed| audit_analyzed(&analyzed, file_path))
+}
+
+pub fn audit_analyzed(
+    analyzed: &AnalyzedSource<'_, '_>,
+    file_path: Option<&Path>,
+) -> Result<Vec<AuditItem>, String> {
+    let mut audit_results = collect_import_module_imports(analyzed);
 
     let mut checker = Checker::new(
-        &prepared.locator,
-        prepared.checker_indexer(),
+        analyzed.locator,
+        NodeIndexer::with_shared_model(analyzed.indexer),
         is_setup_py_file(file_path),
     );
     checker.check_comments();
-    checker.visit_body(&prepared.transformed_ast);
+    checker.visit_body(analyzed.transformed_ast);
 
     audit_results.extend(checker.audit_results);
     elevate_setup_py_confidence(&mut audit_results, file_path);

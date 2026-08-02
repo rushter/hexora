@@ -28,6 +28,21 @@ impl<'a> Default for NodeIndexer<'a> {
 }
 
 impl<'a> NodeIndexer<'a> {
+    /// Build an indexer for the rule walk that reuses the expression-level state
+    /// (expr mappings, qualified names, taint, decoded nodes) built once by the shared
+    /// analysis pass, instead of re-walking the tree for it.
+    pub fn with_shared_model(shared: &NodeIndexer<'a>) -> NodeIndexer<'a> {
+        let mut indexer = NodeIndexer::new();
+        indexer.model.expr_mapping = shared.model.expr_mapping.clone();
+        indexer.model.call_qualified_names = shared.model.call_qualified_names.clone();
+        indexer.model.comments = shared.model.comments.clone();
+        *indexer.model.decoded_nodes.borrow_mut() = shared.model.decoded_nodes.borrow().clone();
+        *indexer.model.taint_map.borrow_mut() = shared.model.taint_map.borrow().clone();
+        *indexer.model.import_module_imports.borrow_mut() =
+            shared.model.import_module_imports.borrow().clone();
+        indexer
+    }
+
     pub fn new() -> Self {
         let mut this = Self {
             index: AtomicU32::new(0),

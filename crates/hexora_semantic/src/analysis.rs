@@ -62,55 +62,15 @@ pub fn prepare_source(source: &str) -> Result<PreparedAnalysis<'_>, String> {
 }
 
 impl<'src> PreparedAnalysis<'src> {
-    pub fn analysis_indexer<'ast>(&'ast self) -> NodeIndexer<'ast> {
-        let mut indexer = NodeIndexer::new();
-        indexer.visit_body(&self.transformed_ast);
-        indexer.model.comments = self.comments.clone();
-        indexer
-    }
-
-    pub fn original_indexer<'ast>(&'ast self) -> NodeIndexer<'ast> {
-        let mut indexer = NodeIndexer::new();
-        indexer.visit_body(&self.original_ast);
-        indexer.model.comments = self.comments.clone();
-        *indexer.model.decoded_nodes.borrow_mut() = self.decoded_nodes.clone();
-        indexer
-    }
-
-    pub fn original_ast(&self) -> &[Stmt] {
-        &self.original_ast
-    }
-
-    pub fn import_module_imports(&self) -> &[(TextRange, String)] {
-        &self.import_module_imports
-    }
-
-    pub fn checker_indexer<'ast>(&'ast self) -> NodeIndexer<'ast> {
+    /// Build the semantic model once over the transformed AST and share it with all consumers
+    /// (rules and ML feature extraction) during a single pass.
+    pub fn with_indexed<R>(&self, f: impl for<'ast> FnOnce(AnalyzedSource<'src, 'ast>) -> R) -> R {
         let mut indexer = NodeIndexer::new();
         indexer.model.comments = self.comments.clone();
         *indexer.model.decoded_nodes.borrow_mut() = self.decoded_nodes.clone();
         *indexer.model.taint_map.borrow_mut() = self.taint_map.clone();
-        indexer
-    }
-
-    pub fn with_analysis_indexed<R>(
-        &self,
-        f: impl for<'ast> FnOnce(AnalyzedSource<'src, 'ast>) -> R,
-    ) -> R {
-        let indexer = self.analysis_indexer();
-        f(AnalyzedSource {
-            locator: &self.locator,
-            ast: &self.transformed_ast,
-            transformed_ast: &self.transformed_ast,
-            indexer: &indexer,
-        })
-    }
-
-    pub fn with_original_indexed<R>(
-        &self,
-        f: impl for<'ast> FnOnce(AnalyzedSource<'src, 'ast>) -> R,
-    ) -> R {
-        let indexer = self.original_indexer();
+        *indexer.model.import_module_imports.borrow_mut() = self.import_module_imports.clone();
+        indexer.visit_body(&self.transformed_ast);
         f(AnalyzedSource {
             locator: &self.locator,
             ast: &self.original_ast,

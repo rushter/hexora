@@ -34,10 +34,10 @@ pub fn extract_features(
 
 pub fn extract_features_from_source(code: &str, file_path: &Path) -> Result<FeatureRecord, String> {
     let prepared = hexora_semantic::analysis::prepare_source(code)?;
-    let items = hexora_rules::audit_prepared(&prepared, Some(file_path))?;
-    let features =
-        prepared.with_original_indexed(|analyzed| extract_features(&analyzed, code, &items));
-    Ok(features)
+    prepared.with_indexed(|analyzed| {
+        let items = hexora_rules::audit_analyzed(&analyzed, Some(file_path))?;
+        Ok(extract_features(&analyzed, code, &items))
+    })
 }
 
 fn safe_ratio(numer: f64, denom: f64) -> f64 {

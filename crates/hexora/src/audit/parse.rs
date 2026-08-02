@@ -1,6 +1,7 @@
 use crate::audit::result::AuditResult;
 use hexora_io::list_python_files;
-use hexora_ml::{ScoreModel, extract_features};
+use hexora_ml::{FeatureRecord, ScoreModel, extract_features};
+use hexora_rules::result::AuditItem;
 use log::{debug, error};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -18,11 +19,15 @@ fn audit_file_with_content(
     source_code: String,
 ) -> Result<AuditResult, String> {
     let prepared = hexora_semantic::analysis::prepare_source(&source_code)?;
-    let audit_items = hexora_rules::audit_prepared(&prepared, Some(&file_path))?;
+    let (audit_items, features, score): (Vec<AuditItem>, FeatureRecord, f64) = prepared
+        .with_indexed(|analyzed| {
+            let audit_items = hexora_rules::audit_analyzed(&analyzed, Some(&file_path))?;
 
-    let features = prepared
-        .with_original_indexed(|analyzed| extract_features(&analyzed, &source_code, &audit_items));
-    let score = ScoreModel::cached().predict(&features).unwrap_or(0.0);
+            let features = extract_features(&analyzed, &source_code, &audit_items);
+            let score = ScoreModel::cached().predict(&features).unwrap_or(0.0);
+
+            Ok::<_, String>((audit_items, features, score))
+        })?;
 
     Ok(AuditResult {
         path: file_path,

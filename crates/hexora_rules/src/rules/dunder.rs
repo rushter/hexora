@@ -1,22 +1,27 @@
 use crate::checker::Checker;
 use crate::result::{AuditConfidence, AuditItem, Rule};
-use hexora_semantic::index::NodeIndexer;
+use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::resolver::string_from_expr;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
-use ruff_text_size::TextRange;
 
 static IGNORED_DUNDER_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["typing", "pkg_resources", "pkgutil"]);
 
-fn get_import_name(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
+fn get_import_name(
+    call: &ast::ExprCall,
+    indexer: &hexora_semantic::index::NodeIndexer,
+) -> Option<String> {
     call.arguments
         .args
         .first()
         .and_then(|expr| string_from_expr(expr, indexer))
 }
 
-fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<String> {
+fn get_dunder_import(
+    call: &ast::ExprCall,
+    indexer: &hexora_semantic::index::NodeIndexer,
+) -> Option<String> {
     let qn = indexer.resolve_qualified_name(&call.func)?;
     if !qn.is_import_call() {
         return None;
@@ -30,10 +35,14 @@ fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<Stri
     Some(imported_module)
 }
 
-/// Emit DunderImport findings for `importlib.import_module` calls recorded by the string
+/// Emit DunderImport findings for `importlib.import_module` calls collected by the string
 /// transformer during its walk, so no separate tree traversal is required.
-pub(crate) fn collect_import_module_imports(imports: &[(TextRange, String)]) -> Vec<AuditItem> {
-    imports
+pub(crate) fn collect_import_module_imports(analyzed: &AnalyzedSource<'_, '_>) -> Vec<AuditItem> {
+    analyzed
+        .indexer
+        .model
+        .import_module_imports
+        .borrow()
         .iter()
         .filter(|(_, name)| !IGNORED_DUNDER_IMPORTS.contains(&name.as_str()))
         .map(|(range, name)| AuditItem {

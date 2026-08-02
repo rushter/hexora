@@ -17,7 +17,11 @@ pub struct Checker<'a> {
 }
 
 impl<'a> Checker<'a> {
-    pub(crate) fn new(locator: &'a Locator, indexer: NodeIndexer<'a>, is_setup_py: bool) -> Self {
+    pub(crate) fn new(
+        locator: &'a Locator<'a>,
+        indexer: NodeIndexer<'a>,
+        is_setup_py: bool,
+    ) -> Self {
         Self {
             audit_results: Vec::new(),
             locator,
@@ -89,9 +93,7 @@ impl<'a> Visitor<'a> for Checker<'a> {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        self.indexer.handle_expr_pre(expr);
         ast::visitor::walk_expr(self, expr);
-        self.indexer.handle_expr_post(expr);
         expression::analyze(expr, self);
         install_hook::check_expr_for_install_hook(self, expr);
     }
