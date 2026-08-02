@@ -409,20 +409,7 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn lookup_binding(&self, name: &str) -> Option<&SymbolBinding<'a>> {
-        if !self.scope_stack.is_empty() {
-            let mut index = self.scope_stack.len() - 1;
-            loop {
-                let scope = &self.scope_stack[index];
-                if let Some(binding) = scope.symbols.get(name) {
-                    return Some(binding);
-                }
-                match scope.parent_scope {
-                    Some(parent) => index = parent,
-                    None => break,
-                }
-            }
-        }
-        None
+        crate::scope::lookup_binding_in(&self.scope_stack, name)
     }
 
     pub fn bindings(&self) -> impl Iterator<Item = (&str, &SymbolBinding<'a>)> {

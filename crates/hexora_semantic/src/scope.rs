@@ -111,3 +111,25 @@ impl<'a> Scope<'a> {
         }
     }
 }
+
+/// Look up `name` in the scope stack, walking parents. Takes the stack by
+/// slice so callers can borrow it independently of other fields.
+pub(crate) fn lookup_binding_in<'b, 'a>(
+    scope_stack: &'b [Scope<'a>],
+    name: &str,
+) -> Option<&'b SymbolBinding<'a>> {
+    if scope_stack.is_empty() {
+        return None;
+    }
+    let mut index = scope_stack.len() - 1;
+    loop {
+        let scope = &scope_stack[index];
+        if let Some(binding) = scope.symbols.get(name) {
+            return Some(binding);
+        }
+        match scope.parent_scope {
+            Some(parent) => index = parent,
+            None => return None,
+        }
+    }
+}

@@ -1,4 +1,5 @@
 use crate::index::NodeIndexer;
+use crate::scope::lookup_binding_in;
 use ruff_python_ast::*;
 
 impl<'a> NodeIndexer<'a> {
@@ -33,27 +34,27 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub(crate) fn handle_name_load(&mut self, id: &str, expr: &'a Expr) {
-        if let Some(binding) = self.lookup_binding(id)
-            && let Some(node_id) = expr.node_index().load().as_u32()
-        {
-            let exprs = binding.assigned_expressions.clone();
-            let taint = binding.taint.clone();
-
-            if !exprs.is_empty() {
+        let Some(node_id) = expr.node_index().load().as_u32() else {
+            return;
+        };
+        // Borrow only the scope stack (not `self`) so the model can be
+        // extended without cloning the binding's expression/taint state.
+        if let Some(binding) = lookup_binding_in(&self.scope_stack, id) {
+            if !binding.assigned_expressions.is_empty() {
                 self.model
                     .expr_mapping
                     .entry(node_id)
                     .or_default()
-                    .extend(exprs);
+                    .extend(binding.assigned_expressions.iter().copied());
             }
 
-            if !taint.is_empty() {
+            if !binding.taint.is_empty() {
                 self.model
                     .taint_map
                     .borrow_mut()
                     .entry(node_id)
                     .or_default()
-                    .extend(taint);
+                    .extend(binding.taint.iter().copied());
             }
         }
     }
@@ -65,24 +66,21 @@ impl<'a> NodeIndexer<'a> {
             && let Some(binding) = self.scope_stack[idx].symbols.get(attr)
             && let Some(node_id) = expr.node_index().load().as_u32()
         {
-            let exprs = binding.assigned_expressions.clone();
-            let taint = binding.taint.clone();
-
-            if !exprs.is_empty() {
+            if !binding.assigned_expressions.is_empty() {
                 self.model
                     .expr_mapping
                     .entry(node_id)
                     .or_default()
-                    .extend(exprs);
+                    .extend(binding.assigned_expressions.iter().copied());
             }
 
-            if !taint.is_empty() {
+            if !binding.taint.is_empty() {
                 self.model
                     .taint_map
                     .borrow_mut()
                     .entry(node_id)
                     .or_default()
-                    .extend(taint);
+                    .extend(binding.taint.iter().copied());
             }
         }
     }
