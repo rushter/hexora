@@ -1,6 +1,6 @@
 use crate::checker::Checker;
 use crate::result::{AuditConfidence, AuditItem, Rule};
-use crate::rules::dunder::collect_importlib_imports;
+use crate::rules::dunder::collect_import_module_imports;
 use hexora_semantic::analysis::{PreparedAnalysis, prepare_source};
 use std::path::Path;
 
@@ -13,8 +13,7 @@ pub fn audit_prepared(
     prepared: &PreparedAnalysis<'_>,
     file_path: Option<&Path>,
 ) -> Result<Vec<AuditItem>, String> {
-    let indexer = prepared.original_indexer();
-    let mut audit_results = collect_importlib_imports(prepared.original_ast(), &indexer);
+    let mut audit_results = collect_import_module_imports(prepared.import_module_imports());
 
     let mut checker = Checker::new(
         &prepared.locator,

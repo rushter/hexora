@@ -4,7 +4,7 @@ use hexora_semantic::index::NodeIndexer;
 use hexora_semantic::resolver::string_from_expr;
 use once_cell::sync::Lazy;
 use ruff_python_ast as ast;
-use ruff_python_ast::visitor::Visitor;
+use ruff_text_size::TextRange;
 
 static IGNORED_DUNDER_IMPORTS: Lazy<&[&str]> =
     Lazy::new(|| &["typing", "pkg_resources", "pkgutil"]);
@@ -30,44 +30,20 @@ fn get_dunder_import(call: &ast::ExprCall, indexer: &NodeIndexer) -> Option<Stri
     Some(imported_module)
 }
 
-struct ImportCallCollector<'a, 'b> {
-    indexer: &'b NodeIndexer<'a>,
-    items: Vec<AuditItem>,
-}
-
-impl<'a, 'b> Visitor<'a> for ImportCallCollector<'a, 'b> {
-    fn visit_expr(&mut self, expr: &'a ast::Expr) {
-        if let ast::Expr::Call(call) = expr {
-            let is_importlib_call = self
-                .indexer
-                .resolve_qualified_name(&call.func)
-                .is_some_and(|qn| qn.is_exact(&["importlib", "import_module"]));
-
-            if is_importlib_call && let Some(name) = get_dunder_import(call, self.indexer) {
-                self.items.push(AuditItem {
-                    label: format!("__import__(\"{}\")", name),
-                    rule: Rule::DunderImport,
-                    description: "Suspicious dynamic import".to_string(),
-                    confidence: AuditConfidence::Medium,
-                    location: Some(call.range),
-                });
-            }
-        }
-
-        ast::visitor::walk_expr(self, expr);
-    }
-}
-
-pub(crate) fn collect_importlib_imports<'a>(
-    body: &'a [ast::Stmt],
-    indexer: &NodeIndexer<'a>,
-) -> Vec<AuditItem> {
-    let mut collector = ImportCallCollector {
-        indexer,
-        items: Vec::new(),
-    };
-    collector.visit_body(body);
-    collector.items
+/// Emit DunderImport findings for `importlib.import_module` calls recorded by the string
+/// transformer during its walk, so no separate tree traversal is required.
+pub(crate) fn collect_import_module_imports(imports: &[(TextRange, String)]) -> Vec<AuditItem> {
+    imports
+        .iter()
+        .filter(|(_, name)| !IGNORED_DUNDER_IMPORTS.contains(&name.as_str()))
+        .map(|(range, name)| AuditItem {
+            label: format!("__import__(\"{}\")", name),
+            rule: Rule::DunderImport,
+            description: "Suspicious dynamic import".to_string(),
+            confidence: AuditConfidence::Medium,
+            location: Some(*range),
+        })
+        .collect()
 }
 
 pub fn dunder_import(checker: &mut Checker, call: &ast::ExprCall) {

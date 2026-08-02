@@ -26,6 +26,7 @@ pub struct SemanticModel<'a> {
     pub taint_map: RefCell<HashMap<NodeId, TaintState>>,
     pub currently_resolving: RefCell<HashSet<NodeId>>,
     pub transformed_exprs_cache: RefCell<HashMap<NodeId, Vec<Expr>>>,
+    pub import_module_imports: RefCell<Vec<(TextRange, String)>>,
 }
 
 impl<'a> SemanticModel<'a> {
@@ -38,6 +39,7 @@ impl<'a> SemanticModel<'a> {
             taint_map: RefCell::default(),
             currently_resolving: RefCell::default(),
             transformed_exprs_cache: RefCell::default(),
+            import_module_imports: RefCell::default(),
         }
     }
 

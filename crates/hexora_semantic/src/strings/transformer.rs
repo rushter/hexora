@@ -340,6 +340,11 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
         }
 
         let module_name = self.resolve_expr_to_string(&call.arguments.args[0])?;
+        self.indexer
+            .model
+            .import_module_imports
+            .borrow_mut()
+            .push((call.range, module_name.clone()));
         let res = self.make_module_expr(call.range, &module_name);
         if let Some(expr) = &res {
             self.add_deobfuscated_taint(expr.node_index());

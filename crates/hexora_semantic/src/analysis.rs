@@ -16,6 +16,7 @@ pub struct PreparedAnalysis<'src> {
     comments: Vec<TextRange>,
     decoded_nodes: HashMap<NodeId, Transformation>,
     taint_map: HashMap<NodeId, TaintState>,
+    import_module_imports: Vec<(TextRange, String)>,
 }
 
 pub struct AnalyzedSource<'src, 'ast> {
@@ -41,6 +42,12 @@ pub fn prepare_source(source: &str) -> Result<PreparedAnalysis<'_>, String> {
     let comments = transformer.indexer.model.comments.clone();
     let decoded_nodes = transformer.indexer.model.decoded_nodes.borrow().clone();
     let taint_map = transformer.indexer.model.taint_map.borrow().clone();
+    let import_module_imports = transformer
+        .indexer
+        .model
+        .import_module_imports
+        .borrow()
+        .clone();
     drop(transformer);
 
     Ok(PreparedAnalysis {
@@ -50,6 +57,7 @@ pub fn prepare_source(source: &str) -> Result<PreparedAnalysis<'_>, String> {
         comments,
         decoded_nodes,
         taint_map,
+        import_module_imports,
     })
 }
 
@@ -71,6 +79,10 @@ impl<'src> PreparedAnalysis<'src> {
 
     pub fn original_ast(&self) -> &[Stmt] {
         &self.original_ast
+    }
+
+    pub fn import_module_imports(&self) -> &[(TextRange, String)] {
+        &self.import_module_imports
     }
 
     pub fn checker_indexer<'ast>(&'ast self) -> NodeIndexer<'ast> {
