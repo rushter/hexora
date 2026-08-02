@@ -10,8 +10,8 @@ use hexora_semantic::model::Transformation;
 
 use hexora_semantic::resolver::{ListLike, string_from_expr};
 use hexora_semantic::taint::TaintKind;
-use memchr::memmem;
 use once_cell::sync::Lazy;
+use std::borrow::Cow;
 
 use ruff_python_ast as ast;
 use ruff_python_ast::HasNodeIndex;
@@ -361,6 +361,20 @@ static SUSPICIOUS_LITERALS: Lazy<Vec<SuspiciousLiteral>> = Lazy::new(|| {
     m
 });
 
+/// A single-pass matcher over every suspicious literal pattern.
+///
+/// `AhoCorasick` scans the literal once instead of running one `memmem`
+/// search per pattern. Pattern order is preserved by collecting all matches
+/// and reporting the lowest matching index, exactly like a linear scan.
+static SUSPICIOUS_AUTOMATON: Lazy<aho_corasick::AhoCorasick> = Lazy::new(|| {
+    aho_corasick::AhoCorasick::new(
+        SUSPICIOUS_LITERALS
+            .iter()
+            .map(|suspicious_literal| suspicious_literal.pattern.as_str()),
+    )
+    .expect("suspicious literal patterns must not be empty")
+});
+
 fn literal_preview(value: &str, max_length: usize) -> String {
     if value.len() > max_length {
         format!(
@@ -489,8 +503,12 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
             });
             return;
         }
-        check_suspicious_literal(checker, &literal, expr);
-        check_telegram_token(checker, &literal, expr);
+        if literal.len() >= MIN_LITERAL_LENGTH {
+            check_suspicious_literal(checker, &literal, expr);
+        }
+        if literal.len() >= 44 {
+            check_telegram_token(checker, &literal, expr);
+        }
     }
 }
 
@@ -555,8 +573,12 @@ where
     }
 }
 
-fn normalize_literal(literal: &str) -> String {
-    literal.replace("\\\\", "/").replace('\\', "/")
+fn normalize_literal(literal: &str) -> Cow<'_, str> {
+    if !literal.contains('\\') {
+        Cow::Borrowed(literal)
+    } else {
+        Cow::Owned(literal.replace("\\\\", "/").replace('\\', "/"))
+    }
 }
 
 fn is_doc_like_literal(literal: &str) -> bool {
@@ -586,21 +608,25 @@ pub fn check_suspicious_literal(checker: &mut Checker, literal: &str, expr: &ast
     {
         return;
     }
-    for suspicious_literal in SUSPICIOUS_LITERALS.iter() {
+    let mut matched_indices: Vec<usize> = Vec::new();
+    for found in SUSPICIOUS_AUTOMATON.find_overlapping_iter(normalized_literal.as_bytes()) {
+        matched_indices.push(found.pattern().as_usize());
+    }
+    matched_indices.sort_unstable();
+    for index in matched_indices {
+        let suspicious_literal = &SUSPICIOUS_LITERALS[index];
         let name = &suspicious_literal.pattern;
-        if memmem::find(normalized_literal.as_bytes(), name.as_bytes()).is_some() {
-            if should_skip_suspicious_literal(name, &normalized_literal) {
-                continue;
-            }
-            checker.audit_results.push(AuditItem {
-                label: suspicious_literal.pattern.clone(),
-                rule: suspicious_literal.rule,
-                description: suspicious_literal.description.clone(),
-                confidence: suspicious_literal.confidence,
-                location: Some(expr.range()),
-            });
-            return;
+        if should_skip_suspicious_literal(name, &normalized_literal) {
+            continue;
         }
+        checker.audit_results.push(AuditItem {
+            label: suspicious_literal.pattern.clone(),
+            rule: suspicious_literal.rule,
+            description: suspicious_literal.description.clone(),
+            confidence: suspicious_literal.confidence,
+            location: Some(expr.range()),
+        });
+        return;
     }
 }
 
