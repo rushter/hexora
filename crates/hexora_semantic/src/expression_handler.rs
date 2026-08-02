@@ -44,7 +44,6 @@ impl<'a> NodeIndexer<'a> {
                 self.model
                     .expr_mapping
                     .entry(node_id)
-                    .or_default()
                     .extend(binding.assigned_expressions.iter().copied());
             }
 
@@ -53,7 +52,6 @@ impl<'a> NodeIndexer<'a> {
                     .taint_map
                     .borrow_mut()
                     .entry(node_id)
-                    .or_default()
                     .extend(binding.taint.iter().copied());
             }
         }
@@ -70,7 +68,6 @@ impl<'a> NodeIndexer<'a> {
                 self.model
                     .expr_mapping
                     .entry(node_id)
-                    .or_default()
                     .extend(binding.assigned_expressions.iter().copied());
             }
 
@@ -79,7 +76,6 @@ impl<'a> NodeIndexer<'a> {
                     .taint_map
                     .borrow_mut()
                     .entry(node_id)
-                    .or_default()
                     .extend(binding.taint.iter().copied());
             }
         }

@@ -420,7 +420,7 @@ pub fn check_literal(checker: &mut Checker, expr: &ast::Expr) {
                     .model
                     .decoded_nodes
                     .borrow()
-                    .get(&id)
+                    .get(id)
                     .copied();
                 if let Some(t) = transformation {
                     match t {

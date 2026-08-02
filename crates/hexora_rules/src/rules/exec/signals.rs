@@ -186,7 +186,7 @@ fn has_hard_obfuscation_signal(checker: &Checker, expr: &ast::Expr) -> bool {
             .model
             .decoded_nodes
             .borrow()
-            .get(&id)
+            .get(id)
             .is_some_and(|transformation| {
                 matches!(transformation, Transformation::Base64 | Transformation::Hex)
             })
@@ -288,7 +288,7 @@ fn is_plain_lookup_eval_expr(checker: &Checker, expr: &ast::Expr, depth: u32) ->
         .indexer
         .model
         .expr_mapping
-        .get(&id)
+        .get(id)
         .is_some_and(|exprs| {
             exprs
                 .iter()
@@ -371,7 +371,7 @@ pub(super) fn is_reflection_like_exec_source(
             .node_index()
             .load()
             .as_u32()
-            .and_then(|id| checker.indexer.model.expr_mapping.get(&id))
+            .and_then(|id| checker.indexer.model.expr_mapping.get(id))
             .is_some_and(|exprs| {
                 exprs
                     .iter()
@@ -409,7 +409,7 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
 
     if let Some(id) = expr.node_index().load().as_u32() {
         if let Some(Transformation::Base64 | Transformation::Hex | Transformation::Other) =
-            checker.indexer.model.decoded_nodes.borrow().get(&id)
+            checker.indexer.model.decoded_nodes.borrow().get(id)
         {
             return true;
         }
@@ -417,7 +417,7 @@ fn contains_suspicious_expr_limited(checker: &Checker, expr: &ast::Expr, depth: 
             .indexer
             .model
             .expr_mapping
-            .get(&id)
+            .get(id)
             .is_some_and(|exprs| {
                 exprs
                     .iter()
@@ -587,7 +587,7 @@ fn is_relaxed_exec_arg_with_mapping(
         .indexer
         .model
         .expr_mapping
-        .get(&id)
+        .get(id)
         .is_some_and(|exprs| {
             exprs.iter().any(|mapped| {
                 is_relaxed_exec_arg_with_mapping(

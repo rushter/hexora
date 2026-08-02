@@ -1,4 +1,5 @@
 use crate::index::NodeIndexer;
+use crate::model::NodeMap;
 use crate::taint::TaintKind;
 use hexora_io::locator::Locator;
 use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
@@ -11,13 +12,13 @@ use unindent::unindent;
 
 fn convert_to_strings<'a>(
     locator: &Locator<'a>,
-    mappings: &HashMap<u32, Vec<&Expr>>,
+    mappings: &NodeMap<Vec<&Expr>>,
 ) -> HashMap<u32, Vec<&'a str>> {
     let mut result: HashMap<u32, Vec<&'a str>> = HashMap::new();
 
     for (node_id, exprs) in mappings.iter() {
         let res: Vec<&str> = exprs.iter().map(|e| locator.slice(e.range())).collect();
-        result.insert(*node_id, res);
+        result.insert(node_id, res);
     }
     result
 }

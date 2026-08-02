@@ -98,7 +98,7 @@ fn collect_execution_subjects<'a>(
 
     let mut expanded = false;
     if let Some(id) = expr.node_index().load().as_u32()
-        && let Some(mapped) = checker.indexer.model.expr_mapping.get(&id)
+        && let Some(mapped) = checker.indexer.model.expr_mapping.get(id)
     {
         expanded = true;
         for mapped_expr in mapped {

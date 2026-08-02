@@ -104,7 +104,7 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
 
     pub(crate) fn get_transformation(&self, expr: &ast::Expr) -> Option<Transformation> {
         if let Some(id) = expr.node_index().load().as_u32() {
-            return self.indexer.model.decoded_nodes.borrow().get(&id).copied();
+            return self.indexer.model.decoded_nodes.borrow().get(id).copied();
         }
         None
     }

@@ -499,7 +499,6 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
                         .taint_map
                         .borrow_mut()
                         .entry(id)
-                        .or_default()
                         .extend(taints);
                 }
                 *expr = new_expr;

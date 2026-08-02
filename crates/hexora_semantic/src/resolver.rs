@@ -1,5 +1,5 @@
 use crate::index::NodeIndexer;
-use crate::model::NodeId;
+use crate::model::{NodeId, NodeMap, NodeSet};
 use crate::name::QualifiedName;
 use crate::scope::{BindingKind, SymbolBinding};
 use ruff_python_ast::name::Name;
@@ -10,7 +10,6 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::len_without_is_empty)]
 pub trait ListLike {
@@ -148,10 +147,10 @@ pub fn resolve_argument_for_parameter_index<'a>(
 }
 
 pub struct ResolverCache {
-    cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
-    in_progress: RefCell<HashSet<NodeId>>,
-    function_call_cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
-    function_call_in_progress: RefCell<HashSet<NodeId>>,
+    cache: RefCell<NodeMap<Option<Vec<Name>>>>,
+    in_progress: RefCell<NodeSet>,
+    function_call_cache: RefCell<NodeMap<Option<Vec<Name>>>>,
+    function_call_in_progress: RefCell<NodeSet>,
 }
 
 impl ResolverCache {
@@ -172,7 +171,7 @@ impl ResolverCache {
     }
 
     pub fn get_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
-        self.cache.borrow().get(&node_id).cloned()
+        self.cache.borrow().get(node_id).cloned()
     }
 
     pub fn mark_in_progress(&self, node_id: NodeId) -> bool {
@@ -180,11 +179,11 @@ impl ResolverCache {
     }
 
     pub fn mark_finished(&self, node_id: NodeId) {
-        self.in_progress.borrow_mut().remove(&node_id);
+        self.in_progress.borrow_mut().remove(node_id);
     }
 
     pub fn get_function_call_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
-        self.function_call_cache.borrow().get(&node_id).cloned()
+        self.function_call_cache.borrow().get(node_id).cloned()
     }
 
     pub fn mark_function_call_in_progress(&self, node_id: NodeId) -> bool {
@@ -192,7 +191,7 @@ impl ResolverCache {
     }
 
     pub fn mark_function_call_finished(&self, node_id: NodeId) {
-        self.function_call_in_progress.borrow_mut().remove(&node_id);
+        self.function_call_in_progress.borrow_mut().remove(node_id);
     }
 
     pub fn store_function_call(&self, node_id: NodeId, result: Option<Vec<Name>>) {
@@ -321,7 +320,7 @@ impl<'a> NodeIndexer<'a> {
         let last_expr = self
             .model
             .expr_mapping
-            .get(&node_id)
+            .get(node_id)
             .and_then(|exprs| exprs.last());
 
         if let Some(last_expr) = last_expr {
@@ -371,7 +370,7 @@ impl<'a> NodeIndexer<'a> {
         context: Option<(&'a ExprCall, &'a StmtFunctionDef)>,
     ) -> Option<Vec<Name>> {
         if let Some(node_id) = call.node_index().load().as_u32() {
-            if let Some(exprs) = self.model.expr_mapping.get(&node_id) {
+            if let Some(exprs) = self.model.expr_mapping.get(node_id) {
                 if let Some(last_expr) = exprs.last() {
                     return self.resolve_expr_import_path_internal(last_expr, context);
                 }
@@ -608,7 +607,7 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&QualifiedName> {
-        self.model.call_qualified_names.get(&node_id)
+        self.model.call_qualified_names.get(node_id)
     }
 
     pub fn get_qualified_name<T>(&self, node: &T) -> Option<&QualifiedName>

@@ -11,7 +11,7 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
             .model
             .transformed_exprs_cache
             .borrow()
-            .get(&node_id)
+            .get(node_id)
         {
             return Some(cached.clone());
         }
@@ -30,7 +30,7 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
             .indexer
             .model
             .expr_mapping
-            .get(&node_id)
+            .get(node_id)
             .cloned()
             .map(|exprs| {
                 exprs
@@ -47,7 +47,7 @@ impl<'a, 'b> NodeTransformer<'a, 'b> {
             .model
             .currently_resolving
             .borrow_mut()
-            .remove(&node_id);
+            .remove(node_id);
 
         if let Some(ref r) = res {
             self.indexer

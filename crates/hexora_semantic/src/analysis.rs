@@ -1,5 +1,5 @@
 use crate::index::NodeIndexer;
-use crate::model::{NodeId, Transformation};
+use crate::model::{NodeMap, Transformation};
 use crate::node_transformer::NodeTransformer;
 use crate::taint::TaintState;
 use hexora_io::locator::Locator;
@@ -7,15 +7,14 @@ use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
 
 pub struct PreparedAnalysis<'src> {
     pub locator: Locator<'src>,
     original_ast: Vec<Stmt>,
     pub transformed_ast: Vec<Stmt>,
     comments: Vec<TextRange>,
-    decoded_nodes: HashMap<NodeId, Transformation>,
-    taint_map: HashMap<NodeId, TaintState>,
+    decoded_nodes: NodeMap<Transformation>,
+    taint_map: NodeMap<TaintState>,
     import_module_imports: Vec<(TextRange, String)>,
 }
 

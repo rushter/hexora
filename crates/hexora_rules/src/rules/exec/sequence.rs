@@ -31,7 +31,7 @@ fn mapped_sequence_parts<'a>(
     }
 
     let node_id = expr.node_index().load().as_u32()?;
-    let mapped = checker.indexer.model.expr_mapping.get(&node_id)?;
+    let mapped = checker.indexer.model.expr_mapping.get(node_id)?;
     let mut parts: Option<Vec<&'a ast::Expr>> = None;
 
     for mapped_expr in mapped {

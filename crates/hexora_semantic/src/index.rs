@@ -277,7 +277,6 @@ impl<'a> NodeIndexer<'a> {
             .taint_map
             .borrow_mut()
             .entry(node_id)
-            .or_default()
             .insert(taint);
     }
 
@@ -285,7 +284,7 @@ impl<'a> NodeIndexer<'a> {
         expr.node_index()
             .load()
             .as_u32()
-            .and_then(|id| self.model.taint_map.borrow().get(&id).cloned())
+            .and_then(|id| self.model.taint_map.borrow().get(id).cloned())
             .unwrap_or_default()
     }
 
@@ -297,7 +296,7 @@ impl<'a> NodeIndexer<'a> {
                 self.model
                     .taint_map
                     .borrow()
-                    .get(&id)
+                    .get(id)
                     .map(|t| t.contains(&taint))
             })
             .unwrap_or(false)
@@ -320,7 +319,6 @@ impl<'a> NodeIndexer<'a> {
                 .taint_map
                 .borrow_mut()
                 .entry(node_id)
-                .or_default()
                 .extend(taints);
         }
     }
@@ -372,7 +370,7 @@ impl<'a> NodeIndexer<'a> {
 
     pub fn get_exprs_by_index(&self, index: &AtomicNodeIndex) -> Option<&[&Expr]> {
         let id = index.load().as_u32()?;
-        self.model.expr_mapping.get(&id).map(|v| &**v)
+        self.model.expr_mapping.get(id).map(|v| &**v)
     }
 
     pub fn push_scope(&mut self, kind: ScopeKind) {
