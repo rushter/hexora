@@ -8,7 +8,6 @@ pub mod tests;
 use crate::schema::FeatureRecord;
 use hexora_rules::result::AuditItem;
 use hexora_semantic::analysis::AnalyzedSource;
-use std::collections::BTreeMap;
 use std::path::Path;
 
 pub fn extract_features(
@@ -51,6 +50,7 @@ pub(crate) struct StringStats {
     pub max_len: usize,
     pub total_entropy: f64,
     pub max_entropy: f64,
+    scratch: Vec<(char, u32)>,
 }
 
 impl StringStats {
@@ -59,7 +59,7 @@ impl StringStats {
         let char_count = value.chars().count();
         self.total_len += char_count;
         self.max_len = self.max_len.max(char_count);
-        let entropy = shannon_entropy(value);
+        let entropy = shannon_entropy(value, &mut self.scratch);
         self.total_entropy += entropy;
         self.max_entropy = self.max_entropy.max(entropy);
     }
@@ -81,20 +81,45 @@ impl StringStats {
     }
 }
 
-pub(crate) fn shannon_entropy(value: &str) -> f64 {
+/// Shannon entropy of a string, using `scratch` as a reusable counting buffer.
+///
+/// The result is bit-identical to the previous `BTreeMap<char, _>`-based
+/// implementation: unique characters are summed in ascending character order.
+pub(crate) fn shannon_entropy(value: &str, scratch: &mut Vec<(char, u32)>) -> f64 {
     if value.is_empty() {
         return 0.0;
     }
 
-    let mut counts = BTreeMap::new();
     let len = value.chars().count() as f64;
-    for ch in value.chars() {
-        *counts.entry(ch).or_insert(0usize) += 1;
+
+    if value.is_ascii() {
+        let mut counts = [0u32; 128];
+        for &byte in value.as_bytes() {
+            counts[byte as usize] += 1;
+        }
+        let mut entropy = 0.0;
+        for &count in &counts {
+            if count > 0 {
+                let p = count as f64 / len;
+                entropy += -(p * p.log2());
+            }
+        }
+        return entropy;
     }
 
-    counts
-        .values()
-        .map(|&count| {
+    scratch.clear();
+    for ch in value.chars() {
+        match scratch.iter_mut().find(|(c, _)| *c == ch) {
+            Some((_, count)) => *count += 1,
+            None => scratch.push((ch, 1)),
+        }
+    }
+
+    scratch.sort_unstable_by_key(|(c, _)| *c);
+
+    scratch
+        .iter()
+        .map(|&(_, count)| {
             let p = count as f64 / len;
             -(p * p.log2())
         })
