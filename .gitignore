@@ -58,6 +58,7 @@ venv/
 resources/test/test.py
 samples/
 pypi
+pypi_cache
 dumped/
 pypi_packages/
 .ipynb_checkpoints/
