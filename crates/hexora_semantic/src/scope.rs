@@ -127,9 +127,9 @@ pub(crate) fn lookup_binding_in<'b, 'a>(
         if let Some(binding) = scope.symbols.get(name) {
             return Some(binding);
         }
-        match scope.parent_scope {
-            Some(parent) => index = parent,
-            None => return None,
+        {
+            let parent = scope.parent_scope?;
+            index = parent
         }
     }
 }

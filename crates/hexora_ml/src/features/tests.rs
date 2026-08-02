@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+mod features_tests {
     use crate::features::extract_features_from_source;
     use std::path::Path;
 
@@ -10,7 +10,7 @@ mod tests {
         let result = extract_features_from_source(code, file_path);
         assert!(result.is_ok());
         let features = result.unwrap();
-        assert!(features.len() > 0);
+        assert!(!features.is_empty());
         assert!(features.get("source.num_lines").is_some());
         assert!(features.get("meta.feature_count").is_some());
     }
@@ -121,7 +121,7 @@ mod tests {
         let result = extract_features_from_source(code, file_path);
         assert!(result.is_ok());
         let features = result.unwrap();
-        assert!(features.len() > 0);
+        assert!(!features.is_empty());
         let has_rule_hits = features.get("rule.total_hits").unwrap_or(0.0) > 0.0;
         assert!(has_rule_hits, "Expected rule hits but got none");
     }

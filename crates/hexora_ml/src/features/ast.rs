@@ -3,12 +3,12 @@ use crate::schema::FeatureRecord;
 use hexora_io::encoding::{is_base64_candidate, is_base64_string, is_hex_escaped, is_hexed_string};
 use hexora_semantic::analysis::AnalyzedSource;
 use memchr::memmem;
-use rustc_hash::FxHashSet;
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt,
 };
 use ruff_python_ast::{AnyNodeRef, Expr, Stmt};
+use rustc_hash::FxHashSet;
 use std::collections::BTreeMap;
 
 const VERSION_FILE_NAMES: &[&str] = &["__init__.py", "version.py", "__version__.py", "about.py"];
@@ -70,7 +70,10 @@ pub(crate) fn extract_ast_features(
         "literal.base64_long_count",
         collector.base64_long_count as f64,
     );
-    record.insert("literal.hex_escape_count", collector.hex_escape_count as f64);
+    record.insert(
+        "literal.hex_escape_count",
+        collector.hex_escape_count as f64,
+    );
     record.insert(
         "literal.long_hex_string_count",
         collector.long_hex_string_count as f64,

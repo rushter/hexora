@@ -24,6 +24,12 @@ pub struct StringItem {
 pub struct StringVisitor {
     pub strings: Vec<StringItem>,
 }
+impl Default for StringVisitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StringVisitor {
     pub fn new() -> Self {
         Self { strings: vec![] }
@@ -475,6 +481,12 @@ fn test_join_generator_chr_tuple() {
 pub struct NameVisitor {
     pub names: Vec<String>,
 }
+impl Default for NameVisitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NameVisitor {
     pub fn new() -> Self {
         Self { names: vec![] }

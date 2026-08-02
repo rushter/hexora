@@ -272,16 +272,14 @@ mod tests {
         let benign_code = "eCA9IDE=";
         let malicious_code = "aW1wb3J0IG9zCm9zLnN5c3RlbSgiaWQiKQo=";
 
-        let entries = vec![
-            format!(
+        let entries = [format!(
                 r#"{{"archive":"test.zip","file":"hello.py","reason":"","code":"{}","verdict":"benign","lines":null}}"#,
                 benign_code
             ),
             format!(
                 r#"{{"archive":"test.zip","file":"evil.py","reason":"","code":"{}","verdict":"malicious","lines":null}}"#,
                 malicious_code
-            ),
-        ];
+            )];
 
         fs::write(&input_path, entries.join("\n")).unwrap();
 
@@ -311,8 +309,8 @@ mod tests {
             );
         }
 
-        assert_eq!(lines[0].contains("\"_label\":\"benign\""), true);
-        assert_eq!(lines[1].contains("\"_label\":\"malicious\""), true);
+        assert!(lines[0].contains("\"_label\":\"benign\""));
+        assert!(lines[1].contains("\"_label\":\"malicious\""));
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -854,7 +854,7 @@ fn test_subscript_mutation_no_pollution() {
     );
     let result = get_result(&source);
     let mut found = false;
-    for (_, values) in result.iter() {
+    for values in result.values() {
         if values.contains(&"[\"a\"]") {
             found = true;
             assert!(

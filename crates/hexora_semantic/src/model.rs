@@ -119,19 +119,12 @@ impl<T> NodeMap<T> {
 
 /// A dense set of [`NodeId`]s, the `NodeMap` counterpart for membership tests.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct NodeSet {
     slots: Vec<bool>,
     len: usize,
 }
 
-impl Default for NodeSet {
-    fn default() -> Self {
-        Self {
-            slots: Vec::new(),
-            len: 0,
-        }
-    }
-}
 
 impl NodeSet {
     /// Inserts `id`, returning `true` if it was not already present.

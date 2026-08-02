@@ -621,7 +621,7 @@ mock_run(["git", "status"])
             item.description
                 .contains("via local function mock_run leaking to subprocess.run")
         })
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(leaked_exec, vec![(Rule::ShellExec, AuditConfidence::High)]);
@@ -639,7 +639,7 @@ original_run(["git", "status"], check=False)
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "subprocess.run")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(
@@ -659,7 +659,7 @@ __import__("subprocess").run([sys.executable, "-m", "cli.main", "--help"], check
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "subprocess.run")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(
@@ -677,7 +677,7 @@ fn test_inline_deobfuscated_subprocess_popen_with_plain_argv_stays_high() {
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "subprocess.Popen")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(
@@ -703,7 +703,7 @@ def install_packages(packages):
     let execs: Vec<_> = result
         .iter()
         .filter(|item| item.label == "subprocess.check_call")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(
@@ -727,14 +727,14 @@ os.execl(executable, executable, "start", "-DFOREGROUND")
     let popen: Vec<_> = result
         .iter()
         .filter(|item| item.label == "subprocess.Popen")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
     assert_eq!(popen, vec![(Rule::ShellExec, AuditConfidence::Medium)]);
 
     let execl: Vec<_> = result
         .iter()
         .filter(|item| item.label == "os.execl")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
     assert_eq!(execl, vec![(Rule::ShellExec, AuditConfidence::Medium)]);
 }
@@ -756,7 +756,7 @@ eval_type("Widget", globals(), locals())
             item.description
                 .contains("via local function eval_type leaking to eval")
         })
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(leaked_exec, vec![(Rule::CodeExec, AuditConfidence::High)]);
@@ -773,7 +773,7 @@ fn test_forward_annotation_eval_is_plain_code_exec() {
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "eval")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(direct_exec, vec![(Rule::CodeExec, AuditConfidence::Medium)]);
@@ -790,7 +790,7 @@ fn test_reflection_eval_call_result_stays_high_not_very_high() {
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "eval")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(
@@ -814,7 +814,7 @@ fn test_type_resolution_eval_with_cleanup_stays_high_not_very_high() {
     let direct_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "eval")
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(direct_exec, vec![(Rule::CodeExec, AuditConfidence::Medium)]);
@@ -837,7 +837,7 @@ def build(field_type, objtype):
             item.description
                 .contains("via local function _create_type_deserializer leaking to eval")
         })
-        .map(|item| (item.rule.clone(), item.confidence))
+        .map(|item| (item.rule, item.confidence))
         .collect();
 
     assert_eq!(leaked_exec, vec![(Rule::CodeExec, AuditConfidence::High)]);
@@ -853,7 +853,7 @@ fn test_file_sourced_eval_stays_high_without_obfuscation_signal() {
     let code_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "eval")
-        .map(|item| (item.rule.clone(), item.confidence, item.description.clone()))
+        .map(|item| (item.rule, item.confidence, item.description.clone()))
         .collect();
 
     assert_eq!(
@@ -886,7 +886,7 @@ for client_method in params.sortedMethodsMeta:
     let code_exec: Vec<_> = result
         .iter()
         .filter(|item| item.label == "eval")
-        .map(|item| (item.rule.clone(), item.confidence, item.description.clone()))
+        .map(|item| (item.rule, item.confidence, item.description.clone()))
         .collect();
 
     assert_eq!(
