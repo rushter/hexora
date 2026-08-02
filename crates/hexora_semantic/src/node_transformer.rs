@@ -8,14 +8,14 @@ use std::collections::HashSet;
 
 /// This module rewrites string literals to their raw contents.
 /// We want to have string values unchanged.
-pub struct NodeTransformer<'a> {
+pub struct NodeTransformer<'a, 'b> {
     pub locator: &'a Locator<'a>,
-    pub indexer: NodeIndexer<'a>,
+    pub indexer: &'b NodeIndexer<'a>,
     pub updated_strings: RefCell<HashSet<u32>>,
 }
 
-impl<'a> NodeTransformer<'a> {
-    pub fn new(locator: &'a Locator, indexer: NodeIndexer<'a>) -> Self {
+impl<'a, 'b> NodeTransformer<'a, 'b> {
+    pub fn new(locator: &'a Locator, indexer: &'b NodeIndexer<'a>) -> Self {
         Self {
             locator,
             indexer,
@@ -24,7 +24,7 @@ impl<'a> NodeTransformer<'a> {
     }
 }
 
-impl<'a> Transformer for NodeTransformer<'a> {
+impl<'a, 'b> Transformer for NodeTransformer<'a, 'b> {
     fn visit_expr(&self, expr: &mut ast::Expr) {
         transformer::walk_expr(self, expr);
         self.transform_strings(expr);

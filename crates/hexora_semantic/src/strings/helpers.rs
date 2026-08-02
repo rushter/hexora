@@ -5,7 +5,7 @@ use ruff_python_ast::str::{leading_quote, trailing_quote};
 use ruff_python_ast::{self as ast, AtomicNodeIndex, HasNodeIndex, StringLiteralFlags};
 use ruff_text_size::{Ranged, TextLen, TextRange};
 
-impl<'a> NodeTransformer<'a> {
+impl<'a, 'b> NodeTransformer<'a, 'b> {
     #[inline]
     pub(crate) fn iterable_elts<'e>(&self, expr: &'e ast::Expr) -> Option<&'e [ast::Expr]> {
         match expr {

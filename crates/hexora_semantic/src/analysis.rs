@@ -36,7 +36,7 @@ pub fn prepare_source(source: &str) -> Result<PreparedAnalysis<'_>, String> {
     indexer.index_comments(parsed.tokens());
 
     let mut transformed_ast = python_ast.to_vec();
-    let transformer = NodeTransformer::new(&locator, indexer);
+    let transformer = NodeTransformer::new(&locator, &indexer);
     transformer.visit_body(&mut transformed_ast);
     let comments = transformer.indexer.model.comments.clone();
     let decoded_nodes = transformer.indexer.model.decoded_nodes.borrow().clone();

@@ -2,7 +2,7 @@ use crate::node_transformer::NodeTransformer;
 use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast, HasNodeIndex};
 
-impl<'a> NodeTransformer<'a> {
+impl<'a, 'b> NodeTransformer<'a, 'b> {
     pub(crate) fn get_resolved_exprs(&self, expr: &ast::Expr) -> Option<Vec<ast::Expr>> {
         let node_id = expr.node_index().load().as_u32()?;
 

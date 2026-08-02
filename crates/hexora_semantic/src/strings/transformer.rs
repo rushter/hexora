@@ -9,7 +9,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-impl<'a> NodeTransformer<'a> {
+impl<'a, 'b> NodeTransformer<'a, 'b> {
     #[inline]
     fn is_suspicious_dynamic_attr(attr_name: &str) -> bool {
         matches!(

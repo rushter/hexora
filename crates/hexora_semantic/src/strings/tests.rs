@@ -47,7 +47,7 @@ fn get_strings(source: &str) -> Vec<StringItem> {
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
     let mut transformed_ast = python_ast.to_vec();
-    let transformer = NodeTransformer::new(&locator, indexer);
+    let transformer = NodeTransformer::new(&locator, &indexer);
     transformer.visit_body(&mut transformed_ast);
     let mut visitor = StringVisitor::new();
     visitor.visit_body(&transformed_ast);
@@ -501,7 +501,7 @@ fn test_builtins_getattr_to_name() {
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
     let mut transformed_ast = python_ast.to_vec();
-    let transformer = NodeTransformer::new(&locator, indexer);
+    let transformer = NodeTransformer::new(&locator, &indexer);
     transformer.visit_body(&mut transformed_ast);
 
     let mut visitor = NameVisitor::new();
@@ -519,7 +519,7 @@ fn test_getattr_builtins_to_name() {
     let mut indexer = NodeIndexer::new();
     indexer.visit_body(python_ast);
     let mut transformed_ast = python_ast.to_vec();
-    let transformer = NodeTransformer::new(&locator, indexer);
+    let transformer = NodeTransformer::new(&locator, &indexer);
     transformer.visit_body(&mut transformed_ast);
 
     let mut visitor = NameVisitor::new();
