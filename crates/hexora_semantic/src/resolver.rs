@@ -44,6 +44,15 @@ impl ListLike for ast::ExprTuple {
 // It makes it easier to process.
 #[inline]
 pub fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<String> {
+    string_from_expr_limited(expr, indexer, 0)
+}
+
+const MAX_STRING_EXPR_DEPTH: u32 = 32;
+
+fn string_from_expr_limited(expr: &ast::Expr, indexer: &NodeIndexer, depth: u32) -> Option<String> {
+    if depth > MAX_STRING_EXPR_DEPTH {
+        return None;
+    }
     match expr {
         ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
         ast::Expr::BinOp(ast::ExprBinOp {
@@ -52,8 +61,8 @@ pub fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<Strin
             right,
             ..
         }) => {
-            let l = string_from_expr(left, indexer).unwrap_or_default();
-            let r = string_from_expr(right, indexer).unwrap_or_default();
+            let l = string_from_expr_limited(left, indexer, depth + 1).unwrap_or_default();
+            let r = string_from_expr_limited(right, indexer, depth + 1).unwrap_or_default();
             if l.is_empty() && r.is_empty() {
                 None
             } else {
@@ -64,7 +73,7 @@ pub fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<Strin
             left,
             op: ast::Operator::Mod,
             ..
-        }) => string_from_expr(left, indexer),
+        }) => string_from_expr_limited(left, indexer, depth + 1),
         ast::Expr::FString(f) => {
             let mut res = String::new();
             for part in &f.value {
@@ -77,7 +86,11 @@ pub fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<Strin
                                     res.push_str(lit.as_ref());
                                 }
                                 ast::InterpolatedStringElement::Interpolation(interp) => {
-                                    if let Some(s) = string_from_expr(&interp.expression, indexer) {
+                                    if let Some(s) = string_from_expr_limited(
+                                        &interp.expression,
+                                        indexer,
+                                        depth + 1,
+                                    ) {
                                         res.push_str(&s);
                                     } else if let ast::Expr::Name(name) = interp.expression.as_ref()
                                     {
@@ -96,7 +109,7 @@ pub fn string_from_expr(expr: &ast::Expr, indexer: &NodeIndexer) -> Option<Strin
             let mut string = String::new();
             let mut found = false;
             for expr in external_expr {
-                if let Some(s) = string_from_expr(expr, indexer) {
+                if let Some(s) = string_from_expr_limited(expr, indexer, depth + 1) {
                     string.push_str(&s);
                     found = true;
                 }

@@ -100,15 +100,26 @@ fn contains_dangerous_exec_expr_at(
     expr: &ast::Expr,
     program_position: bool,
 ) -> bool {
+    contains_dangerous_exec_expr_at_depth(checker, expr, program_position, 0)
+}
+
+fn contains_dangerous_exec_expr_at_depth(
+    checker: &Checker,
+    expr: &ast::Expr,
+    program_position: bool,
+    depth: u32,
+) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
     if let Some(s) = string_from_expr(expr, &checker.indexer) {
         return contains_dangerous_string(&s, program_position);
     }
 
     expr_sequence_parts(checker, expr, 0).is_some_and(|parts| {
-        parts
-            .iter()
-            .enumerate()
-            .any(|(idx, part)| contains_dangerous_exec_expr_at(checker, part, idx == 0))
+        parts.iter().enumerate().any(|(idx, part)| {
+            contains_dangerous_exec_expr_at_depth(checker, part, idx == 0, depth + 1)
+        })
     })
 }
 
