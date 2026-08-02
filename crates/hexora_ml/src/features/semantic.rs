@@ -3,17 +3,62 @@ use hexora_semantic::analysis::AnalyzedSource;
 use hexora_semantic::model::Transformation;
 use hexora_semantic::name::QualifiedName;
 use hexora_semantic::taint::TaintKind;
-use std::borrow::Cow;
-use std::collections::HashSet;
+use rustc_hash::FxHashMap;
 
 type PredicateEntry = (fn(&QualifiedName) -> bool, &'static str);
+
+const TAINT_FEATURE_NAMES: [&str; 7] = [
+    "taint.literal",
+    "taint.decoded",
+    "taint.deobfuscated",
+    "taint.file_sourced",
+    "taint.network_sourced",
+    "taint.fingerprinting",
+    "taint.env_variables",
+];
+
+const TRANSFORM_FEATURE_NAMES: [&str; 7] = [
+    "transform.base64",
+    "transform.hex",
+    "transform.concat",
+    "transform.join",
+    "transform.subscript",
+    "transform.fstring",
+    "transform.other",
+];
+
+fn taint_kind_index(taint: TaintKind) -> Option<usize> {
+    match taint {
+        TaintKind::Literal => Some(0),
+        TaintKind::Decoded => Some(1),
+        TaintKind::Deobfuscated => Some(2),
+        TaintKind::FileSourced => Some(3),
+        TaintKind::NetworkSourced => Some(4),
+        TaintKind::Fingerprinting => Some(5),
+        TaintKind::EnvVariables => Some(6),
+        TaintKind::InternalParameter(_) => None,
+    }
+}
+
+fn transformation_index(transformation: Transformation) -> usize {
+    match transformation {
+        Transformation::Base64 => 0,
+        Transformation::Hex => 1,
+        Transformation::Concat => 2,
+        Transformation::Join => 3,
+        Transformation::Subscript => 4,
+        Transformation::FString => 5,
+        Transformation::Other => 6,
+    }
+}
 
 pub(crate) fn extract_semantic_features(
     record: &mut FeatureRecord,
     analyzed: &AnalyzedSource<'_, '_>,
 ) {
     let taint_map = analyzed.indexer.model.taint_map.borrow();
-    record.insert("semantic.tainted_nodes", taint_map.len() as f64);
+    let mut taint_counts = [0usize; 7];
+    let mut param_taint_counts = FxHashMap::default();
     let mut multi_taint = 0usize;
     let mut total_taint_kinds = 0usize;
     for taints in taint_map.values() {
@@ -22,10 +67,15 @@ pub(crate) fn extract_semantic_features(
         }
         total_taint_kinds += taints.len();
         for taint in taints {
-            record.add(format!("taint.{}", taint_name(*taint)), 1.0);
+            if let Some(index) = taint_kind_index(*taint) {
+                taint_counts[index] += 1;
+            } else if let TaintKind::InternalParameter(index) = *taint {
+                *param_taint_counts.entry(index).or_insert(0) += 1;
+            }
         }
     }
     let tainted_count = taint_map.len();
+    record.insert("semantic.tainted_nodes", tainted_count as f64);
     record.insert("semantic.multi_taint_nodes", multi_taint as f64);
     record.insert(
         "semantic.taint_richness",
@@ -35,18 +85,29 @@ pub(crate) fn extract_semantic_features(
             0.0
         },
     );
+    for (index, &count) in taint_counts.iter().enumerate() {
+        if count > 0 {
+            record.add(TAINT_FEATURE_NAMES[index], count as f64);
+        }
+    }
+    for (index, count) in param_taint_counts {
+        record.add(format!("taint.internal_parameter_{index}"), count as f64);
+    }
 
     let decoded_nodes = analyzed.indexer.model.decoded_nodes.borrow();
-    record.insert("semantic.decoded_nodes", decoded_nodes.len() as f64);
-    let mut seen_transforms = HashSet::new();
+    let mut transform_counts = [0usize; 7];
     for transformation in decoded_nodes.values() {
-        seen_transforms.insert(transformation_name(*transformation));
-        record.add(
-            format!("transform.{}", transformation_name(*transformation)),
-            1.0,
-        );
+        transform_counts[transformation_index(*transformation)] += 1;
     }
-    record.insert("semantic.encoding_diversity", seen_transforms.len() as f64);
+    record.insert("semantic.decoded_nodes", decoded_nodes.len() as f64);
+    let mut encoding_diversity = 0usize;
+    for (index, &count) in transform_counts.iter().enumerate() {
+        if count > 0 {
+            encoding_diversity += 1;
+            record.add(TRANSFORM_FEATURE_NAMES[index], count as f64);
+        }
+    }
+    record.insert("semantic.encoding_diversity", encoding_diversity as f64);
 
     record.insert(
         "semantic.qualified_calls",
@@ -82,10 +143,13 @@ pub(crate) fn extract_semantic_features(
         ),
         (QualifiedName::is_vars_function, "call.vars_function"),
     ];
+    let mut predicate_counts = [0usize; SIMPLE_PREDICATES.len()];
+    let mut dynamic_count = 0usize;
+    let mut stdlib_calls = FxHashMap::default();
     for qn in analyzed.indexer.model.call_qualified_names.values() {
-        for (pred, name) in SIMPLE_PREDICATES {
+        for (i, (pred, _)) in SIMPLE_PREDICATES.iter().enumerate() {
             if pred(qn) {
-                record.add(*name, 1.0);
+                predicate_counts[i] += 1;
             }
         }
         if qn.is_getattr()
@@ -96,35 +160,21 @@ pub(crate) fn extract_semantic_features(
                 if matches!(p.as_str(), "builtins" | "__builtins__")
                 && matches!(n.as_str(), "exec" | "compile"))
         {
-            record.add("call.dynamic_count", 1.0);
+            dynamic_count += 1;
         }
         if qn.is_stdlib_call() {
-            record.add(format!("call.{}", qn.as_str()), 1.0);
+            *stdlib_calls.entry(qn.as_str()).or_insert(0) += 1;
         }
     }
-}
-
-pub(crate) fn taint_name(taint: TaintKind) -> Cow<'static, str> {
-    match taint {
-        TaintKind::Literal => Cow::Borrowed("literal"),
-        TaintKind::Decoded => Cow::Borrowed("decoded"),
-        TaintKind::Deobfuscated => Cow::Borrowed("deobfuscated"),
-        TaintKind::FileSourced => Cow::Borrowed("file_sourced"),
-        TaintKind::NetworkSourced => Cow::Borrowed("network_sourced"),
-        TaintKind::Fingerprinting => Cow::Borrowed("fingerprinting"),
-        TaintKind::EnvVariables => Cow::Borrowed("env_variables"),
-        TaintKind::InternalParameter(index) => Cow::Owned(format!("internal_parameter_{index}")),
+    for (i, &count) in predicate_counts.iter().enumerate() {
+        if count > 0 {
+            record.add(SIMPLE_PREDICATES[i].1, count as f64);
+        }
     }
-}
-
-pub(crate) fn transformation_name(transformation: Transformation) -> &'static str {
-    match transformation {
-        Transformation::Base64 => "base64",
-        Transformation::Hex => "hex",
-        Transformation::Concat => "concat",
-        Transformation::Join => "join",
-        Transformation::Subscript => "subscript",
-        Transformation::FString => "fstring",
-        Transformation::Other => "other",
+    if dynamic_count > 0 {
+        record.add("call.dynamic_count", dynamic_count as f64);
+    }
+    for (name, count) in stdlib_calls {
+        record.add(format!("call.{name}"), count as f64);
     }
 }
