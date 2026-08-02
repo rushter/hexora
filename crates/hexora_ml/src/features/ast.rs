@@ -55,61 +55,35 @@ pub(crate) fn extract_ast_features(
         collector.total_string_literal_chars as f64 / source.chars().count().max(1) as f64,
     );
 
-    let mut string_stats = StringStats::default();
-    for expr in &collector.string_literals {
-        string_stats.observe(expr);
-    }
+    let string_stats = &collector.string_stats;
     record.insert("literal.num_strings", string_stats.count as f64);
     record.insert("literal.max_string_length", string_stats.max_len as f64);
     record.insert("literal.mean_string_length", string_stats.mean_len());
     record.insert("literal.max_string_entropy", string_stats.max_entropy);
     record.insert("literal.mean_string_entropy", string_stats.mean_entropy());
 
-    let mut base64_candidate_count = 0usize;
-    let mut base64_long_count = 0usize;
-    let mut hex_escape_count = 0usize;
-    let mut long_hex_string_count = 0usize;
-    let mut url_count = 0usize;
-    let mut ip_address_count = 0usize;
-    let mut suspicious_ext_count = 0usize;
-
-    for s in &collector.string_literals {
-        if is_base64_candidate(s) {
-            base64_candidate_count += 1;
-        }
-        if is_base64_string(s) {
-            base64_long_count += 1;
-        }
-        if is_hex_escaped(s) {
-            hex_escape_count += 1;
-        }
-        if is_hexed_string(s) {
-            long_hex_string_count += 1;
-        }
-        if contains_url(s) {
-            url_count += 1;
-        }
-        if looks_like_ipv4(s) {
-            ip_address_count += 1;
-        }
-        if has_suspicious_ext(s) {
-            suspicious_ext_count += 1;
-        }
-    }
-
     record.insert(
         "literal.base64_candidate_count",
-        base64_candidate_count as f64,
+        collector.base64_candidate_count as f64,
     );
-    record.insert("literal.base64_long_count", base64_long_count as f64);
-    record.insert("literal.hex_escape_count", hex_escape_count as f64);
+    record.insert(
+        "literal.base64_long_count",
+        collector.base64_long_count as f64,
+    );
+    record.insert("literal.hex_escape_count", collector.hex_escape_count as f64);
     record.insert(
         "literal.long_hex_string_count",
-        long_hex_string_count as f64,
+        collector.long_hex_string_count as f64,
     );
-    record.insert("literal.url_count", url_count as f64);
-    record.insert("literal.ip_address_count", ip_address_count as f64);
-    record.insert("literal.suspicious_ext_count", suspicious_ext_count as f64);
+    record.insert("literal.url_count", collector.url_count as f64);
+    record.insert(
+        "literal.ip_address_count",
+        collector.ip_address_count as f64,
+    );
+    record.insert(
+        "literal.suspicious_ext_count",
+        collector.suspicious_ext_count as f64,
+    );
 
     let mut ident_stats = StringStats::default();
     let mut short_idents = 0usize;
@@ -130,12 +104,7 @@ pub(crate) fn extract_ast_features(
         short_idents as f64 / total_unique as f64,
     );
 
-    let has_version_file = collector.string_literals.iter().any(|s| {
-        VERSION_FILE_NAMES
-            .iter()
-            .any(|&name| memmem::find(s.as_bytes(), name.as_bytes()).is_some())
-    });
-    if has_version_file {
+    if collector.contains_version_file {
         record.set_flag("contain_version_file");
     }
 }
@@ -152,7 +121,15 @@ struct AstFeatureCollector {
     num_calls: usize,
     num_imports: usize,
     num_import_froms: usize,
-    string_literals: Vec<String>,
+    string_stats: StringStats,
+    base64_candidate_count: usize,
+    base64_long_count: usize,
+    hex_escape_count: usize,
+    long_hex_string_count: usize,
+    url_count: usize,
+    ip_address_count: usize,
+    suspicious_ext_count: usize,
+    contains_version_file: bool,
     total_string_literal_chars: usize,
     cyclomatic_complexity: usize,
     operator_counts: BTreeMap<&'static str, usize>,
@@ -167,6 +144,38 @@ impl AstFeatureCollector {
 
     fn bump_expr(&mut self, name: &'static str) {
         *self.expr_counts.entry(name).or_insert(0) += 1;
+    }
+
+    fn observe_literal(&mut self, s: &str) {
+        self.string_stats.observe(s);
+        if is_base64_candidate(s) {
+            self.base64_candidate_count += 1;
+        }
+        if is_base64_string(s) {
+            self.base64_long_count += 1;
+        }
+        if is_hex_escaped(s) {
+            self.hex_escape_count += 1;
+        }
+        if is_hexed_string(s) {
+            self.long_hex_string_count += 1;
+        }
+        if contains_url(s) {
+            self.url_count += 1;
+        }
+        if looks_like_ipv4(s) {
+            self.ip_address_count += 1;
+        }
+        if has_suspicious_ext(s) {
+            self.suspicious_ext_count += 1;
+        }
+        if !self.contains_version_file
+            && VERSION_FILE_NAMES
+                .iter()
+                .any(|&name| memmem::find(s.as_bytes(), name.as_bytes()).is_some())
+        {
+            self.contains_version_file = true;
+        }
     }
 
     fn enter(&mut self) {
@@ -238,9 +247,9 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
         match expr {
             Expr::Call(_) => self.num_calls += 1,
             Expr::StringLiteral(value) => {
-                let s = value.value.to_string();
+                let s = value.value.to_str();
                 self.total_string_literal_chars += s.chars().count();
-                self.string_literals.push(s);
+                self.observe_literal(s);
             }
             Expr::BytesLiteral(value) => {
                 let bytes = value
@@ -250,7 +259,7 @@ impl<'a> SourceOrderVisitor<'a> for AstFeatureCollector {
                     .collect::<Vec<u8>>();
                 let s = String::from_utf8_lossy(&bytes).into_owned();
                 self.total_string_literal_chars += s.chars().count();
-                self.string_literals.push(s);
+                self.observe_literal(&s);
             }
             Expr::BinOp(binop) => {
                 let name = operator_name(&binop.op);
