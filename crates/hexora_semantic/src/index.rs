@@ -4,6 +4,7 @@ use ruff_python_ast::*;
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::Ranged;
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 
 use crate::model::{NodeId, SemanticModel};
 use crate::resolver::ResolverCache;
@@ -56,19 +57,19 @@ impl<'a> NodeIndexer<'a> {
     }
 
     fn is_open_for_writing_call(&self, call: &ExprCall) -> bool {
-        let mut mode = "r".to_string();
+        let mut mode: Cow<'_, str> = Cow::Borrowed("r");
 
         if let Some(arg) = call.arguments.args.get(1)
             && let Some(m) = crate::resolver::string_from_expr(arg, self)
         {
-            mode = m;
+            mode = Cow::Owned(m);
         } else {
             // Can't have more than one `mode` argument
             for kw in &call.arguments.keywords {
                 if matches!(kw.arg.as_ref().map(|a| a.as_str()), Some("mode"))
                     && let Some(m) = crate::resolver::string_from_expr(&kw.value, self)
                 {
-                    mode = m;
+                    mode = Cow::Owned(m);
                 }
             }
         }

@@ -1,5 +1,6 @@
 use ruff_python_ast::*;
 use rustc_hash::FxHashSet;
+use std::borrow::Cow;
 
 use crate::name::QualifiedName;
 
@@ -18,12 +19,12 @@ pub enum TaintKind {
 pub type TaintState = FxHashSet<TaintKind>;
 
 fn is_open_for_reading(call: &ExprCall) -> bool {
-    let mut mode = "r".to_string();
+    let mut mode: Cow<'_, str> = Cow::Borrowed("r");
 
     // Check second positional argument: open(file, mode)
     if call.arguments.args.len() >= 2 {
         if let Expr::StringLiteral(s) = &call.arguments.args[1] {
-            mode = s.value.to_str().to_string();
+            mode = Cow::Borrowed(s.value.to_str());
         }
     }
 
@@ -32,7 +33,7 @@ fn is_open_for_reading(call: &ExprCall) -> bool {
         if let Some(arg) = &kw.arg {
             if arg.as_str() == "mode" {
                 if let Expr::StringLiteral(s) = &kw.value {
-                    mode = s.value.to_str().to_string();
+                    mode = Cow::Borrowed(s.value.to_str());
                 }
             }
         }
