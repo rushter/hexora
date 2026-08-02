@@ -150,6 +150,8 @@ pub fn resolve_argument_for_parameter_index<'a>(
 pub struct ResolverCache {
     cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
     in_progress: RefCell<HashSet<NodeId>>,
+    function_call_cache: RefCell<HashMap<NodeId, Option<Vec<Name>>>>,
+    function_call_in_progress: RefCell<HashSet<NodeId>>,
 }
 
 impl ResolverCache {
@@ -157,12 +159,16 @@ impl ResolverCache {
         Self {
             cache: RefCell::default(),
             in_progress: RefCell::default(),
+            function_call_cache: RefCell::default(),
+            function_call_in_progress: RefCell::default(),
         }
     }
 
     pub fn clear(&mut self) {
         self.cache.get_mut().clear();
         self.in_progress.get_mut().clear();
+        self.function_call_cache.get_mut().clear();
+        self.function_call_in_progress.get_mut().clear();
     }
 
     pub fn get_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
@@ -175,6 +181,24 @@ impl ResolverCache {
 
     pub fn mark_finished(&self, node_id: NodeId) {
         self.in_progress.borrow_mut().remove(&node_id);
+    }
+
+    pub fn get_function_call_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
+        self.function_call_cache.borrow().get(&node_id).cloned()
+    }
+
+    pub fn mark_function_call_in_progress(&self, node_id: NodeId) -> bool {
+        self.function_call_in_progress.borrow_mut().insert(node_id)
+    }
+
+    pub fn mark_function_call_finished(&self, node_id: NodeId) {
+        self.function_call_in_progress.borrow_mut().remove(&node_id);
+    }
+
+    pub fn store_function_call(&self, node_id: NodeId, result: Option<Vec<Name>>) {
+        self.function_call_cache
+            .borrow_mut()
+            .insert(node_id, result);
     }
 
     pub fn store(&self, node_id: NodeId, result: Option<Vec<Name>>) {
@@ -439,6 +463,21 @@ impl<'a> NodeIndexer<'a> {
     }
 
     fn resolve_function_call_path(&self, call: &ExprCall) -> Option<Vec<Name>> {
+        let node_id = call.node_index().load().as_u32()?;
+        if let Some(result) = self.resolve_cache.get_function_call_cached(node_id) {
+            return result;
+        }
+        if !self.resolve_cache.mark_function_call_in_progress(node_id) {
+            return None;
+        }
+        let result = self.resolve_function_call_path_expand(call);
+        self.resolve_cache.mark_function_call_finished(node_id);
+        self.resolve_cache
+            .store_function_call(node_id, result.clone());
+        result
+    }
+
+    fn resolve_function_call_path_expand(&self, call: &ExprCall) -> Option<Vec<Name>> {
         if let Expr::Name(func_name) = call.func.as_ref() {
             if let Some(binding) = self.lookup_binding(func_name.id.as_str()) {
                 if let BindingKind::Function = binding.kind {
