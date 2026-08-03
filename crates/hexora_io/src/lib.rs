@@ -40,7 +40,7 @@ impl Semaphore {
     }
 }
 
-struct SemaphorePermit<'a> {
+pub struct SemaphorePermit<'a> {
     semaphore: &'a Semaphore,
 }
 
@@ -117,6 +117,77 @@ pub fn read_exclude_names(path: &Path) -> Result<HashSet<String>, std::io::Error
 /// Maximum number of archives decompressed in parallel. Bounds the transient
 /// peak: only this many tar.gz/zip files are fully expanded into memory at once.
 const MAX_CONCURRENT_EXTRACTIONS: usize = 4;
+
+/// Number of files that may be buffered in the extraction stream's channel.
+const MAX_QUEUED_FILES: usize = 64;
+
+/// A stream of Python files produced in discovery order by a background
+/// extraction thread. Memory is bounded: only `MAX_QUEUED_FILES` files sit in
+/// the channel at a time, and the extraction thread blocks when it fills up.
+pub struct PythonFileStream {
+    rx: std::sync::mpsc::Receiver<PythonFile>,
+}
+
+impl Iterator for PythonFileStream {
+    type Item = PythonFile;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rx.recv().ok()
+    }
+}
+
+fn is_excluded(name: Option<&std::ffi::OsStr>, exclude_names: &HashSet<String>) -> bool {
+    name.and_then(|n| n.to_str())
+        .is_some_and(|n| exclude_names.contains(n))
+}
+
+/// Discover Python files (including inside archives) and stream them in order.
+///
+/// The walk happens synchronously so callers can report "no Python files"
+/// errors up front; extraction runs on a single background thread that pushes
+/// files through a bounded channel, so decompression overlaps with auditing.
+pub fn spawn_python_files(
+    path: &Path,
+    exclude_names: Option<&HashSet<String>>,
+) -> Result<PythonFileStream, String> {
+    let exclude_names = exclude_names.cloned().unwrap_or_default();
+
+    let entries: Vec<_> = walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .collect();
+
+    let relevant: Vec<_> = entries
+        .into_iter()
+        .filter(|e| {
+            let path = e.path();
+            !is_excluded(path.file_name(), &exclude_names)
+                && (is_python_file(path) || is_zip_file(path) || is_tar_gz_file(path))
+        })
+        .collect();
+
+    if relevant.is_empty() {
+        return Err("No Python files found".to_string());
+    }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(MAX_QUEUED_FILES);
+
+    std::thread::Builder::new()
+        .name("hexora-extract".to_string())
+        .spawn(move || {
+            for entry in relevant {
+                for file in extract_from_entry(&entry, &exclude_names) {
+                    if tx.send(file).is_err() {
+                        return;
+                    }
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(PythonFileStream { rx })
+}
 
 /// List all Python files in the given path, including those inside .zip and .tar.gz archives.
 pub fn list_python_files(
