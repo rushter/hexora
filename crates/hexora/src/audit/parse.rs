@@ -5,8 +5,12 @@ use hexora_rules::result::AuditItem;
 use log::{debug, error};
 
 use std::any::Any;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+/// Maximum number of files audited concurrently.
+/// Only this many source buffers, ASTs and semantic indices are in flight at once.
+const MAX_IN_FLIGHT_AUDITS: usize = 48;
 
 /// Parse a Python file and perform an audit.
 pub fn audit_file(file_path: &Path) -> Result<AuditResult, String> {
@@ -75,82 +79,89 @@ fn audit_file_checked(file: hexora_io::PythonFile) -> Option<AuditResult> {
     }
 }
 
-/// Maximum number of files audited concurrently. Bounds peak memory: only
-/// this many source buffers, ASTs and semantic indices are in flight at once,
-/// plus what is buffered in the extraction stream's channel.
-const MAX_IN_FLIGHT_AUDITS: usize = 48;
+/// Dispatches audits from the extraction stream on demand and reorders
+/// results back into discovery sequence before yielding them.
+struct OrderedAuditResults {
+    stream: PythonFileStream,
+    tx: std::sync::mpsc::Sender<(usize, Option<AuditResult>)>,
+    rx: std::sync::mpsc::Receiver<(usize, Option<AuditResult>)>,
+    pending: HashMap<usize, Option<AuditResult>>,
+    seq: usize,
+    in_flight: usize,
+    next: usize,
+}
+
+impl Iterator for OrderedAuditResults {
+    type Item = AuditResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(entry) = self.pending.remove(&self.next) {
+                self.next += 1;
+                if let Some(result) = entry {
+                    return Some(result);
+                }
+                continue;
+            }
+
+            while self.in_flight < MAX_IN_FLIGHT_AUDITS {
+                match self.stream.next() {
+                    Some(file) => {
+                        let seq = self.seq;
+                        self.seq += 1;
+                        self.in_flight += 1;
+                        let tx = self.tx.clone();
+                        rayon::spawn(move || {
+                            let result = audit_file_checked(file);
+                            let _ = tx.send((seq, result));
+                        });
+                    }
+                    None => break,
+                }
+            }
+
+            // The extraction stream is exhausted and every dispatched audit
+            // has reported back: no result can arrive anymore.
+            if self.in_flight == 0 && self.pending.is_empty() {
+                return None;
+            }
+
+            match self.rx.recv() {
+                Ok((seq, result)) => {
+                    self.in_flight -= 1;
+                    self.pending.insert(seq, result);
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+}
 
 /// Audit files in the provided directory or a file.
 /// Automatically discovers Python files in .tar.gz, .zip files or in folders.
 ///
-/// A dispatcher thread pulls files from the extraction stream and hands each
-/// one to the rayon pool, so the next file starts as soon as a core frees
-/// up. Dispatch stops once `MAX_IN_FLIGHT_AUDITS` results are still
-/// unforwarded, which bounds memory. Results are reordered by discovery
-/// sequence and yielded in order. Dropping the iterator early closes the
-/// output channel; the dispatcher and any running audit tasks exit cleanly.
+/// Files are pulled from the extraction stream lazily: each call to the
+/// returned iterator keeps up to `MAX_IN_FLIGHT_AUDITS` audits running on the
+/// rayon pool, which bounds memory. Results arrive out of order and are
+/// reordered by discovery sequence before being yielded in order. Dropping
+/// the iterator early stops extraction; audits already in flight finish on
+/// their own.
 pub fn audit_path(
     file_path: &Path,
     exclude_names: Option<&HashSet<String>>,
 ) -> Result<impl Iterator<Item = AuditResult>, String> {
     let stream: PythonFileStream = hexora_io::spawn_python_files(file_path, exclude_names)?;
-    let (out_tx, out_rx) = std::sync::mpsc::channel::<AuditResult>();
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, Option<AuditResult>)>();
 
-    std::thread::Builder::new()
-        .name("hexora-audit".to_string())
-        .spawn(move || {
-            let (res_tx, res_rx) = std::sync::mpsc::channel::<(usize, Option<AuditResult>)>();
-            // Finished results that arrived ahead of earlier sequence numbers.
-            let mut pending: std::collections::HashMap<usize, Option<AuditResult>> =
-                std::collections::HashMap::new();
-            let mut next = 0usize;
-
-            // Forward as many in-order results as possible.
-            let forward = |pending: &mut std::collections::HashMap<usize, Option<AuditResult>>,
-                           next: &mut usize|
-             -> bool {
-                while let Some(entry) = pending.remove(next) {
-                    if let Some(result) = entry {
-                        if out_tx.send(result).is_err() {
-                            return false;
-                        }
-                    }
-                    *next += 1;
-                }
-                true
-            };
-
-            for (seq, file) in stream.enumerate() {
-                // At least one dispatched task is still running whenever this
-                // bound is reached, so a result eventually arrives to unblock.
-                while seq - next >= MAX_IN_FLIGHT_AUDITS {
-                    match res_rx.recv() {
-                        Ok((s, result)) => {
-                            pending.insert(s, result);
-                            if !forward(&mut pending, &mut next) {
-                                return;
-                            }
-                        }
-                        Err(_) => return,
-                    }
-                }
-                let res_tx = res_tx.clone();
-                rayon::spawn(move || {
-                    let result = audit_file_checked(file);
-                    let _ = res_tx.send((seq, result));
-                });
-            }
-            drop(res_tx);
-            for (s, result) in res_rx {
-                pending.insert(s, result);
-                if !forward(&mut pending, &mut next) {
-                    return;
-                }
-            }
-        })
-        .map_err(|e| e.to_string())?;
-
-    Ok(out_rx.into_iter())
+    Ok(OrderedAuditResults {
+        stream,
+        tx,
+        rx,
+        pending: HashMap::new(),
+        seq: 0,
+        in_flight: 0,
+        next: 0,
+    })
 }
 
 #[cfg(test)]

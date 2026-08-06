@@ -15,6 +15,13 @@ use std::sync::{Arc, Condvar, Mutex};
 use archive::{TarGzIterator, ZipIterator};
 use rayon::prelude::*;
 
+/// Maximum number of archives decompressed in parallel. Bounds the transient
+/// peak: only this many tar.gz/zip files are fully expanded into memory at once.
+const MAX_CONCURRENT_EXTRACTIONS: usize = 4;
+
+/// Number of files that may be buffered in the extraction stream's channel.
+const MAX_QUEUED_FILES: usize = 64;
+
 /// A counting semaphore backed by a mutex + condvar (std's is unstable).
 #[derive(Debug)]
 struct Semaphore {
@@ -113,13 +120,6 @@ pub fn read_exclude_names(path: &Path) -> Result<HashSet<String>, std::io::Error
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect())
 }
-
-/// Maximum number of archives decompressed in parallel. Bounds the transient
-/// peak: only this many tar.gz/zip files are fully expanded into memory at once.
-const MAX_CONCURRENT_EXTRACTIONS: usize = 4;
-
-/// Number of files that may be buffered in the extraction stream's channel.
-const MAX_QUEUED_FILES: usize = 64;
 
 /// A stream of Python files produced in discovery order by a background
 /// extraction thread. Memory is bounded: only `MAX_QUEUED_FILES` files sit in
