@@ -34,8 +34,8 @@ impl AuditResult {
 
     pub fn filter_items<'a>(
         &'a self,
-        include_codes: &'a HashSet<String>,
-        exclude_codes: &'a HashSet<String>,
+        include_codes: HashSet<String>,
+        exclude_codes: HashSet<String>,
         min_confidence: AuditConfidence,
     ) -> impl Iterator<Item = &'a AuditItem> + 'a {
         self.items.iter().filter(move |item| {

@@ -271,14 +271,15 @@ impl AuditOutput {
     }
 }
 
-fn filter_audit_items<'a>(
-    result: &'a AuditResult,
-    include: &'a HashSet<String>,
-    exclude: &'a HashSet<String>,
-    min_confidence: AuditConfidence,
-) -> Vec<&'a AuditItem> {
+fn filter_audit_items<'a>(result: &'a AuditResult, opts: &'a AuditOptions) -> Vec<&'a AuditItem> {
+    let include: HashSet<_> = opts.include.iter().cloned().collect();
+    let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
+
+    validate_cli_codes(&include);
+    validate_cli_codes(&exclude);
+
     result
-        .filter_items(include, exclude, min_confidence)
+        .filter_items(include, exclude, opts.min_confidence)
         .collect()
 }
 
@@ -314,16 +315,11 @@ fn audit_python_files(opts: &AuditOptions) {
     } else {
         None
     };
-    let include: HashSet<_> = opts.include.iter().cloned().collect();
-    let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
-
-    validate_cli_codes(&include);
-    validate_cli_codes(&exclude);
 
     match audit_path(&opts.input_path, None) {
         Ok(results) => {
             for result in results {
-                let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
+                let filtered = filter_audit_items(&result, opts);
                 if result.file_score() < opts.min_score {
                     continue;
                 }
@@ -442,9 +438,7 @@ mod tests {
         opts.exclude = vec![Rule::SuspiciousLiteral.code().to_string()];
         opts.min_score = 0.5;
 
-        let include: HashSet<_> = opts.include.iter().cloned().collect();
-        let exclude: HashSet<_> = opts.exclude.iter().cloned().collect();
-        let filtered = filter_audit_items(&result, &include, &exclude, opts.min_confidence);
+        let filtered = filter_audit_items(&result, &opts);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].confidence, AuditConfidence::Low);
         assert!(result.file_score() < opts.min_score);
