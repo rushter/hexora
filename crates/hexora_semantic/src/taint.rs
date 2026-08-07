@@ -120,7 +120,7 @@ pub fn should_propagate_taint(segments: &[&str]) -> bool {
 pub fn compute_expr_taint(
     expr: &Expr,
     get_taint: impl Fn(&Expr) -> TaintState,
-    resolve_qualified_name: impl Fn(&Expr) -> Option<QualifiedName>,
+    resolve_qualified_name: impl Fn(&Expr) -> Option<std::sync::Arc<QualifiedName>>,
     get_function_return_taint: impl Fn(&Expr) -> TaintState,
 ) -> TaintState {
     let mut taints = TaintState::default();

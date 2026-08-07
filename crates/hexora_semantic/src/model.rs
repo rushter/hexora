@@ -185,7 +185,7 @@ pub enum Transformation {
 
 pub struct SemanticModel<'a> {
     pub expr_mapping: NodeMap<Vec<&'a Expr>>,
-    pub call_qualified_names: NodeMap<QualifiedName>,
+    pub call_qualified_names: NodeMap<std::sync::Arc<QualifiedName>>,
     pub comments: Vec<TextRange>,
     pub decoded_nodes: RefCell<NodeMap<Transformation>>,
     pub taint_map: RefCell<NodeMap<TaintState>>,

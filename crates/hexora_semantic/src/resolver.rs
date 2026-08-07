@@ -10,6 +10,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 #[allow(clippy::len_without_is_empty)]
 pub trait ListLike {
@@ -164,6 +165,7 @@ pub struct ResolverCache {
     in_progress: RefCell<NodeSet>,
     function_call_cache: RefCell<NodeMap<Option<Vec<Name>>>>,
     function_call_in_progress: RefCell<NodeSet>,
+    qualified_name_cache: RefCell<NodeMap<Option<Arc<QualifiedName>>>>,
 }
 
 impl ResolverCache {
@@ -173,6 +175,7 @@ impl ResolverCache {
             in_progress: RefCell::default(),
             function_call_cache: RefCell::default(),
             function_call_in_progress: RefCell::default(),
+            qualified_name_cache: RefCell::default(),
         }
     }
 
@@ -181,6 +184,7 @@ impl ResolverCache {
         self.in_progress.get_mut().clear();
         self.function_call_cache.get_mut().clear();
         self.function_call_in_progress.get_mut().clear();
+        self.qualified_name_cache.get_mut().clear();
     }
 
     pub fn get_cached(&self, node_id: NodeId) -> Option<Option<Vec<Name>>> {
@@ -215,6 +219,16 @@ impl ResolverCache {
 
     pub fn store(&self, node_id: NodeId, result: Option<Vec<Name>>) {
         self.cache.borrow_mut().insert(node_id, result);
+    }
+
+    pub fn get_qualified_name_cached(&self, node_id: NodeId) -> Option<Option<Arc<QualifiedName>>> {
+        self.qualified_name_cache.borrow().get(node_id).cloned()
+    }
+
+    pub fn store_qualified_name(&self, node_id: NodeId, result: Option<Arc<QualifiedName>>) {
+        self.qualified_name_cache
+            .borrow_mut()
+            .insert(node_id, result);
     }
 }
 
@@ -564,8 +578,20 @@ impl<'a> NodeIndexer<'a> {
         }
     }
 
-    pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
-        self.resolve_qualified_name_internal(expr)
+    pub fn resolve_qualified_name<'b>(&'b self, expr: &'b Expr) -> Option<Arc<QualifiedName>> {
+        let node_id = expr.node_index().load().as_u32();
+        if let Some(node_id) = node_id
+            && let Some(cached) = self.resolve_cache.get_qualified_name_cached(node_id)
+        {
+            return cached;
+        }
+
+        let result = self.resolve_qualified_name_internal(expr).map(Arc::new);
+        if let Some(node_id) = node_id {
+            self.resolve_cache
+                .store_qualified_name(node_id, result.clone());
+        }
+        result
     }
 
     fn resolve_qualified_name_internal<'b>(&'b self, expr: &'b Expr) -> Option<QualifiedName> {
@@ -620,7 +646,10 @@ impl<'a> NodeIndexer<'a> {
     }
 
     pub fn get_call_qualified_name(&self, node_id: NodeId) -> Option<&QualifiedName> {
-        self.model.call_qualified_names.get(node_id)
+        self.model
+            .call_qualified_names
+            .get(node_id)
+            .map(Arc::as_ref)
     }
 
     pub fn get_qualified_name<T>(&self, node: &T) -> Option<&QualifiedName>
