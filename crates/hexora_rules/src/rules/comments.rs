@@ -12,7 +12,7 @@ pub struct SuspiciousComment {
     confidence: AuditConfidence,
 }
 #[rustfmt::skip]
-static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
+static COMMENTS: Lazy<Vec<(memmem::Finder<'static>, SuspiciousComment)>> = Lazy::new(|| {
     let rules = vec![
     SuspiciousComment{
         name:"BlankOBF",
@@ -35,15 +35,20 @@ static COMMENTS: Lazy<Vec<SuspiciousComment>> = Lazy::new(|| {
 
     ];
     rules
+        .into_iter()
+        .map(|comment| {
+            let pattern = Box::leak(comment.name.to_ascii_lowercase().into_boxed_str());
+            (memmem::Finder::new(pattern), comment)
+        })
+        .collect()
 });
 
 pub fn check_comments(checker: &mut Checker) {
     for comment in checker.indexer.model.comments.iter() {
         let text = checker.locator.slice(*comment);
         let text_lower = text.to_ascii_lowercase();
-        for comment_rule in COMMENTS.iter() {
-            let pattern = comment_rule.name.to_ascii_lowercase();
-            if memmem::find(text_lower.as_bytes(), pattern.as_bytes()).is_some() {
+        for (finder, comment_rule) in COMMENTS.iter() {
+            if finder.find(text_lower.as_bytes()).is_some() {
                 checker.audit_results.push(AuditItem {
                     label: comment_rule.name.to_string(),
                     rule: comment_rule.rule,
