@@ -40,9 +40,9 @@ macos.archs = ["x86_64", "arm64"]
 test-skip = "*-macosx_arm64"
 
 [tool.cibuildwheel.linux]
-before-all = "yum install -y openssl openssl-devel pkgconfig libatomic && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+before-all = "yum install -y openssl openssl-devel && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
 environment = { PATH = "$PATH:$HOME/.cargo/bin" }
 
 [[tool.cibuildwheel.overrides]]
 select = "*-musllinux*"
-before-all = "apk --update  add openssl openssl-dev pkgconfig libatomic && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+before-all = "apk --update  add openssl openssl-dev && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
